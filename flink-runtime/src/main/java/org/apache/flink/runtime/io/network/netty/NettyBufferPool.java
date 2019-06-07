@@ -36,6 +36,7 @@ import static org.apache.flink.util.Preconditions.checkArgument;
  * over the number of created arenas.
  */
 public class NettyBufferPool extends PooledByteBufAllocator {
+	public static NettyBufferPool INSTANCE;
 
 	private static final Logger LOG = LoggerFactory.getLogger(NettyBufferPool.class);
 
@@ -108,6 +109,8 @@ public class NettyBufferPool extends PooledByteBufAllocator {
 		} finally {
 			this.directArenas = allocDirectArenas;
 		}
+
+		INSTANCE = this;
 	}
 
 	/**
@@ -170,6 +173,94 @@ public class NettyBufferPool extends PooledByteBufAllocator {
 		}
 	}
 
+	public Option<Long> getNumberOfAssignedBytes()
+			throws NoSuchFieldException, IllegalAccessException {
+		if (directArenas != null) {
+			long usedBytes = 0;
+
+			for (Object arena : directArenas) {
+				usedBytes += getNumberOfAssignedBytes(arena, "qInit");
+				usedBytes += getNumberOfAssignedBytes(arena, "q000");
+				usedBytes += getNumberOfAssignedBytes(arena, "q025");
+				usedBytes += getNumberOfAssignedBytes(arena, "q050");
+				usedBytes += getNumberOfAssignedBytes(arena, "q075");
+				usedBytes += getNumberOfAssignedBytes(arena, "q100");
+			}
+
+			return Option.apply(usedBytes);
+		} else {
+			return Option.empty();
+		}
+	}
+
+	public long getNumberOfAssignedBytes(Object arena, String chunkListFieldName)
+			throws NoSuchFieldException, IllegalAccessException {
+
+		// Each PoolArena<ByteBuffer> stores its allocated PoolChunk<ByteBuffer>
+		// instances grouped by usage (field qInit, q000, q025, etc.) in
+		// PoolChunkList<ByteBuffer> lists. Each list has zero or more
+		// PoolChunk<ByteBuffer> instances.
+
+		// Chunk list of arena
+		Field chunkListField = arena.getClass().getSuperclass()
+				.getDeclaredField(chunkListFieldName);
+		chunkListField.setAccessible(true);
+		Object chunkList = chunkListField.get(arena);
+
+		// Count the chunks in the list
+		Field headChunkField = chunkList.getClass().getDeclaredField("head");
+		headChunkField.setAccessible(true);
+		Object headChunk = headChunkField.get(chunkList);
+
+		if (headChunk == null) {
+			return 0;
+		} else {
+			long usedBytes = 0;
+
+			Object current = headChunk;
+
+			while (current != null) {
+				Field freeBytesField = headChunk.getClass().getDeclaredField("freeBytes");
+				freeBytesField.setAccessible(true);
+
+				Field chunkSizeField = headChunk.getClass().getDeclaredField("freeBytes");
+				chunkSizeField.setAccessible(true);
+
+				usedBytes += (chunkSize - freeBytesField.getInt(current));
+
+				Field nextChunkField = headChunk.getClass().getDeclaredField("next");
+				nextChunkField.setAccessible(true);
+				current = nextChunkField.get(current);
+			}
+
+			return usedBytes;
+		}
+	}
+
+	public Option<Long> getNumberOfMaxAssignedBytes()
+			throws NoSuchFieldException, IllegalAccessException {
+		if (directArenas != null) {
+			long usedBytes = 0;
+
+			for (Object arena : directArenas) {
+				long currentSum = 0;
+
+				currentSum += getNumberOfAssignedBytes(arena, "qInit");
+				currentSum += getNumberOfAssignedBytes(arena, "q000");
+				currentSum += getNumberOfAssignedBytes(arena, "q025");
+				currentSum += getNumberOfAssignedBytes(arena, "q050");
+				currentSum += getNumberOfAssignedBytes(arena, "q075");
+				currentSum += getNumberOfAssignedBytes(arena, "q100");
+
+				usedBytes = Math.max(usedBytes, currentSum);
+			}
+
+			return Option.apply(usedBytes);
+		} else {
+			return Option.empty();
+		}
+	}
+
 	/**
 	 * Returns the number of allocated bytes of the given arena and chunk list.
 	 *
@@ -185,7 +276,7 @@ public class NettyBufferPool extends PooledByteBufAllocator {
 	 *                                happen when the Netty version stays the
 	 *                                same).
 	 */
-	private long getNumberOfAllocatedChunks(Object arena, String chunkListFieldName)
+	public long getNumberOfAllocatedChunks(Object arena, String chunkListFieldName)
 			throws NoSuchFieldException, IllegalAccessException {
 
 		// Each PoolArena<ByteBuffer> stores its allocated PoolChunk<ByteBuffer>
