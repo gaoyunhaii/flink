@@ -44,7 +44,6 @@ import javax.annotation.Nullable;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.net.ProtocolException;
 import java.nio.ByteBuffer;
 
 import static org.apache.flink.util.Preconditions.checkArgument;
@@ -202,11 +201,14 @@ public abstract class NettyMessage {
 	 * </pre>
 	 */
 	static class NettyMessageDecoder extends LengthFieldBasedFrameDecoder {
+		private final NoDataBufferMessageParser noDataBufferMessageParser;
+
 		/**
 		 * Creates a new message decoded with the required frame properties.
 		 */
 		NettyMessageDecoder() {
 			super(Integer.MAX_VALUE, 0, 4, -4, 4);
+			this.noDataBufferMessageParser = new NoDataBufferMessageParser();
 		}
 
 		@Override
@@ -227,31 +229,11 @@ public abstract class NettyMessage {
 				byte msgId = msg.readByte();
 
 				final NettyMessage decodedMsg;
-				switch (msgId) {
-					case BufferResponse.ID:
-						decodedMsg = BufferResponse.readFrom(msg);
-						break;
-					case PartitionRequest.ID:
-						decodedMsg = PartitionRequest.readFrom(msg);
-						break;
-					case TaskEventRequest.ID:
-						decodedMsg = TaskEventRequest.readFrom(msg, getClass().getClassLoader());
-						break;
-					case ErrorResponse.ID:
-						decodedMsg = ErrorResponse.readFrom(msg);
-						break;
-					case CancelPartitionRequest.ID:
-						decodedMsg = CancelPartitionRequest.readFrom(msg);
-						break;
-					case CloseRequest.ID:
-						decodedMsg = CloseRequest.readFrom(msg);
-						break;
-					case AddCredit.ID:
-						decodedMsg = AddCredit.readFrom(msg);
-						break;
-					default:
-						throw new ProtocolException(
-							"Received unknown message from producer: " + msg);
+
+				if (msgId == BufferResponse.ID) {
+					decodedMsg = BufferResponse.readFrom(msg);
+				} else {
+					decodedMsg = noDataBufferMessageParser.parseMessageHeader(msgId, msg).getParsedMessage();
 				}
 
 				return decodedMsg;
@@ -382,7 +364,7 @@ public abstract class NettyMessage {
 
 	static class ErrorResponse extends NettyMessage {
 
-		private static final byte ID = 1;
+		static final byte ID = 1;
 
 		final Throwable cause;
 
@@ -457,7 +439,7 @@ public abstract class NettyMessage {
 
 	static class PartitionRequest extends NettyMessage {
 
-		private static final byte ID = 2;
+		static final byte ID = 2;
 
 		final ResultPartitionID partitionId;
 
@@ -518,7 +500,7 @@ public abstract class NettyMessage {
 
 	static class TaskEventRequest extends NettyMessage {
 
-		private static final byte ID = 3;
+		static final byte ID = 3;
 
 		final TaskEvent event;
 
@@ -591,7 +573,7 @@ public abstract class NettyMessage {
 	 */
 	static class CancelPartitionRequest extends NettyMessage {
 
-		private static final byte ID = 4;
+		static final byte ID = 4;
 
 		final InputChannelID receiverId;
 
@@ -625,7 +607,7 @@ public abstract class NettyMessage {
 
 	static class CloseRequest extends NettyMessage {
 
-		private static final byte ID = 5;
+		static final byte ID = 5;
 
 		CloseRequest() {
 		}
@@ -645,7 +627,7 @@ public abstract class NettyMessage {
 	 */
 	static class AddCredit extends NettyMessage {
 
-		private static final byte ID = 6;
+		static final byte ID = 6;
 
 		final ResultPartitionID partitionId;
 
