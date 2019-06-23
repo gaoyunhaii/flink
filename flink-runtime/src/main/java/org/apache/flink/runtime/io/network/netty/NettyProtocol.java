@@ -120,10 +120,14 @@ public class NettyProtocol {
 	 * @return channel handlers
 	 */
 	public ChannelHandler[] getClientChannelHandlers() {
-		return new ChannelHandler[] {
-			messageEncoder,
-			new NettyMessage.NettyMessageDecoder(),
-			new CreditBasedPartitionRequestClientHandler()};
+			CreditBasedPartitionRequestClientHandler networkClientHandler = new CreditBasedPartitionRequestClientHandler();
+			NettyMessageClientDecoderDelegate nettyMessageClientDecoderDelegate
+					= new NettyMessageClientDecoderDelegate(networkClientHandler);
+
+			return new ChannelHandler[] {
+					messageEncoder,
+				nettyMessageClientDecoderDelegate,
+					networkClientHandler};
 	}
 
 }

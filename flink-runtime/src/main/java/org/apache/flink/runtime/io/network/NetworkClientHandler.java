@@ -34,6 +34,8 @@ public interface NetworkClientHandler extends ChannelHandler {
 
 	void removeInputChannel(RemoteInputChannel inputChannel);
 
+	RemoteInputChannel getInputChannel(InputChannelID inputChannelId);
+
 	void cancelRequestFor(InputChannelID inputChannelId);
 
 	/**
