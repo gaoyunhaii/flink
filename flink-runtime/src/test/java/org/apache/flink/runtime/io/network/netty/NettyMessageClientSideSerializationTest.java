@@ -20,36 +20,46 @@ package org.apache.flink.runtime.io.network.netty;
 
 import org.apache.flink.core.memory.MemorySegment;
 import org.apache.flink.core.memory.MemorySegmentFactory;
-import org.apache.flink.runtime.event.task.IntegerTaskEvent;
+import org.apache.flink.runtime.io.network.PartitionRequestClient;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.buffer.BufferCompressor;
 import org.apache.flink.runtime.io.network.buffer.BufferDecompressor;
+import org.apache.flink.runtime.io.network.buffer.BufferPool;
 import org.apache.flink.runtime.io.network.buffer.FreeingBufferRecycler;
 import org.apache.flink.runtime.io.network.buffer.NetworkBuffer;
-import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
+import org.apache.flink.runtime.io.network.buffer.NetworkBufferPool;
 import org.apache.flink.runtime.io.network.partition.consumer.InputChannelID;
 
+import org.apache.flink.runtime.io.network.partition.consumer.RemoteInputChannel;
+import org.apache.flink.runtime.io.network.partition.consumer.SingleInputGate;
+import org.apache.flink.runtime.io.network.partition.consumer.SingleInputGateBuilder;
 import org.apache.flink.shaded.netty4.io.netty.buffer.ByteBuf;
 import org.apache.flink.shaded.netty4.io.netty.channel.embedded.EmbeddedChannel;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Random;
 
+import static org.apache.flink.runtime.io.network.netty.NettyTestUtil.encodeAndDecode;
+import static org.apache.flink.runtime.io.network.partition.InputChannelTestUtils.createRemoteInputChannel;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
 
 /**
  * Tests for the serialization and deserialization of the various {@link NettyMessage} sub-classes.
  */
 @RunWith(Parameterized.class)
-public class NettyMessageSerializationTest {
+public class NettyMessageClientSideSerializationTest {
 
 	private static final int BUFFER_SIZE = 1024;
 
@@ -57,11 +67,15 @@ public class NettyMessageSerializationTest {
 
 	private static final BufferDecompressor DECOMPRESSOR = new BufferDecompressor(BUFFER_SIZE, "LZ4");
 
-	private final EmbeddedChannel channel = new EmbeddedChannel(
-			new NettyMessage.NettyMessageEncoder(), // outbound messages
-			new NettyMessage.NettyMessageDecoder()); // inbound messages
-
 	private final Random random = new Random();
+
+	private NetworkBufferPool networkBufferPool;
+
+	private SingleInputGate inputGate;
+
+	private RemoteInputChannel inputChannel;
+
+	private EmbeddedChannel channel;
 
 	// ------------------------------------------------------------------------
 	//  parameters
@@ -81,9 +95,45 @@ public class NettyMessageSerializationTest {
 		});
 	}
 
-	public NettyMessageSerializationTest(boolean testReadOnlyBuffer, boolean testCompressedBuffer) {
+	public NettyMessageClientSideSerializationTest(boolean testReadOnlyBuffer, boolean testCompressedBuffer) {
 		this.testReadOnlyBuffer = testReadOnlyBuffer;
 		this.testCompressedBuffer = testCompressedBuffer;
+	}
+
+	@Before
+	public void setup() throws IOException, InterruptedException {
+		networkBufferPool = new NetworkBufferPool(10, 1024, 2);
+		BufferPool bufferPool = networkBufferPool.createBufferPool(8, 8);
+
+		inputGate = new SingleInputGateBuilder()
+			.setNumberOfChannels(1)
+			.setBufferPoolFactory(bufferPool)
+			.build();
+		inputChannel = createRemoteInputChannel(
+			inputGate,
+			mock(PartitionRequestClient.class),
+			networkBufferPool);
+		inputGate.assignExclusiveSegments();
+		inputChannel.requestSubpartition(0);
+
+		CreditBasedPartitionRequestClientHandler handler = new CreditBasedPartitionRequestClientHandler();
+		handler.addInputChannel(inputChannel);
+
+		channel = new EmbeddedChannel(
+			new NettyMessage.NettyMessageEncoder(), // outbound messages
+			new NettyMessageClientDecoderDelegate(handler)); // inbound messages
+	}
+
+	@After
+	public void tearDown() throws IOException {
+		if (inputGate != null) {
+			inputGate.close();
+		}
+
+		if (networkBufferPool != null) {
+			networkBufferPool.destroyAllBufferPools();
+			networkBufferPool.destroy();
+		}
 	}
 
 	@Test
@@ -96,7 +146,7 @@ public class NettyMessageSerializationTest {
 				InputChannelID receiverId = new InputChannelID();
 
 				NettyMessage.ErrorResponse expected = new NettyMessage.ErrorResponse(expectedError, receiverId);
-				NettyMessage.ErrorResponse actual = encodeAndDecode(expected);
+				NettyMessage.ErrorResponse actual = encodeAndDecode(expected, channel);
 
 				assertEquals(expected.cause.getClass(), actual.cause.getClass());
 				assertEquals(expected.cause.getMessage(), actual.cause.getMessage());
@@ -108,7 +158,7 @@ public class NettyMessageSerializationTest {
 				InputChannelID receiverId = new InputChannelID();
 
 				NettyMessage.ErrorResponse expected = new NettyMessage.ErrorResponse(expectedError, receiverId);
-				NettyMessage.ErrorResponse actual = encodeAndDecode(expected);
+				NettyMessage.ErrorResponse actual = encodeAndDecode(expected, channel);
 
 				assertEquals(expected.cause.getClass(), actual.cause.getClass());
 				assertEquals(expected.cause.getMessage(), actual.cause.getMessage());
@@ -119,54 +169,13 @@ public class NettyMessageSerializationTest {
 				IllegalStateException expectedError = new IllegalStateException("Illegal illegal illegal");
 
 				NettyMessage.ErrorResponse expected = new NettyMessage.ErrorResponse(expectedError);
-				NettyMessage.ErrorResponse actual = encodeAndDecode(expected);
+				NettyMessage.ErrorResponse actual = encodeAndDecode(expected, channel);
 
 				assertEquals(expected.cause.getClass(), actual.cause.getClass());
 				assertEquals(expected.cause.getMessage(), actual.cause.getMessage());
 				assertNull(actual.receiverId);
 				assertTrue(actual.isFatalError());
 			}
-		}
-
-		{
-			NettyMessage.PartitionRequest expected = new NettyMessage.PartitionRequest(new ResultPartitionID(), random.nextInt(), new InputChannelID(), random.nextInt());
-			NettyMessage.PartitionRequest actual = encodeAndDecode(expected);
-
-			assertEquals(expected.partitionId, actual.partitionId);
-			assertEquals(expected.queueIndex, actual.queueIndex);
-			assertEquals(expected.receiverId, actual.receiverId);
-			assertEquals(expected.credit, actual.credit);
-		}
-
-		{
-			NettyMessage.TaskEventRequest expected = new NettyMessage.TaskEventRequest(new IntegerTaskEvent(random.nextInt()), new ResultPartitionID(), new InputChannelID());
-			NettyMessage.TaskEventRequest actual = encodeAndDecode(expected);
-
-			assertEquals(expected.event, actual.event);
-			assertEquals(expected.partitionId, actual.partitionId);
-			assertEquals(expected.receiverId, actual.receiverId);
-		}
-
-		{
-			NettyMessage.CancelPartitionRequest expected = new NettyMessage.CancelPartitionRequest(new InputChannelID());
-			NettyMessage.CancelPartitionRequest actual = encodeAndDecode(expected);
-
-			assertEquals(expected.receiverId, actual.receiverId);
-		}
-
-		{
-			NettyMessage.CloseRequest expected = new NettyMessage.CloseRequest();
-			NettyMessage.CloseRequest actual = encodeAndDecode(expected);
-
-			assertEquals(expected.getClass(), actual.getClass());
-		}
-
-		{
-			NettyMessage.AddCredit expected = new NettyMessage.AddCredit(random.nextInt(Integer.MAX_VALUE) + 1, new InputChannelID());
-			NettyMessage.AddCredit actual = encodeAndDecode(expected);
-
-			assertEquals(expected.credit, actual.credit);
-			assertEquals(expected.receiverId, actual.receiverId);
 		}
 	}
 
@@ -183,15 +192,18 @@ public class NettyMessageSerializationTest {
 		}
 
 		NettyMessage.BufferResponse expected = new NettyMessage.BufferResponse(
-			testBuffer, random.nextInt(), new InputChannelID(), random.nextInt());
-		NettyMessage.BufferResponse actual = encodeAndDecode(expected);
+			testBuffer, random.nextInt(), inputChannel.getInputChannelId(), random.nextInt());
+		NettyMessage.BufferResponse actual = encodeAndDecode(expected, channel);
 
 		// Netty 4.1 is not copying the messages, but retaining slices of them. BufferResponse actual is in this case
 		// holding a reference to the buffer. Buffer will be recycled only once "actual" will be released.
-		assertFalse(buffer.isRecycled());
-		assertFalse(testBuffer.isRecycled());
+		assertTrue(buffer.isRecycled());
+		assertTrue(testBuffer.isRecycled());
 
-		ByteBuf retainedSlice = actual.getNettyBuffer();
+		assertNotNull(
+			"The request input channel should always have available buffers in this test.",
+			actual.getBuffer());
+		ByteBuf retainedSlice = actual.getBuffer().asByteBuf();
 		if (testCompressedBuffer) {
 			assertTrue(actual.isCompressed);
 			retainedSlice = decompress(retainedSlice);
@@ -225,15 +237,5 @@ public class NettyMessageSerializationTest {
 		buffer.readBytes(compressedBuffer.asByteBuf(), buffer.readableBytes());
 		compressedBuffer.setCompressed(true);
 		return DECOMPRESSOR.decompressToOriginalBuffer(compressedBuffer).asByteBuf();
-	}
-
-	@SuppressWarnings("unchecked")
-	private <T extends NettyMessage> T encodeAndDecode(T msg) {
-		channel.writeOutbound(msg);
-		ByteBuf encoded = (ByteBuf) channel.readOutbound();
-
-		assertTrue(channel.writeInbound(encoded));
-
-		return (T) channel.readInbound();
 	}
 }

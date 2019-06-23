@@ -19,6 +19,8 @@
 package org.apache.flink.runtime.io.network.netty;
 
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.shaded.netty4.io.netty.buffer.ByteBuf;
+import org.apache.flink.shaded.netty4.io.netty.channel.embedded.EmbeddedChannel;
 import org.apache.flink.util.NetUtils;
 
 import org.apache.flink.shaded.netty4.io.netty.channel.Channel;
@@ -30,6 +32,7 @@ import java.util.function.Function;
 
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Test utility for Netty server and client setup.
@@ -160,6 +163,20 @@ public class NettyTestUtil {
 				segmentSize,
 				1,
 				config);
+	}
+
+	// ---------------------------------------------------------------------------------------------
+	// Encoding & Decoding
+	// ---------------------------------------------------------------------------------------------
+
+	@SuppressWarnings("unchecked")
+	static <T extends NettyMessage> T encodeAndDecode(T msg, EmbeddedChannel channel) {
+		channel.writeOutbound(msg);
+		ByteBuf encoded = channel.readOutbound();
+
+		assertTrue(channel.writeInbound(encoded));
+
+		return (T) channel.readInbound();
 	}
 
 	// ------------------------------------------------------------------------
