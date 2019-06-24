@@ -81,7 +81,7 @@ public class NettyProtocol {
 
 		return new ChannelHandler[] {
 			messageEncoder,
-			new NettyMessage.NettyMessageDecoder(),
+			new ZeroCopyNettyMessageDecoder(new NoDataBufferMessageParser()),
 			serverHandler,
 			queueOfPartitionQueues
 		};
@@ -120,10 +120,14 @@ public class NettyProtocol {
 	 * @return channel handlers
 	 */
 	public ChannelHandler[] getClientChannelHandlers() {
-		return new ChannelHandler[] {
-			messageEncoder,
-			new NettyMessage.NettyMessageDecoder(),
-			new CreditBasedPartitionRequestClientHandler()};
-	}
+			CreditBasedPartitionRequestClientHandler networkClientHandler = new CreditBasedPartitionRequestClientHandler();
+			NetworkBufferAllocator networkBufferAllocator = new NetworkBufferAllocator(networkClientHandler);
+			ZeroCopyNettyMessageDecoder zeroCopyNettyMessageDecoder
+					= new ZeroCopyNettyMessageDecoder(new BufferResponseAndNoDataBufferMessageParser(networkBufferAllocator));
 
+			return new ChannelHandler[] {
+					messageEncoder,
+					zeroCopyNettyMessageDecoder,
+					networkClientHandler};
+	}
 }

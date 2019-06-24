@@ -29,21 +29,26 @@ import org.apache.flink.runtime.io.network.buffer.NetworkBuffer;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
 import org.apache.flink.runtime.io.network.partition.consumer.InputChannelID;
 
+import org.apache.flink.runtime.io.network.partition.consumer.RemoteInputChannel;
 import org.apache.flink.shaded.netty4.io.netty.buffer.ByteBuf;
 import org.apache.flink.shaded.netty4.io.netty.channel.embedded.EmbeddedChannel;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Random;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.powermock.api.mockito.PowerMockito.when;
 
 /**
  * Tests for the serialization and deserialization of the various {@link NettyMessage} sub-classes.
@@ -59,7 +64,8 @@ public class NettyMessageSerializationTest {
 
 	private final EmbeddedChannel channel = new EmbeddedChannel(
 			new NettyMessage.NettyMessageEncoder(), // outbound messages
-			new NettyMessage.NettyMessageDecoder()); // inbound messages
+			new ZeroCopyNettyMessageDecoder(new BufferResponseAndNoDataBufferMessageParser(
+					new NetworkBufferAllocator(createPartitionRequestClientHandler())))); // inbound messages
 
 	private final Random random = new Random();
 
@@ -189,10 +195,10 @@ public class NettyMessageSerializationTest {
 
 		// Netty 4.1 is not copying the messages, but retaining slices of them. BufferResponse actual is in this case
 		// holding a reference to the buffer. Buffer will be recycled only once "actual" will be released.
-		assertFalse(buffer.isRecycled());
-		assertFalse(testBuffer.isRecycled());
+		assertTrue(buffer.isRecycled());
+		assertTrue(testBuffer.isRecycled());
 
-		ByteBuf retainedSlice = actual.getNettyBuffer();
+		ByteBuf retainedSlice = actual.getBuffer().asByteBuf();
 		if (testCompressedBuffer) {
 			assertTrue(actual.isCompressed);
 			retainedSlice = decompress(retainedSlice);
@@ -236,5 +242,20 @@ public class NettyMessageSerializationTest {
 		assertTrue(channel.writeInbound(encoded));
 
 		return (T) channel.readInbound();
+	}
+
+	private CreditBasedPartitionRequestClientHandler createPartitionRequestClientHandler() {
+		CreditBasedPartitionRequestClientHandler handler = mock(CreditBasedPartitionRequestClientHandler.class);
+
+		RemoteInputChannel inputChannel = mock(RemoteInputChannel.class);
+		when(inputChannel.requestBuffer()).thenAnswer(new Answer<Buffer>() {
+			@Override
+			public Buffer answer(InvocationOnMock invocationOnMock) throws Throwable {
+				return new NetworkBuffer(MemorySegmentFactory.allocateUnpooledSegment(1024), FreeingBufferRecycler.INSTANCE);
+			}
+		});
+		when(handler.getInputChannel(any(InputChannelID.class))).thenReturn(inputChannel);
+
+		return handler;
 	}
 }
