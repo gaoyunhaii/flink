@@ -35,8 +35,10 @@ function setup_elasticsearch {
     mkdir -p $elasticsearchDir
     tar xzf $TEST_DATA_DIR/elasticsearch.tar.gz -C $elasticsearchDir --strip-components=1
 
-    # start Elasticsearch cluster
-    $elasticsearchDir/bin/elasticsearch &
+    # Starts Elasticsearch cluster. For Elasticsearch 2.x, we need to ignore unrecognized
+    # options to ensure ElasticSearch cluster can be started up with JDK versions higher
+    # than 10. See FLINK-14186 for more details.
+    JAVA_OPTS="-XX:+IgnoreUnrecognizedVMOptions" $elasticsearchDir/bin/elasticsearch &
 }
 
 function wait_elasticsearch_working {
