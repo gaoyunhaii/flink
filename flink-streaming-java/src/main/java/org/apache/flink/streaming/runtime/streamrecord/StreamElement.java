@@ -19,6 +19,7 @@
 package org.apache.flink.streaming.runtime.streamrecord;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.streaming.api.operatorevent.OperatorEventElement;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamstatus.StreamStatus;
 
@@ -60,6 +61,10 @@ public abstract class StreamElement {
 		return getClass() == LatencyMarker.class;
 	}
 
+	public final boolean isOperatorEvent() {
+		return getClass() == OperatorEventElement.class;
+	}
+
 	/**
 	 * Casts this element into a StreamRecord.
 	 * @return This element as a stream record.
@@ -95,5 +100,9 @@ public abstract class StreamElement {
 	 */
 	public final LatencyMarker asLatencyMarker() {
 		return (LatencyMarker) this;
+	}
+
+	public final OperatorEventElement asOperatorEventElement() {
+		return (OperatorEventElement) this;
 	}
 }

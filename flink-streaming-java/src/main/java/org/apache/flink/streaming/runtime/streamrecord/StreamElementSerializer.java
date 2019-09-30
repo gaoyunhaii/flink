@@ -27,6 +27,8 @@ import org.apache.flink.api.common.typeutils.TypeSerializerSchemaCompatibility;
 import org.apache.flink.core.memory.DataInputView;
 import org.apache.flink.core.memory.DataOutputView;
 import org.apache.flink.runtime.jobgraph.OperatorID;
+import org.apache.flink.streaming.api.operatorevent.OperatorEventElement;
+import org.apache.flink.streaming.api.operatorevent.OperatorEventSerializer;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamstatus.StreamStatus;
 
@@ -53,15 +55,18 @@ public final class StreamElementSerializer<T> extends TypeSerializer<StreamEleme
 	private static final int TAG_WATERMARK = 2;
 	private static final int TAG_LATENCY_MARKER = 3;
 	private static final int TAG_STREAM_STATUS = 4;
+	private static final int TAG_OPERATOR_EVENT = 5;
 
 
 	private final TypeSerializer<T> typeSerializer;
+	private final OperatorEventSerializer eventSerializer;
 
 	public StreamElementSerializer(TypeSerializer<T> serializer) {
 		if (serializer instanceof StreamElementSerializer) {
 			throw new RuntimeException("StreamRecordSerializer given to StreamRecordSerializer as value TypeSerializer: " + serializer);
 		}
 		this.typeSerializer = requireNonNull(serializer);
+		this.eventSerializer = OperatorEventSerializer.INSTANCE;
 	}
 
 	public TypeSerializer<T> getContainedTypeSerializer() {
@@ -103,12 +108,12 @@ public final class StreamElementSerializer<T> extends TypeSerializer<StreamEleme
 		if (from.isRecord()) {
 			StreamRecord<T> fromRecord = from.asRecord();
 			return fromRecord.copy(typeSerializer.copy(fromRecord.getValue()));
-		}
-		else if (from.isWatermark() || from.isStreamStatus() || from.isLatencyMarker()) {
+		} else if (from.isWatermark() || from.isStreamStatus() || from.isLatencyMarker()) {
 			// is immutable
 			return from;
-		}
-		else {
+		} else if (from.isOperatorEvent()) {
+			return new OperatorEventElement(eventSerializer.copy(from.asOperatorEventElement().getEvent()));
+		} else {
 			throw new RuntimeException();
 		}
 	}
@@ -122,12 +127,10 @@ public final class StreamElementSerializer<T> extends TypeSerializer<StreamEleme
 			T valueCopy = typeSerializer.copy(fromRecord.getValue(), reuseRecord.getValue());
 			fromRecord.copyTo(valueCopy, reuseRecord);
 			return reuse;
-		}
-		else if (from.isWatermark() || from.isStreamStatus() || from.isLatencyMarker()) {
+		} else if (from.isWatermark() || from.isStreamStatus() || from.isLatencyMarker()) {
 			// is immutable
 			return from;
-		}
-		else {
+		} else {
 			throw new RuntimeException("Cannot copy " + from + " -> " + reuse);
 		}
 	}
@@ -141,21 +144,19 @@ public final class StreamElementSerializer<T> extends TypeSerializer<StreamEleme
 			// move timestamp
 			target.writeLong(source.readLong());
 			typeSerializer.copy(source, target);
-		}
-		else if (tag == TAG_REC_WITHOUT_TIMESTAMP) {
+		} else if (tag == TAG_REC_WITHOUT_TIMESTAMP) {
 			typeSerializer.copy(source, target);
-		}
-		else if (tag == TAG_WATERMARK) {
+		} else if (tag == TAG_WATERMARK) {
 			target.writeLong(source.readLong());
-		}
-		else if (tag == TAG_STREAM_STATUS) {
+		} else if (tag == TAG_STREAM_STATUS) {
 			target.writeInt(source.readInt());
-		}
-		else if (tag == TAG_LATENCY_MARKER) {
+		} else if (tag == TAG_LATENCY_MARKER) {
 			target.writeLong(source.readLong());
 			target.writeLong(source.readLong());
 			target.writeLong(source.readLong());
 			target.writeInt(source.readInt());
+		} else if (tag == TAG_OPERATOR_EVENT) {
+			eventSerializer.copy(source, target);
 		} else {
 			throw new IOException("Corrupt stream, found tag: " + tag);
 		}
@@ -173,23 +174,22 @@ public final class StreamElementSerializer<T> extends TypeSerializer<StreamEleme
 				target.write(TAG_REC_WITHOUT_TIMESTAMP);
 			}
 			typeSerializer.serialize(record.getValue(), target);
-		}
-		else if (value.isWatermark()) {
+		} else if (value.isWatermark()) {
 			target.write(TAG_WATERMARK);
 			target.writeLong(value.asWatermark().getTimestamp());
-		}
-		else if (value.isStreamStatus()) {
+		} else if (value.isStreamStatus()) {
 			target.write(TAG_STREAM_STATUS);
 			target.writeInt(value.asStreamStatus().getStatus());
-		}
-		else if (value.isLatencyMarker()) {
+		} else if (value.isLatencyMarker()) {
 			target.write(TAG_LATENCY_MARKER);
 			target.writeLong(value.asLatencyMarker().getMarkedTime());
 			target.writeLong(value.asLatencyMarker().getOperatorId().getLowerPart());
 			target.writeLong(value.asLatencyMarker().getOperatorId().getUpperPart());
 			target.writeInt(value.asLatencyMarker().getSubtaskIndex());
-		}
-		else {
+		} else if (value.isOperatorEvent()) {
+			target.write(TAG_OPERATOR_EVENT);
+			eventSerializer.serialize(value.asOperatorEventElement().getEvent(), target);
+		} else {
 			throw new RuntimeException();
 		}
 	}
@@ -200,20 +200,17 @@ public final class StreamElementSerializer<T> extends TypeSerializer<StreamEleme
 		if (tag == TAG_REC_WITH_TIMESTAMP) {
 			long timestamp = source.readLong();
 			return new StreamRecord<T>(typeSerializer.deserialize(source), timestamp);
-		}
-		else if (tag == TAG_REC_WITHOUT_TIMESTAMP) {
+		} else if (tag == TAG_REC_WITHOUT_TIMESTAMP) {
 			return new StreamRecord<T>(typeSerializer.deserialize(source));
-		}
-		else if (tag == TAG_WATERMARK) {
+		} else if (tag == TAG_WATERMARK) {
 			return new Watermark(source.readLong());
-		}
-		else if (tag == TAG_STREAM_STATUS) {
+		} else if (tag == TAG_STREAM_STATUS) {
 			return new StreamStatus(source.readInt());
-		}
-		else if (tag == TAG_LATENCY_MARKER) {
+		} else if (tag == TAG_LATENCY_MARKER) {
 			return new LatencyMarker(source.readLong(), new OperatorID(source.readLong(), source.readLong()), source.readInt());
-		}
-		else {
+		} else if (tag == TAG_OPERATOR_EVENT) {
+			return new OperatorEventElement(eventSerializer.deserialize(source));
+		} else {
 			throw new IOException("Corrupt stream, found tag: " + tag);
 		}
 	}
@@ -227,20 +224,19 @@ public final class StreamElementSerializer<T> extends TypeSerializer<StreamEleme
 			StreamRecord<T> reuseRecord = reuse.asRecord();
 			reuseRecord.replace(value, timestamp);
 			return reuseRecord;
-		}
-		else if (tag == TAG_REC_WITHOUT_TIMESTAMP) {
+		} else if (tag == TAG_REC_WITHOUT_TIMESTAMP) {
 			T value = typeSerializer.deserialize(source);
 			StreamRecord<T> reuseRecord = reuse.asRecord();
 			reuseRecord.replace(value);
 			return reuseRecord;
-		}
-		else if (tag == TAG_WATERMARK) {
+		} else if (tag == TAG_WATERMARK) {
 			return new Watermark(source.readLong());
-		}
-		else if (tag == TAG_LATENCY_MARKER) {
+		} else if (tag == TAG_LATENCY_MARKER) {
 			return new LatencyMarker(source.readLong(), new OperatorID(source.readLong(), source.readLong()), source.readInt());
-		}
-		else {
+		} else if (tag == TAG_OPERATOR_EVENT) {
+			reuse.asOperatorEventElement().replace(eventSerializer.deserialize(source));
+			return reuse;
+		} else {
 			throw new IOException("Corrupt stream, found tag: " + tag);
 		}
 	}
@@ -280,6 +276,7 @@ public final class StreamElementSerializer<T> extends TypeSerializer<StreamEleme
 
 	/**
 	 * Configuration snapshot specific to the {@link StreamElementSerializer}.
+	 *
 	 * @deprecated see {@link StreamElementSerializerSnapshot}.
 	 */
 	@Deprecated
@@ -287,8 +284,11 @@ public final class StreamElementSerializer<T> extends TypeSerializer<StreamEleme
 
 		private static final int VERSION = 1;
 
-		/** This empty nullary constructor is required for deserializing the configuration. */
-		public StreamElementSerializerConfigSnapshot() {}
+		/**
+		 * This empty nullary constructor is required for deserializing the configuration.
+		 */
+		public StreamElementSerializerConfigSnapshot() {
+		}
 
 		@Override
 		public int getVersion() {
@@ -298,9 +298,9 @@ public final class StreamElementSerializer<T> extends TypeSerializer<StreamEleme
 		@Override
 		public TypeSerializerSchemaCompatibility<StreamElement> resolveSchemaCompatibility(TypeSerializer<StreamElement> newSerializer) {
 			return CompositeTypeSerializerUtil.delegateCompatibilityCheckToNewSnapshot(
-				newSerializer,
-				new StreamElementSerializerSnapshot<>(),
-				getSingleNestedSerializerAndConfig().f1);
+					newSerializer,
+					new StreamElementSerializerSnapshot<>(),
+					getSingleNestedSerializerAndConfig().f1);
 		}
 	}
 
@@ -308,7 +308,7 @@ public final class StreamElementSerializer<T> extends TypeSerializer<StreamEleme
 	 * Configuration snapshot specific to the {@link StreamElementSerializer}.
 	 */
 	public static final class StreamElementSerializerSnapshot<T>
-		extends CompositeTypeSerializerSnapshot<StreamElement, StreamElementSerializer<T>> {
+			extends CompositeTypeSerializerSnapshot<StreamElement, StreamElementSerializer<T>> {
 
 		private static final int VERSION = 2;
 
