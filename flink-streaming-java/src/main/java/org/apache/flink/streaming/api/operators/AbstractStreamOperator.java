@@ -57,6 +57,7 @@ import org.apache.flink.runtime.state.StateSnapshotContextSynchronousImpl;
 import org.apache.flink.runtime.state.VoidNamespace;
 import org.apache.flink.runtime.state.VoidNamespaceSerializer;
 import org.apache.flink.streaming.api.graph.StreamConfig;
+import org.apache.flink.streaming.api.operatorevent.AbstractOperatorEvent;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.LatencyMarker;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
@@ -695,6 +696,20 @@ public abstract class AbstractStreamOperator<OUT>
 
 		// everything except sinks forwards latency markers
 		this.output.emitLatencyMarker(marker);
+	}
+
+	// ----------------------- Operator Event -----------------------
+
+	public void processOperatorEvent(AbstractOperatorEvent event) throws Exception {
+
+	}
+
+	public void processOperatorEvent1(AbstractOperatorEvent event) throws Exception {
+
+	}
+
+	public void processOperatorEvent2(AbstractOperatorEvent event) throws Exception {
+
 	}
 
 	// ----------------------- Helper classes -----------------------

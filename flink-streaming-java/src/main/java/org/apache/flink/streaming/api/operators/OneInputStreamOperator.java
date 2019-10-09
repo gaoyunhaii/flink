@@ -19,6 +19,7 @@
 package org.apache.flink.streaming.api.operators;
 
 import org.apache.flink.annotation.PublicEvolving;
+import org.apache.flink.streaming.api.operatorevent.AbstractOperatorEvent;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.LatencyMarker;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
@@ -49,4 +50,6 @@ public interface OneInputStreamOperator<IN, OUT> extends StreamOperator<OUT> {
 	void processWatermark(Watermark mark) throws Exception;
 
 	void processLatencyMarker(LatencyMarker latencyMarker) throws Exception;
+
+	void processOperatorEvent(AbstractOperatorEvent event) throws Exception;
 }
