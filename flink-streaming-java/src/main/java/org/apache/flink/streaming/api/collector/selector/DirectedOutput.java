@@ -20,6 +20,7 @@ package org.apache.flink.streaming.api.collector.selector;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.metrics.Gauge;
 import org.apache.flink.streaming.api.graph.StreamEdge;
+import org.apache.flink.streaming.api.operatorevent.AbstractOperatorEvent;
 import org.apache.flink.streaming.api.operators.Output;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.metrics.WatermarkGauge;
@@ -115,6 +116,13 @@ public class DirectedOutput<OUT> implements OperatorChain.WatermarkGaugeExposing
 	public void emitLatencyMarker(LatencyMarker latencyMarker) {
 		// randomly select an output
 		allOutputs[random.nextInt(allOutputs.length)].emitLatencyMarker(latencyMarker);
+	}
+
+	@Override
+	public void emitOperatorEvent(AbstractOperatorEvent event) {
+		for (Output<StreamRecord<OUT>> out : allOutputs) {
+			out.emitOperatorEvent(event);
+		}
 	}
 
 	protected Set<Output<StreamRecord<OUT>>> selectOutputs(StreamRecord<OUT> record)  {

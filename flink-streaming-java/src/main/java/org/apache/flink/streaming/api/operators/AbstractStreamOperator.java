@@ -737,6 +737,11 @@ public abstract class AbstractStreamOperator<OUT>
 		}
 
 		@Override
+		public void emitOperatorEvent(AbstractOperatorEvent event) {
+			output.emitOperatorEvent(event);
+		}
+
+		@Override
 		public void collect(StreamRecord<OUT> record) {
 			numRecordsOut.inc();
 			output.collect(record);

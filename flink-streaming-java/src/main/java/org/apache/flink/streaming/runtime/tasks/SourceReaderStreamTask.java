@@ -20,6 +20,7 @@ package org.apache.flink.streaming.runtime.tasks;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.runtime.execution.Environment;
+import org.apache.flink.streaming.api.operatorevent.AbstractOperatorEvent;
 import org.apache.flink.streaming.api.operators.Output;
 import org.apache.flink.streaming.api.operators.SourceReaderOperator;
 import org.apache.flink.streaming.api.watermark.Watermark;
@@ -87,6 +88,13 @@ public class SourceReaderStreamTask<T> extends StreamTask<T, SourceReaderOperato
 		public void emitLatencyMarker(LatencyMarker latencyMarker) {
 			synchronized (lock) {
 				output.emitLatencyMarker(latencyMarker);
+			}
+		}
+
+		@Override
+		public void emitOperatorEvent(AbstractOperatorEvent event) throws Exception {
+			synchronized (lock) {
+				output.emitOperatorEvent(event);
 			}
 		}
 

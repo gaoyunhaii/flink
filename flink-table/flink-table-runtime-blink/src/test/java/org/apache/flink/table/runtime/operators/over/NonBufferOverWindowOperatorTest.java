@@ -20,6 +20,7 @@ package org.apache.flink.table.runtime.operators.over;
 
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.streaming.api.graph.StreamConfig;
+import org.apache.flink.streaming.api.operatorevent.AbstractOperatorEvent;
 import org.apache.flink.streaming.api.operators.Output;
 import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
 import org.apache.flink.streaming.api.watermark.Watermark;
@@ -179,6 +180,11 @@ public class NonBufferOverWindowOperatorTest {
 
 		@Override
 		public void emitLatencyMarker(LatencyMarker latencyMarker) {
+			throw new RuntimeException();
+		}
+
+		@Override
+		public void emitOperatorEvent(AbstractOperatorEvent event) {
 			throw new RuntimeException();
 		}
 

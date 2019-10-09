@@ -38,6 +38,7 @@ import org.apache.flink.streaming.api.collector.selector.DirectedOutput;
 import org.apache.flink.streaming.api.collector.selector.OutputSelector;
 import org.apache.flink.streaming.api.graph.StreamConfig;
 import org.apache.flink.streaming.api.graph.StreamEdge;
+import org.apache.flink.streaming.api.operatorevent.AbstractOperatorEvent;
 import org.apache.flink.streaming.api.operators.BoundedMultiInput;
 import org.apache.flink.streaming.api.operators.BoundedOneInput;
 import org.apache.flink.streaming.api.operators.InputSelectable;
@@ -597,6 +598,15 @@ public class OperatorChain<OUT, OP extends StreamOperator<OUT>> implements Strea
 		}
 
 		@Override
+		public void emitOperatorEvent(AbstractOperatorEvent event) {
+			try {
+				operator.processOperatorEvent(event);
+			} catch (Exception e) {
+				throw new ExceptionInChainedOperatorException(e);
+			}
+		}
+
+		@Override
 		public void close() {
 			try {
 				operator.close();
@@ -716,6 +726,13 @@ public class OperatorChain<OUT, OP extends StreamOperator<OUT>> implements Strea
 			} else {
 				// randomly select an output
 				outputs[random.nextInt(outputs.length)].emitLatencyMarker(latencyMarker);
+			}
+		}
+
+		@Override
+		public void emitOperatorEvent(AbstractOperatorEvent event) {
+			for (Output<StreamRecord<T>> output : outputs) {
+				output.emitOperatorEvent(event);
 			}
 		}
 

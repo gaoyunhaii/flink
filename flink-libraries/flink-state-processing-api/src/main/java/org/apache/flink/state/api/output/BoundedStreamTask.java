@@ -20,6 +20,7 @@ package org.apache.flink.state.api.output;
 
 import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.state.api.runtime.NeverFireProcessingTimeService;
+import org.apache.flink.streaming.api.operatorevent.AbstractOperatorEvent;
 import org.apache.flink.streaming.api.operators.BoundedOneInput;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.operators.Output;
@@ -118,6 +119,11 @@ class BoundedStreamTask<IN, OUT, OP extends OneInputStreamOperator<IN, OUT> & Bo
 
 		@Override
 		public void emitLatencyMarker(LatencyMarker latencyMarker) { }
+
+		@Override
+		public void emitOperatorEvent(AbstractOperatorEvent event) {
+
+		}
 
 		@Override
 		public void collect(StreamRecord<OUT> record) {

@@ -23,6 +23,8 @@ import org.apache.flink.metrics.Gauge;
 import org.apache.flink.runtime.event.AbstractEvent;
 import org.apache.flink.runtime.io.network.api.writer.RecordWriter;
 import org.apache.flink.runtime.plugable.SerializationDelegate;
+import org.apache.flink.streaming.api.operatorevent.AbstractOperatorEvent;
+import org.apache.flink.streaming.api.operatorevent.OperatorEventElement;
 import org.apache.flink.streaming.api.operators.Output;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.metrics.WatermarkGauge;
@@ -144,6 +146,16 @@ public class RecordWriterOutput<OUT> implements OperatorChain.WatermarkGaugeExpo
 			recordWriter.randomEmit(serializationDelegate);
 		}
 		catch (Exception e) {
+			throw new RuntimeException(e.getMessage(), e);
+		}
+	}
+
+	@Override
+	public void emitOperatorEvent(AbstractOperatorEvent event) {
+		serializationDelegate.setInstance(new OperatorEventElement(event));
+		try {
+			recordWriter.broadcastEmit(serializationDelegate);
+		} catch (Exception e) {
 			throw new RuntimeException(e.getMessage(), e);
 		}
 	}

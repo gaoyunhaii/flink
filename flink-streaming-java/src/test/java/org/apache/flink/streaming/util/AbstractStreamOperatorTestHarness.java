@@ -47,6 +47,8 @@ import org.apache.flink.runtime.state.TestTaskStateManager;
 import org.apache.flink.runtime.state.memory.MemoryStateBackend;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.graph.StreamConfig;
+import org.apache.flink.streaming.api.operatorevent.AbstractOperatorEvent;
+import org.apache.flink.streaming.api.operatorevent.OperatorEventElement;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperatorTest;
 import org.apache.flink.streaming.api.operators.OperatorSnapshotFinalizer;
@@ -666,6 +668,11 @@ public class AbstractStreamOperatorTestHarness<OUT> implements AutoCloseable {
 		@Override
 		public void emitLatencyMarker(LatencyMarker latencyMarker) {
 			outputList.add(latencyMarker);
+		}
+
+		@Override
+		public void emitOperatorEvent(AbstractOperatorEvent event) {
+			outputList.add(new OperatorEventElement(event));
 		}
 
 		@Override

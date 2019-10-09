@@ -17,6 +17,7 @@
 
 package org.apache.flink.streaming.util;
 
+import org.apache.flink.streaming.api.operatorevent.AbstractOperatorEvent;
 import org.apache.flink.streaming.api.operators.Output;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.LatencyMarker;
@@ -60,6 +61,11 @@ public class MockOutput<T> implements Output<StreamRecord<T>> {
 
 	@Override
 	public void emitLatencyMarker(LatencyMarker latencyMarker) {
+		throw new RuntimeException();
+	}
+
+	@Override
+	public void emitOperatorEvent(AbstractOperatorEvent event) {
 		throw new RuntimeException();
 	}
 
