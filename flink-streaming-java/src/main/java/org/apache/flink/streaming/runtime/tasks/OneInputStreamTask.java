@@ -27,6 +27,7 @@ import org.apache.flink.runtime.io.network.partition.consumer.InputGate;
 import org.apache.flink.runtime.metrics.MetricNames;
 import org.apache.flink.runtime.metrics.groups.TaskIOMetricGroup;
 import org.apache.flink.streaming.api.graph.StreamConfig;
+import org.apache.flink.streaming.api.operatorevent.AbstractOperatorEvent;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.io.AbstractDataOutput;
@@ -186,6 +187,13 @@ public class OneInputStreamTask<IN, OUT> extends StreamTask<OUT, OneInputStreamO
 		public void emitLatencyMarker(LatencyMarker latencyMarker) throws Exception {
 			synchronized (lock) {
 				operator.processLatencyMarker(latencyMarker);
+			}
+		}
+
+		@Override
+		public void emitOperatorEvent(AbstractOperatorEvent event) throws Exception {
+			synchronized (lock) {
+				operator.processOperatorEvent(event);
 			}
 		}
 	}

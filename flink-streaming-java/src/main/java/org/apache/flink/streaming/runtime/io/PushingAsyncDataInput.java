@@ -20,6 +20,7 @@ package org.apache.flink.streaming.runtime.io;
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.runtime.io.AvailabilityProvider;
 import org.apache.flink.runtime.io.PullingAsyncDataInput;
+import org.apache.flink.streaming.api.operatorevent.AbstractOperatorEvent;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.LatencyMarker;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
@@ -56,5 +57,7 @@ public interface PushingAsyncDataInput<T> extends AvailabilityProvider {
 		void emitStreamStatus(StreamStatus streamStatus) throws Exception;
 
 		void emitLatencyMarker(LatencyMarker latencyMarker) throws Exception;
+
+		void emitOperatorEvent(AbstractOperatorEvent event) throws Exception;
 	}
 }

@@ -103,7 +103,7 @@ public class OperatorEventSerializer extends TypeSerializer<AbstractOperatorEven
 			event.read(source);
 			return event;
 		} catch (Exception e) {
-			throw new IOException("Failed to deserialize the operator event");
+			throw new IOException("Failed to deserialize the operator event", e);
 		}
 	}
 

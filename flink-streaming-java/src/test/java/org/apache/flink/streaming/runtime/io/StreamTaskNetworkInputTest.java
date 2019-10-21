@@ -32,6 +32,7 @@ import org.apache.flink.runtime.io.network.partition.consumer.BufferOrEvent;
 import org.apache.flink.runtime.io.network.partition.consumer.StreamTestSingleInputGate;
 import org.apache.flink.runtime.plugable.DeserializationDelegate;
 import org.apache.flink.runtime.plugable.SerializationDelegate;
+import org.apache.flink.streaming.api.operatorevent.AbstractOperatorEvent;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.io.PushingAsyncDataInput.DataOutput;
 import org.apache.flink.streaming.runtime.streamrecord.LatencyMarker;
@@ -183,6 +184,11 @@ public class StreamTaskNetworkInputTest {
 
 		@Override
 		public void emitLatencyMarker(LatencyMarker latencyMarker) {
+		}
+
+		@Override
+		public void emitOperatorEvent(AbstractOperatorEvent event) throws Exception {
+
 		}
 	}
 

@@ -18,6 +18,7 @@
 
 package org.apache.flink.streaming.runtime.streamstatus;
 
+import org.apache.flink.streaming.api.operatorevent.AbstractOperatorEvent;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.io.PushingAsyncDataInput;
 import org.apache.flink.streaming.runtime.streamrecord.LatencyMarker;
@@ -427,6 +428,11 @@ public class StatusWatermarkValveTest {
 
 		@Override
 		public void emitLatencyMarker(LatencyMarker latencyMarker) {
+			throw new UnsupportedOperationException();
+		}
+
+		@Override
+		public void emitOperatorEvent(AbstractOperatorEvent event) throws Exception {
 			throw new UnsupportedOperationException();
 		}
 

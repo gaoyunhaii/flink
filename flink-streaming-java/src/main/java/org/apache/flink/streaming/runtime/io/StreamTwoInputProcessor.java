@@ -22,6 +22,7 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.metrics.Counter;
 import org.apache.flink.runtime.io.disk.iomanager.IOManager;
+import org.apache.flink.streaming.api.operatorevent.AbstractOperatorEvent;
 import org.apache.flink.streaming.api.operators.TwoInputStreamOperator;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.io.PushingAsyncDataInput.DataOutput;
@@ -410,6 +411,17 @@ public final class StreamTwoInputProcessor<IN1, IN2> implements StreamInputProce
 					operator.processLatencyMarker1(latencyMarker);
 				} else {
 					operator.processLatencyMarker2(latencyMarker);
+				}
+			}
+		}
+
+		@Override
+		public void emitOperatorEvent(AbstractOperatorEvent event) throws Exception {
+			synchronized (lock) {
+				if (inputIndex == 0) {
+					operator.processOperatorEvent1(event);
+				} else {
+					operator.processOperatorEvent2(event);
 				}
 			}
 		}
