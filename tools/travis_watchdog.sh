@@ -68,7 +68,8 @@ MVN_TEST_OPTIONS="-Dflink.tests.with-openssl"
 e2e_modules=$(find flink-end-to-end-tests -mindepth 2 -maxdepth 5 -name 'pom.xml' -printf '%h\n' | sort -u | tr '\n' ',')
 
 MVN_COMPILE="mvn $MVN_COMMON_OPTIONS $MVN_COMPILE_OPTIONS $PROFILE $MVN_COMPILE_MODULES install"
-MVN_TEST="mvn $MVN_COMMON_OPTIONS $MVN_TEST_OPTIONS $PROFILE $MVN_TEST_MODULES verify"
+#MVN_TEST="mvn $MVN_COMMON_OPTIONS $MVN_TEST_OPTIONS $PROFILE $MVN_TEST_MODULES verify"
+MVN_TEST="mvn $MVN_COMMON_OPTIONS $MVN_TEST_OPTIONS $PROFILE $MVN_TEST_MODULES -Dtest='BlobsCleanupITCase' integration-test"
 MVN_E2E="mvn $MVN_COMMON_OPTIONS $MVN_TEST_OPTIONS $PROFILE -DincludeE2E="org.apache.flink.tests.util.categories.PreCommit" -pl ${e2e_modules},flink-dist verify"
 
 MVN_PID="${ARTIFACTS_DIR}/watchdog.mvn.pid"
@@ -220,7 +221,9 @@ run_with_watchdog() {
 	# Run $CMD and pipe output to $CMD_OUT for the watchdog. The PID is written to $CMD_PID to
 	# allow the watchdog to kill $CMD if it is not producing any output anymore. $CMD_EXIT contains
 	# the exit code. This is important for Travis' build life-cycle (success/failure).
-	( $cmd & PID=$! ; echo $PID >&3 ; wait $PID ; echo $? >&4 ) 3>$CMD_PID 4>$CMD_EXIT | tee $CMD_OUT
+	while 1;do
+	    ( $cmd & PID=$! ; echo $PID >&3 ; wait $PID ; echo $? >&4 ) 3>$CMD_PID 4>$CMD_EXIT | tee $CMD_OUT
+	done
 
 	EXIT_CODE=$(<$CMD_EXIT)
 
