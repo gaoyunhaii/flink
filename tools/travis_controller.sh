@@ -94,37 +94,37 @@ if [ $STAGE == "$STAGE_COMPILE" ]; then
 	$MVN
 	EXIT_CODE=$?
 
-    if [ $EXIT_CODE == 0 ]; then
-        printf "\n\n==============================================================================\n"
-        printf "Checking scala suffixes\n"
-        printf "==============================================================================\n"
-
-        ./tools/verify_scala_suffixes.sh "${PROFILE}"
-        EXIT_CODE=$?
-    else
-        printf "\n==============================================================================\n"
-        printf "Previous build failure detected, skipping scala-suffixes check.\n"
-        printf "==============================================================================\n"
-    fi
-    
-    if [ $EXIT_CODE == 0 ]; then
-        check_shaded_artifacts
-        EXIT_CODE=$(($EXIT_CODE+$?))
-        check_shaded_artifacts_s3_fs hadoop
-        EXIT_CODE=$(($EXIT_CODE+$?))
-        check_shaded_artifacts_s3_fs presto
-        EXIT_CODE=$(($EXIT_CODE+$?))
-        check_shaded_artifacts_connector_elasticsearch 2
-        EXIT_CODE=$(($EXIT_CODE+$?))
-        check_shaded_artifacts_connector_elasticsearch 5
-        EXIT_CODE=$(($EXIT_CODE+$?))
-        check_shaded_artifacts_connector_elasticsearch 6
-        EXIT_CODE=$(($EXIT_CODE+$?))
-    else
-        echo "=============================================================================="
-        echo "Previous build failure detected, skipping shaded dependency check."
-        echo "=============================================================================="
-    fi
+#    if [ $EXIT_CODE == 0 ]; then
+##        printf "\n\n==============================================================================\n"
+##        printf "Checking scala suffixes\n"
+##        printf "==============================================================================\n"
+##
+##        ./tools/verify_scala_suffixes.sh "${PROFILE}"
+##        EXIT_CODE=$?
+##    else
+##        printf "\n==============================================================================\n"
+##        printf "Previous build failure detected, skipping scala-suffixes check.\n"
+##        printf "==============================================================================\n"
+##    fi
+##
+##    if [ $EXIT_CODE == 0 ]; then
+##        check_shaded_artifacts
+##        EXIT_CODE=$(($EXIT_CODE+$?))
+##        check_shaded_artifacts_s3_fs hadoop
+##        EXIT_CODE=$(($EXIT_CODE+$?))
+##        check_shaded_artifacts_s3_fs presto
+##        EXIT_CODE=$(($EXIT_CODE+$?))
+##        check_shaded_artifacts_connector_elasticsearch 2
+##        EXIT_CODE=$(($EXIT_CODE+$?))
+##        check_shaded_artifacts_connector_elasticsearch 5
+##        EXIT_CODE=$(($EXIT_CODE+$?))
+##        check_shaded_artifacts_connector_elasticsearch 6
+##        EXIT_CODE=$(($EXIT_CODE+$?))
+##    else
+##        echo "=============================================================================="
+##        echo "Previous build failure detected, skipping shaded dependency check."
+##        echo "=============================================================================="
+##    fi
 
     if [ $EXIT_CODE == 0 ]; then
         echo "Creating cache build directory $CACHE_FLINK_DIR"

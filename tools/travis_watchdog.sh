@@ -17,6 +17,7 @@
 # limitations under the License.
 ################################################################################
 
+
 HERE="`dirname \"$0\"`"				# relative
 HERE="`( cd \"$HERE\" && pwd )`" 	# absolutized and normalized
 if [ -z "$HERE" ] ; then
@@ -216,14 +217,16 @@ run_with_watchdog() {
 	# Make sure to be in project root
 	cd "$HERE/../"
 
+    # ${cmd} = "${cmd}"
+
 	echo "RUNNING '${cmd}'."
 
 	# Run $CMD and pipe output to $CMD_OUT for the watchdog. The PID is written to $CMD_PID to
 	# allow the watchdog to kill $CMD if it is not producing any output anymore. $CMD_EXIT contains
 	# the exit code. This is important for Travis' build life-cycle (success/failure).
-	while 1;do
-	    ( $cmd & PID=$! ; echo $PID >&3 ; wait $PID ; echo $? >&4 ) 3>$CMD_PID 4>$CMD_EXIT | tee $CMD_OUT
-	done
+	# while 1;do
+	( $cmd & PID=$! ; echo $PID >&3 ; wait $PID ; echo $? >&4 ) 3>$CMD_PID 4>$CMD_EXIT | tee $CMD_OUT
+	# done
 
 	EXIT_CODE=$(<$CMD_EXIT)
 
