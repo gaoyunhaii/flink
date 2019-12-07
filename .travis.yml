@@ -81,11 +81,11 @@ jdk: "openjdk8"
 jobs:
   include:
     # main profile
-#    - if: type in (pull_request, push)
-#      stage: compile
-#      script: ./tools/travis_controller.sh compile
-#      env: PROFILE="-Dhadoop.version=2.8.3 -Dinclude_hadoop_aws -Dscala-2.11 -pl flink-runtime -am"
-#      name: compile
+    - if: type in (pull_request, push)
+      stage: compile
+      script: ./tools/travis_controller.sh compile
+      env: PROFILE="-Dhadoop.version=2.8.3 -Dinclude_hadoop_aws -Dscala-2.11 -pl flink-runtime -am"
+      name: compile
     - if: type in (pull_request, push)
       stage: test
       script: ./tools/travis_controller.sh core
