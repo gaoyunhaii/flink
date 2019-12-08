@@ -81,6 +81,9 @@ function deleteOldCaches() {
 	done
 }
 
+ls -lrth $CACHE_FLINK_DIR
+ls -lrth $CACHE_DIR
+
 # delete leftover caches from previous builds; except the most recent
 find "$CACHE_DIR" -mindepth 1 -maxdepth 1 | grep -v "$TRAVIS_BUILD_NUMBER" | sort -Vr | tail -n +2 | deleteOldCaches
 
@@ -164,12 +167,16 @@ if [ $STAGE == "$STAGE_COMPILE" ]; then
         # minimizeCachedFiles
         travis_time_finish
         end_fold "minimize_cache"
+
+        ls -lrth $CACHE_FLINK_DIR
     else
         echo "=============================================================================="
         echo "Previous build failure detected, skipping cache setup."
         echo "=============================================================================="
     fi
 elif [ $STAGE != "$STAGE_CLEANUP" ]; then
+    ls -lrth $CACHE_FLINK_DIR
+
 	if ! [ -e $CACHE_FLINK_DIR ]; then
 		echo "Cached flink dir $CACHE_FLINK_DIR does not exist. Exiting build."
 		exit 1
