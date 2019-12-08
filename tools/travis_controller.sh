@@ -17,6 +17,7 @@
 # limitations under the License.
 ################################################################################
 
+set -x
 echo $M2_HOME
 echo $PATH
 echo $MAVEN_OPTS
@@ -205,3 +206,4 @@ fi
 
 # Exit code for Travis build success/failure
 exit $EXIT_CODE
+set +x
