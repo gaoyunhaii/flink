@@ -22,6 +22,7 @@ STAGE_CORE="core"
 STAGE_PYTHON="python"
 STAGE_LIBRARIES="libraries"
 STAGE_BLINK_PLANNER="blink_planner"
+
 STAGE_CONNECTORS="connectors"
 STAGE_KAFKA_GELLY="kafka/gelly"
 STAGE_TESTS="tests"
