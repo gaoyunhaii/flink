@@ -217,7 +217,7 @@ run_with_watchdog() {
 
 	echo "RUNNING '${cmd}'."
 
-	mvn dependency:tree
+	mvn dependency:tree -pl flink-runtime
 
 	# Run $CMD and pipe output to $CMD_OUT for the watchdog. The PID is written to $CMD_PID to
 	# allow the watchdog to kill $CMD if it is not producing any output anymore. $CMD_EXIT contains
