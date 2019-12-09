@@ -122,7 +122,7 @@ fi
 
 # we can only build the Scala Shell when building for Scala 2.11
 if [[ $PROFILE == *"scala-2.11"* ]]; then
-    MODULES_CORE="$MODULES_CORE,flink-scala-shell"
+    MODULES_CORE="$MODULES_CORE"
 fi
 
 function get_compile_modules_for_stage() {
