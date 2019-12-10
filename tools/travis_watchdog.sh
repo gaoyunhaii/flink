@@ -221,9 +221,12 @@ run_with_watchdog() {
 	# allow the watchdog to kill $CMD if it is not producing any output anymore. $CMD_EXIT contains
 	# the exit code. This is important for Travis' build life-cycle (success/failure).
 	set -x
-	for i in {1..10};do
-	    ( $cmd & PID=$! ; echo $PID >&3 ; wait $PID ; echo $? >&4 ) 3>$CMD_PID 4>$CMD_EXIT | tee $CMD_OUT
-	done
+
+	if echo ${cmd} | grep -q "BlobsCleanupITCase";then
+        for i in {1..100};do
+            ( $cmd & PID=$! ; echo $PID >&3 ; wait $PID ; echo $? >&4 ) 3>$CMD_PID 4>$CMD_EXIT | tee $CMD_OUT
+        done
+	fi
 	set +x
 
 	EXIT_CODE=$(<$CMD_EXIT)
