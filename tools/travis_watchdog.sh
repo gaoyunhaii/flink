@@ -68,7 +68,7 @@ MVN_TEST_OPTIONS="-Dflink.tests.with-openssl"
 e2e_modules=$(find flink-end-to-end-tests -mindepth 2 -maxdepth 5 -name 'pom.xml' -printf '%h\n' | sort -u | tr '\n' ',')
 
 MVN_COMPILE="mvn $MVN_COMMON_OPTIONS $MVN_COMPILE_OPTIONS $PROFILE $MVN_COMPILE_MODULES install"
-MVN_TEST="mvn $MVN_COMMON_OPTIONS $MVN_TEST_OPTIONS $PROFILE -pl flink-runtime -Dtest=BlobsCleanupITCase test"
+MVN_TEST="mvn $MVN_COMMON_OPTIONS $MVN_TEST_OPTIONS $PROFILE -Dcheckstyle.skip=true -Denforcer.skip=true -pl flink-runtime -Dtest=BlobsCleanupITCase test"
 MVN_E2E="mvn $MVN_COMMON_OPTIONS $MVN_TEST_OPTIONS $PROFILE -DincludeE2E="org.apache.flink.tests.util.categories.PreCommit" -pl ${e2e_modules},flink-dist verify"
 
 MVN_PID="${ARTIFACTS_DIR}/watchdog.mvn.pid"
@@ -222,7 +222,8 @@ run_with_watchdog() {
 	# the exit code. This is important for Travis' build life-cycle (success/failure).
 	set -x
 	if echo ${cmd} | grep -q "BlobsCleanupITCase";then
-        for i in {1..100};do
+        for i in {1..30};do
+            echo $i;
             ( $cmd & PID=$! ; echo $PID >&3 ; wait $PID ; echo $? >&4 ) 3>$CMD_PID 4>$CMD_EXIT | tee $CMD_OUT
         done
     else
