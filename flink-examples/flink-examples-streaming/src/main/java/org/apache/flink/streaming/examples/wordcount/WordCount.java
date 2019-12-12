@@ -62,6 +62,10 @@ public class WordCount {
 
 		// get input data
 		DataStream<String> text = null;
+
+		text.keyBy(0).map(null).keyBy(0).map(null);
+		text.map().map();
+
 		if (params.has("input")) {
 			// union all the inputs from text files
 			for (String input : params.getMultiParameterRequired("input")) {

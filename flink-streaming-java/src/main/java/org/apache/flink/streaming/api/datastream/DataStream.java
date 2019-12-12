@@ -799,7 +799,7 @@ public class DataStream<T> {
 	 * {@code .window(SlidingProcessingTimeWindows.of(size, slide))} depending on the time characteristic
 	 * set using
 	 * {@link org.apache.flink.streaming.api.environment.StreamExecutionEnvironment#setStreamTimeCharacteristic(org.apache.flink.streaming.api.TimeCharacteristic)}
-	 *
+	 * g x
 	 * <p>Note: This operation is inherently non-parallel since all elements have to pass through
 	 * the same operator instance.
 	 *
