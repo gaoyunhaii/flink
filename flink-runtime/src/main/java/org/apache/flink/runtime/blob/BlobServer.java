@@ -490,6 +490,7 @@ public class BlobServer extends Thread implements BlobService, BlobWriter, Perma
 			File incomingFile = null;
 			try {
 				incomingFile = createTemporaryFilename();
+				LOG.info("Incoming file is {}", incomingFile.getAbsolutePath());
 				blobStore.get(jobId, blobKey, incomingFile);
 
 				readWriteLock.writeLock().lock();
