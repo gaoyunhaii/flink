@@ -470,6 +470,9 @@ public class BlobServer extends Thread implements BlobService, BlobWriter, Perma
 	void getFileInternal(@Nullable JobID jobId, BlobKey blobKey, File localFile) throws IOException {
 		// assume readWriteLock.readLock() was already locked (cannot really check that)
 
+		LOG.info("Get file internal : job id = {}, blobKey = {}, localFile = {}, temp id = {}",
+				jobId, blobKey, localFile, tempFileCounter.get());
+
 		if (localFile.exists()) {
 			// update TTL for transient BLOBs:
 			if (blobKey instanceof TransientBlobKey) {
