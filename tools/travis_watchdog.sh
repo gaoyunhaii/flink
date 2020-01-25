@@ -133,7 +133,9 @@ upload_artifacts_s3() {
 
 	# upload to https://transfer.sh
 	echo "Uploading to transfer.sh"
-	curl --upload-file $ARTIFACTS_FILE --max-time 60 https://transfer.sh
+	curl -v --upload-file $ARTIFACTS_FILE --max-time 60 https://transfer.sh
+	exit_code=$?
+	echo "Uploaded ret is $exit_code"
 }
 
 print_stacktraces () {
@@ -222,7 +224,7 @@ run_with_watchdog() {
 	# the exit code. This is important for Travis' build life-cycle (success/failure).
 	set -x
 	if echo ${cmd} | grep -q "BlobsCleanupITCase";then
-        for i in {1..30};do
+        for i in 1;do
             echo $i;
             ( $cmd & PID=$! ; echo $PID >&3 ; wait $PID ; echo $? >&4 ) 3>$CMD_PID 4>$CMD_EXIT | tee $CMD_OUT
         done
