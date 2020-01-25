@@ -42,7 +42,7 @@ MAX_NO_OUTPUT=${1:-300}
 
 # Number of seconds to sleep before checking the output again
 SLEEP_TIME=20
-TRANSER_SH_MAX_RETRIES = 10
+TRANSER_SH_MAX_RETRIES = 3
 
 LOG4J_PROPERTIES=${HERE}/log4j-travis.properties
 
@@ -138,7 +138,7 @@ upload_artifacts_s3() {
 	for i in 1..TRANSER_SH_MAX_RETRIES;do
 	    output=`curl --upload-file $ARTIFACTS_FILE --max-time 60 https://transfer.sh`
 	    echo ${output}
-	    if grep -q "^http" <<< ${output};then
+	    if grep -q "^Could" <<< ${output};then
 	        break
 	    else
 	        echo "Retrying uploading..."
