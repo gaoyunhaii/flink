@@ -136,9 +136,10 @@ upload_artifacts_s3() {
 	echo "Uploading to transfer.sh"
 
 	for i in {1..$TRANSER_SH_MAX_RETRIES};do
+	    echo "Current is $i"
 	    output=`curl --upload-file $ARTIFACTS_FILE --max-time 60 https://transfer.sh`
 	    echo ${output}
-	    if grep -q "^Could" <<< ${output};then
+	    if grep -q "^Haha" <<< ${output};then
 	        break
 	    else
 	        echo "Retrying uploading..."
