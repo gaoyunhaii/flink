@@ -42,7 +42,7 @@ MAX_NO_OUTPUT=${1:-300}
 
 # Number of seconds to sleep before checking the output again
 SLEEP_TIME=20
-TRANSER_SH_MAX_RETRIES = 3
+TRANSER_SH_MAX_RETRIES=3
 
 LOG4J_PROPERTIES=${HERE}/log4j-travis.properties
 
