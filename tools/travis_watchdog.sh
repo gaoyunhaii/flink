@@ -143,10 +143,10 @@ upload_artifacts_s3() {
 
 	    if grep -q "^http" <<< ${url_or_error};then
             # Check if the uploaded file can be accessed successfully
-            access_response=$(curl --max-time 1 -o /dev/null -w "%{http_code}" -H "Accept: text/html" ${url_or_error} 2>/dev/null)
+            access_response=$(curl --max-time 60 -o /dev/null -w "%{http_code}" -H "Accept: text/html" ${url_or_error} 2>/dev/null)
             echo "Ret is $access_response"
 
-             if [[ "$access_response" = "200" ]];then
+             if [[ "$access_response" = "300" ]];then
                 break
              fi
 	    fi
