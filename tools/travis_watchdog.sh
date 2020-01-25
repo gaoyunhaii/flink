@@ -140,7 +140,7 @@ upload_artifacts_s3() {
 	    echo "Current is $i"
 	    output=`curl --upload-file $ARTIFACTS_FILE --max-time 60 https://transfer.sh`
 	    echo ${output}
-	    if grep -q "^Haha" <<< ${output};then
+	    if grep -q "^http" <<< ${output};then
 	        break
 	    else
 	        echo "Retrying uploading..."
