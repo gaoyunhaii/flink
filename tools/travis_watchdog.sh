@@ -141,7 +141,7 @@ upload_artifacts_s3() {
 	    output=`curl --upload-file $ARTIFACTS_FILE --max-time 60 https://transfer.sh`
 	    echo ${output}
 	    if grep -q "^http" <<< ${output};then
-            get_response=$(curl -o /dev/null -w "%{http_code}" -H "Accept: text/html" ${output})
+            get_response=$(curl --max-time 60 -o /dev/null -w "%{http_code}" -H "Accept: text/html" ${output} 2>/dev/null)
 
             if [[ "$get_response" -eq "200" ]];then
                 break
