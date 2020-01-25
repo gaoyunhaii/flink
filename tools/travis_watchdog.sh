@@ -133,26 +133,25 @@ upload_artifacts_s3() {
 	fi
 
 	# upload to https://transfer.sh
-	echo "Uploading to transfer.sh"
+	# Maximum times to retry uploading artifacts file to transfer.sh
+    TRANSFER_UPLOAD_MAX_RETRIES=3
+	echo "Uploading to transfer.sh, maximum retries is ${TRANSFER_UPLOAD_MAX_RETRIES}"
+	for i in $(seq 1 ${TRANSFER_UPLOAD_MAX_RETRIES});do
+	    url_or_error=$(curl --upload-file $ARTIFACTS_FILE --max-time 60 https://transfer.sh)
+	    echo ${url_or_error}
 
-    echo "Retry is $TRANSER_SH_MAX_RETRIES"
-	for i in $(seq 1 ${TRANSER_SH_MAX_RETRIES});do
-	    echo "Current is $i"
-	    output=`curl --upload-file $ARTIFACTS_FILE --max-time 60 https://transfer.sh`
-	    echo ${output}
-	    if grep -q "^http" <<< ${output};then
-            get_response=$(curl --max-time 60 -o /dev/null -w "%{http_code}" -H "Accept: text/html" ${output} 2>/dev/null)
-
-            if [[ "$get_response" -eq "200" ]];then
+	    if grep -q "^http" <<< ${url_or_error};then
+            # Check if the uploaded file can be accessed successfully
+            access_response=$(curl --max-time 60 -o /dev/null -w "%{http_code}" -H "Accept: text/html" ${url_or_error} 2>/dev/null)
+             if [[ "$access_response" = "200" ]];then
                 break
-            fi
-	    else
-	        echo "Retrying uploading..."
+             fi
+	    fi
+
+	    if [[ "$i" -lt "$TRANSFER_UPLOAD_MAX_RETRIES" ]];then
+	        echo "Failed to upload to transfer.sh and will retry..."
 	    fi
 	done
-
-	exit_code=$?
-	echo "Uploaded ret is $exit_code"
 }
 
 print_stacktraces () {
