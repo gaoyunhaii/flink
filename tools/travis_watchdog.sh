@@ -136,7 +136,7 @@ upload_artifacts_s3() {
 	echo "Uploading to transfer.sh"
 
     echo "Retry is $TRANSER_SH_MAX_RETRIES"
-	for i in {1..${TRANSER_SH_MAX_RETRIES}};do
+	for i in $(seq 1 ${TRANSER_SH_MAX_RETRIES});do
 	    echo "Current is $i"
 	    output=`curl --upload-file $ARTIFACTS_FILE --max-time 60 https://transfer.sh`
 	    echo ${output}
