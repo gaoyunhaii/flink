@@ -42,7 +42,13 @@ MAX_NO_OUTPUT=${1:-300}
 
 # Number of seconds to sleep before checking the output again
 SLEEP_TIME=20
-TRANSER_SH_MAX_RETRIES=3
+
+# Maximum times to retry uploading artifacts file to transfer.sh
+TRANSFER_UPLOAD_MAX_RETRIES=10
+
+# The delay between two retries to upload artifacts file to transfer.sh. The default exponential
+# backoff algorithm should be too long for the last several retries.
+TRANSFER_UPLOAD_RETRY_DELAY=15
 
 LOG4J_PROPERTIES=${HERE}/log4j-travis.properties
 
@@ -135,26 +141,7 @@ upload_artifacts_s3() {
 	# upload to https://transfer.sh
 	# Maximum times to retry uploading artifacts file to transfer.sh
 	set -x
-    TRANSFER_UPLOAD_MAX_RETRIES=3
-	echo "Uploading to transfer.sh, maximum retries is ${TRANSFER_UPLOAD_MAX_RETRIES}"
-	for i in $(seq 1 ${TRANSFER_UPLOAD_MAX_RETRIES});do
-	    url_or_error=$(curl --upload-file $ARTIFACTS_FILE --max-time 60 https://transfer.sh)
-	    echo ${url_or_error}
-
-	    if grep -q "^http" <<< ${url_or_error};then
-            # Check if the uploaded file can be accessed successfully
-            access_response=$(curl --max-time 60 -o /dev/null -w "%{http_code}" -H "Accept: text/html" ${url_or_error} 2>/dev/null)
-            echo "Ret is $access_response"
-
-             if [[ "$access_response" = "300" ]];then
-                break
-             fi
-	    fi
-
-	    if [[ "$i" -lt "$TRANSFER_UPLOAD_MAX_RETRIES" ]];then
-	        echo "Failed to upload to transfer.sh and will retry..."
-	    fi
-	done
+    curl --retry ${TRANSFER_UPLOAD_MAX_RETRIES} --retry-delay ${TRANSFER_UPLOAD_RETRY_DELAY} --upload-file $ARTIFACTS_FILE --max-time 60 https://transfer.sh
 	set +x
 }
 
