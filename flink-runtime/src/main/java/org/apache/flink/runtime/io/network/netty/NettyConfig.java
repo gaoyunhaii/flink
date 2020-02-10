@@ -21,6 +21,8 @@ package org.apache.flink.runtime.io.network.netty;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.NettyShuffleEnvironmentOptions;
 import org.apache.flink.runtime.net.SSLUtils;
+import org.apache.flink.runtime.util.ConfigurationParserUtils;
+import org.apache.flink.util.MathUtils;
 import org.apache.flink.util.NetUtils;
 
 import org.slf4j.Logger;
@@ -98,6 +100,25 @@ public class NettyConfig {
 		// default: number of slots
 		final int configValue = config.getInteger(NettyShuffleEnvironmentOptions.NUM_ARENAS);
 		return configValue == -1 ? numberOfSlots : configValue;
+	}
+
+	public int getPageSize() {
+		int pageSize = config.getInteger(NettyShuffleEnvironmentOptions.PAGE_SIZE);
+		ConfigurationParserUtils.checkConfigParameter(pageSize >= 4096, pageSize,
+			NettyShuffleEnvironmentOptions.PAGE_SIZE.key(),
+			"The netty page size should not be smaller than 4KB.");
+
+		return pageSize;
+	}
+
+	public int getMaxOrder() {
+		int maxOrder = config.getInteger(NettyShuffleEnvironmentOptions.MAX_ORDER);
+
+		// Assert the chunk size is not too small to fulfill the requirements of a single thread.
+		// We require the chunk size to be larger than 1MB based on the experiment results.
+		int minimumMaxOrder = 20 - MathUtils.log2strict(getPageSize());
+
+		return Math.max(minimumMaxOrder, maxOrder);
 	}
 
 	public int getServerNumThreads() {

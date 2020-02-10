@@ -196,6 +196,22 @@ public class NettyShuffleEnvironmentOptions {
 			.withDeprecatedKeys("taskmanager.net.num-arenas")
 			.withDescription("The number of Netty arenas.");
 
+	/**
+	 * Arenas allocate chunks of pageSize << maxOrder bytes. With these defaults, this results in
+	 * chunks of 4 MB.
+	 */
+	@Documentation.Section(Documentation.Sections.ALL_TASK_MANAGER_NETWORK)
+	public static final ConfigOption<Integer> MAX_ORDER = ConfigOptions
+		.key("taskmanager.network.netty.max-order")
+		.defaultValue(9)
+		.withDescription("The power of 2 of the number of pages in each chunk.");
+
+	@Documentation.Section(Documentation.Sections.ALL_TASK_MANAGER_NETWORK)
+	public static final ConfigOption<Integer> PAGE_SIZE = ConfigOptions
+		.key("taskmanager.network.netty.page-size")
+		.defaultValue(8192)
+		.withDescription("The page size of the netty buffer pool.");
+
 	@Documentation.Section(Documentation.Sections.ALL_TASK_MANAGER_NETWORK)
 	public static final ConfigOption<Integer> NUM_THREADS_SERVER =
 		key("taskmanager.network.netty.server.numThreads")
