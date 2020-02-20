@@ -19,14 +19,14 @@
 package org.apache.flink.runtime.io.network.netty;
 
 import org.apache.flink.shaded.netty4.io.netty.buffer.ByteBuf;
-import org.apache.flink.shaded.netty4.io.netty.buffer.ByteBufAllocator;
+import org.apache.flink.shaded.netty4.io.netty.channel.ChannelHandlerContext;
 
 import javax.annotation.Nullable;
 
 /**
  * Parsers for specified netty messages.
  */
-public interface NettyMessageDecoderDelegate {
+public interface NettyMessageDecoderDelegate extends AutoCloseable {
 
 	/**
 	 * The result of message parsing with the provided data.
@@ -56,9 +56,9 @@ public interface NettyMessageDecoderDelegate {
 	/**
 	 * Notifies the underlying channel become active.
 	 *
-	 * @param alloc The netty buffer allocator.
+	 * @param ctx The context for the callback.
 	 */
-	void onChannelActive(ByteBufAllocator alloc);
+	void onChannelActive(ChannelHandlerContext ctx);
 
 	/**
 	 * Notifies a new message is to be parsed.
@@ -75,10 +75,4 @@ public interface NettyMessageDecoderDelegate {
 	 * @return The result of current pass of parsing.
 	 */
 	ParseResult onChannelRead(ByteBuf data) throws Exception;
-
-	/**
-	 * Notifies the channel is going to be inactive and the parser
-	 * should release all resources occupied.
-	 */
-	void release();
 }

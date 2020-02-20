@@ -19,7 +19,7 @@
 package org.apache.flink.runtime.io.network.netty;
 
 import org.apache.flink.shaded.netty4.io.netty.buffer.ByteBuf;
-import org.apache.flink.shaded.netty4.io.netty.buffer.ByteBufAllocator;
+import org.apache.flink.shaded.netty4.io.netty.channel.ChannelHandlerContext;
 
 import java.net.ProtocolException;
 
@@ -33,7 +33,7 @@ public class NonBufferResponseDecoderDelegate implements NettyMessageDecoderDele
 	private static final int INITIAL_MESSAGE_HEADER_BUFFER_LENGTH = 128;
 
 	/** The cumulation buffer of message header. */
-	private ByteBuf messageCumulationBuffer;
+	private ByteBuf messageBuffer;
 
 	/** The type of messages under processing. */
 	private int msgId = -1;
@@ -42,8 +42,8 @@ public class NonBufferResponseDecoderDelegate implements NettyMessageDecoderDele
 	private int messageLength;
 
 	@Override
-	public void onChannelActive(ByteBufAllocator alloc) {
-		messageCumulationBuffer = alloc.directBuffer(INITIAL_MESSAGE_HEADER_BUFFER_LENGTH);
+	public void onChannelActive(ChannelHandlerContext ctx) {
+		messageBuffer = ctx.alloc().directBuffer(INITIAL_MESSAGE_HEADER_BUFFER_LENGTH);
 	}
 
 	@Override
@@ -51,13 +51,13 @@ public class NonBufferResponseDecoderDelegate implements NettyMessageDecoderDele
 		this.msgId = msgId;
 		this.messageLength = messageLength;
 
-		messageCumulationBuffer.clear();
-		messageCumulationBuffer.capacity(messageLength);
+		messageBuffer.clear();
+		messageBuffer.capacity(messageLength);
 	}
 
 	@Override
 	public ParseResult onChannelRead(ByteBuf data) throws Exception {
-		ByteBuf toDecode = ByteBufUtils.cumulate(messageCumulationBuffer, data, messageLength);
+		ByteBuf toDecode = ByteBufUtils.cumulate(messageBuffer, data, messageLength);
 
 		if (toDecode == null) {
 			return ParseResult.notFinished();
@@ -72,7 +72,7 @@ public class NonBufferResponseDecoderDelegate implements NettyMessageDecoderDele
 	}
 
 	@Override
-	public void release() {
-		messageCumulationBuffer.release();
+	public void close() {
+		messageBuffer.release();
 	}
 }

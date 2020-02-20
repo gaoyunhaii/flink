@@ -72,8 +72,8 @@ public class NettyMessageClientDecoder extends ChannelInboundHandlerAdapter {
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
         super.channelActive(ctx);
 
-        bufferResponseDecoderDelegate.onChannelActive(ctx.alloc());
-        nonBufferResponseDecoderDelegate.onChannelActive(ctx.alloc());
+        bufferResponseDecoderDelegate.onChannelActive(ctx);
+        nonBufferResponseDecoderDelegate.onChannelActive(ctx);
 
 		frameHeaderBuffer = ctx.alloc().directBuffer(FRAME_HEADER_LENGTH);
     }
@@ -82,43 +82,20 @@ public class NettyMessageClientDecoder extends ChannelInboundHandlerAdapter {
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
         super.channelInactive(ctx);
 
-		bufferResponseDecoderDelegate.release();
-		nonBufferResponseDecoderDelegate.release();
+		bufferResponseDecoderDelegate.close();
+		nonBufferResponseDecoderDelegate.close();
 
 		frameHeaderBuffer.release();
     }
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        if (!(msg instanceof ByteBuf)) {
-            ctx.fireChannelRead(msg);
-            return;
-        }
-
         ByteBuf data = (ByteBuf) msg;
 
         try {
             while (data.isReadable()) {
 				if (currentDecoderDelegate == null) {
-					ByteBuf toDecode = ByteBufUtils.cumulate(frameHeaderBuffer, data, FRAME_HEADER_LENGTH);
-
-            		if (toDecode != null) {
-						int messageAndFrameLength = toDecode.readInt();
-						checkState(messageAndFrameLength >= 0, "The length field of current message must be non-negative");
-
-						int magicNumber = toDecode.readInt();
-						checkState(magicNumber == MAGIC_NUMBER, "Network stream corrupted: received incorrect magic number.");
-
-						int msgId = toDecode.readByte();
-
-						if (msgId == NettyMessage.BufferResponse.ID) {
-							currentDecoderDelegate = bufferResponseDecoderDelegate;
-						} else {
-							currentDecoderDelegate = nonBufferResponseDecoderDelegate;
-						}
-
-						currentDecoderDelegate.startParsingMessage(msgId, messageAndFrameLength - FRAME_HEADER_LENGTH);
-					}
+					decodeFrameHeader(data);
 				}
 
 				if (data.isReadable() && currentDecoderDelegate != null) {
@@ -140,4 +117,26 @@ public class NettyMessageClientDecoder extends ChannelInboundHandlerAdapter {
             data.release();
         }
     }
+
+    private void decodeFrameHeader(ByteBuf data) {
+		ByteBuf toDecode = ByteBufUtils.cumulate(frameHeaderBuffer, data, FRAME_HEADER_LENGTH);
+
+		if (toDecode != null) {
+			int messageAndFrameLength = toDecode.readInt();
+			checkState(messageAndFrameLength >= 0, "The length field of current message must be non-negative");
+
+			int magicNumber = toDecode.readInt();
+			checkState(magicNumber == MAGIC_NUMBER, "Network stream corrupted: received incorrect magic number.");
+
+			int msgId = toDecode.readByte();
+
+			if (msgId == NettyMessage.BufferResponse.ID) {
+				currentDecoderDelegate = bufferResponseDecoderDelegate;
+			} else {
+				currentDecoderDelegate = nonBufferResponseDecoderDelegate;
+			}
+
+			currentDecoderDelegate.startParsingMessage(msgId, messageAndFrameLength - FRAME_HEADER_LENGTH);
+		}
+	}
 }

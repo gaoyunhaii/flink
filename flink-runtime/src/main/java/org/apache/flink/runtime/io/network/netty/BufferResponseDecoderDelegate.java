@@ -20,7 +20,9 @@ package org.apache.flink.runtime.io.network.netty;
 
 import org.apache.flink.runtime.io.network.NetworkClientHandler;
 import org.apache.flink.shaded.netty4.io.netty.buffer.ByteBuf;
-import org.apache.flink.shaded.netty4.io.netty.buffer.ByteBufAllocator;
+import org.apache.flink.shaded.netty4.io.netty.channel.ChannelHandlerContext;
+
+import static org.apache.flink.runtime.io.network.netty.NettyMessage.BufferResponse;
 
 /**
  * The parser for {@link org.apache.flink.runtime.io.network.netty.NettyMessage.BufferResponse}.
@@ -34,14 +36,14 @@ public class BufferResponseDecoderDelegate implements NettyMessageDecoderDelegat
 	private final NetworkBufferAllocator allocator;
 
 	/** The cumulation buffer of message header. */
-	private ByteBuf messageHeaderCumulationBuffer;
+	private ByteBuf messageHeaderBuffer;
 
 	/**
 	 * The current BufferResponse message that are process the buffer part.
 	 * If it is null, we are still processing the message header part, otherwise
 	 * we are processing the buffer part.
 	 */
-	private NettyMessage.BufferResponse currentResponse;
+	private BufferResponse currentResponse;
 
 	/** How much bytes have been received or discarded for the buffer part. */
 	private int decodedBytesOfBuffer;
@@ -52,8 +54,8 @@ public class BufferResponseDecoderDelegate implements NettyMessageDecoderDelegat
 	}
 
 	@Override
-	public void onChannelActive(ByteBufAllocator alloc) {
-		messageHeaderCumulationBuffer = alloc.directBuffer(NettyMessage.BufferResponse.MESSAGE_HEADER_LENGTH);
+	public void onChannelActive(ChannelHandlerContext ctx) {
+		messageHeaderBuffer = ctx.alloc().directBuffer(BufferResponse.MESSAGE_HEADER_LENGTH);
 	}
 
 	@Override
@@ -61,16 +63,16 @@ public class BufferResponseDecoderDelegate implements NettyMessageDecoderDelegat
 		currentResponse = null;
 		decodedBytesOfBuffer = 0;
 
-		messageHeaderCumulationBuffer.clear();
+		messageHeaderBuffer.clear();
 	}
 
 	@Override
 	public ParseResult onChannelRead(ByteBuf data) throws Exception {
 		if (currentResponse == null) {
-			ByteBuf toDecode = ByteBufUtils.cumulate(messageHeaderCumulationBuffer, data, NettyMessage.BufferResponse.MESSAGE_HEADER_LENGTH);
+			ByteBuf toDecode = ByteBufUtils.cumulate(messageHeaderBuffer, data, BufferResponse.MESSAGE_HEADER_LENGTH);
 
 			if (toDecode != null) {
-				currentResponse = NettyMessage.BufferResponse.readFrom(toDecode, allocator);
+				currentResponse = BufferResponse.readFrom(toDecode, allocator);
 
 				if (currentResponse.bufferSize == 0) {
 					return ParseResult.finishedWith(currentResponse);
@@ -105,11 +107,11 @@ public class BufferResponseDecoderDelegate implements NettyMessageDecoderDelegat
 	}
 
 	@Override
-	public void release() {
+	public void close() {
 		if (currentResponse != null && currentResponse.getBuffer() != null) {
 			currentResponse.getBuffer().recycleBuffer();
 		}
 
-		messageHeaderCumulationBuffer.release();
+		messageHeaderBuffer.release();
 	}
 }
