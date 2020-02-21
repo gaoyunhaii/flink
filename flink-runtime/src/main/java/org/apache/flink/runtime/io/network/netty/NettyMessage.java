@@ -282,6 +282,8 @@ public abstract class NettyMessage {
 
 		final int bufferSize;
 
+		final boolean isReleased;
+
 		private BufferResponse(
 				Buffer buffer,
 				boolean isBuffer,
@@ -289,7 +291,8 @@ public abstract class NettyMessage {
 				int sequenceNumber,
 				InputChannelID receiverId,
 				int backlog,
-				int bufferSize) {
+				int bufferSize,
+				boolean isReleased) {
 			this.buffer = checkNotNull(buffer);
 			this.isBuffer = isBuffer;
 			this.isCompressed = isCompressed;
@@ -297,6 +300,7 @@ public abstract class NettyMessage {
 			this.receiverId = checkNotNull(receiverId);
 			this.backlog = backlog;
 			this.bufferSize = bufferSize;
+			this.isReleased = isReleased;
 		}
 
 		BufferResponse(
@@ -311,6 +315,7 @@ public abstract class NettyMessage {
 			this.receiverId = checkNotNull(receiverId);
 			this.backlog = backlog;
 			this.bufferSize = buffer.getSize();
+			this.isReleased = false;
 		}
 
 		boolean isBuffer() {
@@ -381,9 +386,14 @@ public abstract class NettyMessage {
 			int size = messageHeader.readInt();
 
 			Buffer dataBuffer = null;
+			boolean isReleased = false;
+
 			if (size != 0) {
 				if (isBuffer) {
 					dataBuffer = bufferAllocator.allocatePooledNetworkBuffer(receiverId);
+					if (dataBuffer == null) {
+						isReleased = true;
+					}
 				} else {
 					dataBuffer = bufferAllocator.allocateUnPooledNetworkBuffer(size);
 				}
@@ -402,7 +412,8 @@ public abstract class NettyMessage {
 					sequenceNumber,
 					receiverId,
 					backlog,
-					size);
+					size,
+					isReleased);
 		}
 	}
 

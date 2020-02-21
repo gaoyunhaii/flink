@@ -249,7 +249,7 @@ class CreditBasedPartitionRequestClientHandler extends ChannelInboundHandlerAdap
 			NettyMessage.BufferResponse bufferOrEvent = (NettyMessage.BufferResponse) msg;
 
 			RemoteInputChannel inputChannel = inputChannels.get(bufferOrEvent.receiverId);
-			if (inputChannel == null) {
+			if (inputChannel == null || bufferOrEvent.isReleased) {
 				bufferOrEvent.releaseBuffer();
 
 				cancelRequestFor(bufferOrEvent.receiverId);

@@ -27,12 +27,14 @@ import org.apache.flink.runtime.io.network.buffer.NetworkBuffer;
 import org.apache.flink.runtime.io.network.partition.consumer.InputChannelID;
 import org.apache.flink.runtime.io.network.partition.consumer.RemoteInputChannel;
 
+import javax.annotation.Nullable;
+
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * An allocator used for requesting buffers in the receiver side of netty handlers.
  */
-public class NetworkBufferAllocator {
+class NetworkBufferAllocator {
 	private final NetworkClientHandler partitionRequestClientHandler;
 	private final Buffer placeHolderBuffer;
 
@@ -47,7 +49,8 @@ public class NetworkBufferAllocator {
 	 * @param receiverId The input channel id to request pooled buffer with.
 	 * @return The pooled network buffer.
 	 */
-	public Buffer allocatePooledNetworkBuffer(InputChannelID receiverId) {
+	@Nullable
+	Buffer allocatePooledNetworkBuffer(InputChannelID receiverId) {
 		Buffer buffer = null;
 
 		RemoteInputChannel inputChannel = partitionRequestClientHandler.getInputChannel(receiverId);
@@ -67,7 +70,7 @@ public class NetworkBufferAllocator {
 	 * @param size The requested buffer size.
 	 * @return The un-pooled network buffer.
 	 */
-	public Buffer allocateUnPooledNetworkBuffer(int size) {
+	Buffer allocateUnPooledNetworkBuffer(int size) {
 		byte[] byteArray = new byte[size];
 		MemorySegment memSeg = MemorySegmentFactory.wrap(byteArray);
 
@@ -79,17 +82,7 @@ public class NetworkBufferAllocator {
 	 *
 	 * @return The placeholder buffer of this allocator.
 	 */
-	public Buffer getPlaceHolderBuffer() {
+	Buffer getPlaceHolderBuffer() {
 		return placeHolderBuffer;
-	}
-
-	/**
-	 * Judges whether a buffer is the placeholder buffer of this allocator.
-	 *
-	 * @param buffer The buffer to judge
-	 * @return Whether the buffer is the placeholder buffer of this allocator.
-	 */
-	public boolean isPlaceHolderBuffer(Buffer buffer) {
-		return buffer == placeHolderBuffer;
 	}
 }

@@ -45,7 +45,10 @@ public class ByteBufUtils {
 		}
 
 		int copyLength = Math.min(src.readableBytes(), expectedSize - cumulationBuf.readableBytes());
-		cumulationBuf.writeBytes(src, copyLength);
+
+		if (copyLength > 0) {
+			cumulationBuf.writeBytes(src, copyLength);
+		}
 
 		if (cumulationBuf.readableBytes() == expectedSize) {
 			return cumulationBuf;

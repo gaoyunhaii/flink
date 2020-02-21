@@ -21,30 +21,33 @@ package org.apache.flink.runtime.io.network.netty;
 import org.apache.flink.shaded.netty4.io.netty.buffer.ByteBuf;
 import org.apache.flink.shaded.netty4.io.netty.channel.ChannelHandlerContext;
 
-import javax.annotation.Nullable;
-
 /**
  * Parsers for specified netty messages.
  */
-public interface NettyMessageDecoder extends AutoCloseable {
+abstract class NettyMessageDecoder implements AutoCloseable {
+
+	/** ID of message currently under decoding. */
+	protected int msgId;
+
+	/** Length of message currently under decoding */
+	protected int messageLength;
 
 	/**
 	 * The result of message parsing with the provided data.
 	 */
-	class ParseResult {
+	static class ParseResult {
 		private final static ParseResult NOT_FINISHED = new ParseResult(false, null);
 
 		static ParseResult notFinished() {
 			return NOT_FINISHED;
 		}
 
-		static ParseResult finishedWith(@Nullable NettyMessage message) {
+		static ParseResult finishedWith(NettyMessage message) {
 			return new ParseResult(true, message);
 		}
 
 		final boolean finished;
 
-		@Nullable
 		final NettyMessage message;
 
 		private ParseResult(boolean finished, NettyMessage message) {
@@ -58,7 +61,7 @@ public interface NettyMessageDecoder extends AutoCloseable {
 	 *
 	 * @param ctx The context for the callback.
 	 */
-	void onChannelActive(ChannelHandlerContext ctx);
+	abstract void onChannelActive(ChannelHandlerContext ctx);
 
 	/**
 	 * Notifies a new message is to be parsed.
@@ -66,7 +69,10 @@ public interface NettyMessageDecoder extends AutoCloseable {
 	 * @param msgId The type of the message to be parsed.
 	 * @param messageLength The length of the message to be parsed.
 	 */
-	void startParsingMessage(int msgId, int messageLength);
+	void onNewMessage(int msgId, int messageLength) {
+		this.msgId = msgId;
+		this.messageLength = messageLength;
+	}
 
 	/**
 	 * Notifies we have received more data for the current message.
@@ -74,5 +80,5 @@ public interface NettyMessageDecoder extends AutoCloseable {
 	 * @param data The data received.
 	 * @return The result of current pass of parsing.
 	 */
-	ParseResult onChannelRead(ByteBuf data) throws Exception;
+	abstract ParseResult onChannelRead(ByteBuf data) throws Exception;
 }

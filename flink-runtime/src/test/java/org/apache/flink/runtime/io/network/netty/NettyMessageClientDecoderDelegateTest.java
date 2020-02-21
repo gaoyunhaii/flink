@@ -117,6 +117,7 @@ public class NettyMessageClientDecoderDelegateTest {
 
 		NettyMessage[] expectedMessages = new NettyMessage[]{
 			new NettyMessage.BufferResponse(createDataBuffer(128), 0, NORMAL_INPUT_CHANNEL_ID, 4),
+			new NettyMessage.BufferResponse(createDataBuffer(256),  1, RELEASED_INPUT_CHANNEL_ID, 3),
 			new NettyMessage.BufferResponse(event, 2, NORMAL_INPUT_CHANNEL_ID, 4),
 			new NettyMessage.ErrorResponse(new RuntimeException("test"), RELEASED_INPUT_CHANNEL_ID),
 			new NettyMessage.BufferResponse(createDataBuffer(64), 3, NORMAL_INPUT_CHANNEL_ID, 4),

@@ -64,7 +64,7 @@ public class NettyMessageClientDecoderDelegate extends ChannelInboundHandlerAdap
 	private NettyMessageDecoder currentDecoder;
 
     NettyMessageClientDecoderDelegate(NetworkClientHandler networkClientHandler) {
-        this.bufferResponseDecoder = new BufferResponseDecoder(networkClientHandler);
+		this.bufferResponseDecoder = new BufferResponseDecoder(new NetworkBufferAllocator(networkClientHandler));
         this.nonBufferResponseDecoder = new NonBufferResponseDecoder();
     }
 
@@ -90,26 +90,29 @@ public class NettyMessageClientDecoderDelegate extends ChannelInboundHandlerAdap
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+    	if (!(msg instanceof ByteBuf)) {
+			ctx.fireChannelRead(msg);
+			return;
+		}
+
         ByteBuf data = (ByteBuf) msg;
 
         try {
             while (data.isReadable()) {
-            	if (currentDecoder == null) {
-            		decodeFrameHeader(data);
-				}
-
             	if (currentDecoder != null) {
 					NettyMessageDecoder.ParseResult result = currentDecoder.onChannelRead(data);
 
-					if (result.finished) {
-						if (result.message != null) {
-							ctx.fireChannelRead(result.message);
-						}
-
-						currentDecoder = null;
-						frameHeaderBuffer.clear();
+					if (!result.finished) {
+						break;
 					}
+
+					ctx.fireChannelRead(result.message);
+
+					currentDecoder = null;
+					frameHeaderBuffer.clear();
 				}
+
+				decodeFrameHeader(data);
             }
 
             checkState(!data.isReadable(), "Not all data of the received buffer consumed.");
@@ -136,7 +139,7 @@ public class NettyMessageClientDecoderDelegate extends ChannelInboundHandlerAdap
 				currentDecoder = nonBufferResponseDecoder;
 			}
 
-			currentDecoder.startParsingMessage(msgId, messageAndFrameLength - FRAME_HEADER_LENGTH);
+			currentDecoder.onNewMessage(msgId, messageAndFrameLength - FRAME_HEADER_LENGTH);
 		}
 	}
 }

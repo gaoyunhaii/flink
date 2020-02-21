@@ -459,7 +459,7 @@ public class CreditBasedPartitionRequestClientHandlerTest {
 		NetworkBufferAllocator allocator = new NetworkBufferAllocator(clientHandler);
 		BufferResponse deserialized = BufferResponse.readFrom(serialized, allocator);
 
-		if (!allocator.isPlaceHolderBuffer(deserialized.getBuffer())) {
+		if (!deserialized.isReleased) {
 			deserialized.getBuffer().asByteBuf().writeBytes(buffer.asByteBuf());
 		}
 

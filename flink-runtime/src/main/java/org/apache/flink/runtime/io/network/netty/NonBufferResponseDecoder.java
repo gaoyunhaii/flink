@@ -27,7 +27,7 @@ import java.net.ProtocolException;
  * The parser for messages without specific parser. It receives the whole
  * messages and then delegate the parsing to the targeted messages.
  */
-public class NonBufferResponseDecoder implements NettyMessageDecoder {
+class NonBufferResponseDecoder extends NettyMessageDecoder {
 
 	/** The initial size of the message header cumulator buffer. */
 	private static final int INITIAL_MESSAGE_HEADER_BUFFER_LENGTH = 128;
@@ -35,39 +35,37 @@ public class NonBufferResponseDecoder implements NettyMessageDecoder {
 	/** The cumulation buffer of message header. */
 	private ByteBuf messageBuffer;
 
-	/** The type of messages under processing. */
-	private int msgId = -1;
-
-	/** The length of messages under processing. */
-	private int messageLength;
-
 	@Override
 	public void onChannelActive(ChannelHandlerContext ctx) {
 		messageBuffer = ctx.alloc().directBuffer(INITIAL_MESSAGE_HEADER_BUFFER_LENGTH);
 	}
 
 	@Override
-	public void startParsingMessage(int msgId, int messageLength) {
-		this.msgId = msgId;
-		this.messageLength = messageLength;
-
-		messageBuffer.clear();
-		messageBuffer.capacity(messageLength);
-	}
-
-	@Override
 	public ParseResult onChannelRead(ByteBuf data) throws Exception {
+		ensureBufferCapacityIfNewMessage();
+
 		ByteBuf toDecode = ByteBufUtils.cumulate(messageBuffer, data, messageLength);
 
 		if (toDecode == null) {
 			return ParseResult.notFinished();
 		}
 
+		NettyMessage nettyMessage;
 		switch (msgId) {
 			case NettyMessage.ErrorResponse.ID:
-				return ParseResult.finishedWith(NettyMessage.ErrorResponse.readFrom(toDecode));
+				nettyMessage = NettyMessage.ErrorResponse.readFrom(toDecode);
+				break;
 			default:
 				throw new ProtocolException("Received unknown message from producer: " + msgId);
+		}
+
+		messageBuffer.clear();
+		return ParseResult.finishedWith(nettyMessage);
+	}
+
+	private void ensureBufferCapacityIfNewMessage() {
+		if (messageBuffer.writerIndex() == 0 && messageBuffer.capacity() < messageLength) {
+			messageBuffer.capacity(messageLength);
 		}
 	}
 

@@ -18,19 +18,16 @@
 
 package org.apache.flink.runtime.io.network.netty;
 
-import org.apache.flink.runtime.io.network.NetworkClientHandler;
 import org.apache.flink.shaded.netty4.io.netty.buffer.ByteBuf;
 import org.apache.flink.shaded.netty4.io.netty.channel.ChannelHandlerContext;
 
 import static org.apache.flink.runtime.io.network.netty.NettyMessage.BufferResponse;
+import static org.apache.flink.runtime.io.network.netty.NettyMessage.BufferResponse.MESSAGE_HEADER_LENGTH;
 
 /**
  * The parser for {@link org.apache.flink.runtime.io.network.netty.NettyMessage.BufferResponse}.
  */
-public class BufferResponseDecoder implements NettyMessageDecoder {
-
-	/** The network client handler of current channel. */
-	private final NetworkClientHandler networkClientHandler;
+class BufferResponseDecoder extends NettyMessageDecoder {
 
 	/** The Flink Buffer allocator. */
 	private final NetworkBufferAllocator allocator;
@@ -48,62 +45,54 @@ public class BufferResponseDecoder implements NettyMessageDecoder {
 	/** How much bytes have been received or discarded for the buffer part. */
 	private int decodedBytesOfBuffer;
 
-	public BufferResponseDecoder(NetworkClientHandler networkClientHandler) {
-		this.networkClientHandler = networkClientHandler;
-		this.allocator = new NetworkBufferAllocator(networkClientHandler);
+	BufferResponseDecoder(NetworkBufferAllocator allocator) {
+		this.allocator = allocator;
 	}
 
 	@Override
 	public void onChannelActive(ChannelHandlerContext ctx) {
-		messageHeaderBuffer = ctx.alloc().directBuffer(BufferResponse.MESSAGE_HEADER_LENGTH);
-	}
-
-	@Override
-	public void startParsingMessage(int msgId, int messageLength) {
-		currentResponse = null;
-		decodedBytesOfBuffer = 0;
-
-		messageHeaderBuffer.clear();
+		messageHeaderBuffer = ctx.alloc().directBuffer(MESSAGE_HEADER_LENGTH);
 	}
 
 	@Override
 	public ParseResult onChannelRead(ByteBuf data) throws Exception {
 		if (currentResponse == null) {
-			ByteBuf toDecode = ByteBufUtils.cumulate(messageHeaderBuffer, data, BufferResponse.MESSAGE_HEADER_LENGTH);
+			ByteBuf toDecode = ByteBufUtils.cumulate(messageHeaderBuffer, data, MESSAGE_HEADER_LENGTH);
 
 			if (toDecode != null) {
 				currentResponse = BufferResponse.readFrom(toDecode, allocator);
-
-				if (currentResponse.bufferSize == 0) {
-					return ParseResult.finishedWith(currentResponse);
-				}
 			}
 		}
 
 		if (currentResponse != null) {
-			boolean isDiscarding = allocator.isPlaceHolderBuffer(currentResponse.getBuffer());
 			int remainingBufferSize = currentResponse.bufferSize - decodedBytesOfBuffer;
 			int actualBytesToDecode = Math.min(data.readableBytes(), remainingBufferSize);
 
-			if (isDiscarding) {
-				data.readerIndex(data.readerIndex() + actualBytesToDecode);
-			} else {
-				currentResponse.getBuffer().asByteBuf().writeBytes(data, actualBytesToDecode);
+			if (actualBytesToDecode > 0) {
+				if (currentResponse.isReleased) {
+					data.readerIndex(data.readerIndex() + actualBytesToDecode);
+				} else {
+					currentResponse.getBuffer().asByteBuf().writeBytes(data, actualBytesToDecode);
+				}
+
+				decodedBytesOfBuffer += actualBytesToDecode;
 			}
 
-			decodedBytesOfBuffer += actualBytesToDecode;
-
 			if (decodedBytesOfBuffer == currentResponse.bufferSize) {
-				if (isDiscarding) {
-					networkClientHandler.cancelRequestFor(currentResponse.receiverId);
-					return ParseResult.finishedWith(null);
-				} else {
-					return ParseResult.finishedWith(currentResponse);
-				}
+				BufferResponse result = currentResponse;
+				clearState();
+				return ParseResult.finishedWith(result);
 			}
 		}
 
 		return ParseResult.notFinished();
+	}
+
+	private void clearState() {
+		currentResponse = null;
+		decodedBytesOfBuffer = 0;
+
+		messageHeaderBuffer.clear();
 	}
 
 	@Override
