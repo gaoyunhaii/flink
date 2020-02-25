@@ -37,7 +37,7 @@ mkdir -p $ARTIFACTS_DIR || { echo "FAILURE: cannot create log directory '${ARTIF
 LOG4J_PROPERTIES=${HERE}/../log4j-travis.properties
 
 MVN_LOGGING_OPTIONS="-Dlog.dir=${ARTIFACTS_DIR} -Dlog4j.configuration=file://$LOG4J_PROPERTIES -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn"
-MVN_COMMON_OPTIONS="-nsu -B -Dflink.forkCount=2 -Dflink.forkCountTestPackage=2 -Dmaven.wagon.http.pool=false -Dfast -Pskip-webui-build"
+MVN_COMMON_OPTIONS="-nsu -B -Dflink.forkCount=2 -Dflink.forkCountTestPackage=2 -Dmaven.wagon.http.pool=false -Dfast -Pskip-webui-build -Dcheckstyle.skip=true -Denforcer.skip=true"
 MVN_COMPILE_OPTIONS="-DskipTests"
 
 cp tools/travis/splits/* flink-end-to-end-tests
@@ -47,25 +47,26 @@ echo "Testing branch ${BRANCH} from remote ${REMOTE}. Commit hash: ${COMMIT_HASH
 
 e2e_modules=$(find flink-end-to-end-tests -mindepth 2 -maxdepth 5 -name 'pom.xml' -printf '%h\n' | sort -u | tr '\n' ',')
 e2e_modules="${e2e_modules},$(find flink-walkthroughs -mindepth 2 -maxdepth 2 -name 'pom.xml' -printf '%h\n' | sort -u | tr '\n' ',')"
-MVN_COMPILE="mvn ${MVN_COMMON_OPTIONS} ${MVN_COMPILE_OPTIONS} ${MVN_LOGGING_OPTIONS} ${PROFILE} clean install -pl ${e2e_modules},flink-dist -am"
+MVN_COMPILE="mvn ${MVN_COMMON_OPTIONS} ${MVN_COMPILE_OPTIONS} ${MVN_LOGGING_OPTIONS} ${PROFILE} clean install -pl ${e2e_modules},flink-dist -am -pl !flink-runtime-web"
+echo "${MVN_COMPILE}"
 
 eval "${MVN_COMPILE}"
 EXIT_CODE=$?
 
-if [ $EXIT_CODE == 0 ]; then
-	printf "\n\n==============================================================================\n"
-	printf "Running Java end-to-end tests\n"
-	printf "==============================================================================\n"
-
-	MVN_TEST="mvn ${MVN_COMMON_OPTIONS} ${MVN_LOGGING_OPTIONS} ${PROFILE} verify -pl ${e2e_modules} -DdistDir=$(readlink -e build-target)"
-
-	eval "${MVN_TEST}"
-	EXIT_CODE=$?
-else
-	printf "\n\n==============================================================================\n"
-	printf "Compile failure detected, skipping Java end-to-end tests\n"
-	printf "==============================================================================\n"
-fi
+#if [ $EXIT_CODE == 0 ]; then
+#	printf "\n\n==============================================================================\n"
+#	printf "Running Java end-to-end tests\n"
+#	printf "==============================================================================\n"
+#
+#	MVN_TEST="mvn ${MVN_COMMON_OPTIONS} ${MVN_LOGGING_OPTIONS} ${PROFILE} verify -pl ${e2e_modules} -DdistDir=$(readlink -e build-target)"
+#
+#	eval "${MVN_TEST}"
+#	EXIT_CODE=$?
+#else
+#	printf "\n\n==============================================================================\n"
+#	printf "Compile failure detected, skipping Java end-to-end tests\n"
+#	printf "==============================================================================\n"
+#fi
 
 if [ $EXIT_CODE == 0 ]; then
 	printf "\n\n==============================================================================\n"
