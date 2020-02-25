@@ -53,20 +53,20 @@ echo "${MVN_COMPILE}"
 eval "${MVN_COMPILE}"
 EXIT_CODE=$?
 
-if [ $EXIT_CODE == 0 ]; then
-	printf "\n\n==============================================================================\n"
-	printf "Running Java end-to-end tests\n"
-	printf "==============================================================================\n"
-
-	MVN_TEST="mvn ${MVN_COMMON_OPTIONS} ${MVN_LOGGING_OPTIONS} ${PROFILE} verify -pl ${e2e_modules} -DdistDir=$(readlink -e build-target)"
-
-	eval "${MVN_TEST}"
-	EXIT_CODE=$?
-else
-	printf "\n\n==============================================================================\n"
-	printf "Compile failure detected, skipping Java end-to-end tests\n"
-	printf "==============================================================================\n"
-fi
+#if [ $EXIT_CODE == 0 ]; then
+#	printf "\n\n==============================================================================\n"
+#	printf "Running Java end-to-end tests\n"
+#	printf "==============================================================================\n"
+#
+#	MVN_TEST="mvn ${MVN_COMMON_OPTIONS} ${MVN_LOGGING_OPTIONS} ${PROFILE} verify -pl ${e2e_modules} -DdistDir=$(readlink -e build-target)"
+#
+#	eval "${MVN_TEST}"
+#	EXIT_CODE=$?
+#else
+#	printf "\n\n==============================================================================\n"
+#	printf "Compile failure detected, skipping Java end-to-end tests\n"
+#	printf "==============================================================================\n"
+#fi
 
 if [ $EXIT_CODE == 0 ]; then
 	printf "\n\n==============================================================================\n"
