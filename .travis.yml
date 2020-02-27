@@ -277,11 +277,11 @@ jobs:
 #      rvm: 2.4.0
 #      name: Documentation links check
     # E2E profiles - Hadoop 2.8
-    - if: type in (pull_request, push)
-      stage: test
-      env: PROFILE="-Dinclude-hadoop -Dhadoop.version=2.8.3 -Pe2e-travis1,e2e-hadoop"
-      script: ./tools/travis/nightly.sh split_misc.sh
-      name: e2e - misc - hadoop 2.8
+#    - if: type in (pull_request, push)
+#      stage: test
+#      env: PROFILE="-Dinclude-hadoop -Dhadoop.version=2.8.3 -Pe2e-travis1,e2e-hadoop"
+#      script: ./tools/travis/nightly.sh split_misc.sh
+#      name: e2e - misc - hadoop 2.8
 #    - if: type = cron
 #      env: PROFILE="-Dinclude-hadoop -Dhadoop.version=2.8.3 -Pe2e-travis2,e2e-hadoop"
 #      script: ./tools/travis/nightly.sh split_ha.sh
@@ -364,13 +364,13 @@ jobs:
 #      env: PROFILE="-Pe2e-travis6"
 #      script: ./tools/travis/nightly.sh split_tpcds.sh
 #      name: e2e - tpcds
-#    # E2E profiles - Java 11
-#    - if: type = cron
-#      stage: test
-#      jdk: "openjdk11"
-#      env: PROFILE="-Djdk11 -Dinclude-hadoop -Dhadoop.version=2.8.3 -Pe2e-travis1,e2e-hadoop"
-#      script: ./tools/travis/nightly.sh split_misc.sh
-#      name: e2e - misc - jdk11
+    # E2E profiles - Java 11
+    - if: type = cron
+      stage: test
+      jdk: "openjdk11"
+      env: PROFILE="-Djdk11 -Dinclude-hadoop -Dhadoop.version=2.8.3 -Pe2e-travis1,e2e-hadoop"
+      script: ./tools/travis/nightly.sh split_misc.sh
+      name: e2e - misc - jdk11
 #    - if: type = cron
 #      env: PROFILE="-Djdk11 -Dinclude-hadoop -Dhadoop.version=2.8.3 -Pe2e-travis2,e2e-hadoop"
 #      script: ./tools/travis/nightly.sh split_ha.sh
