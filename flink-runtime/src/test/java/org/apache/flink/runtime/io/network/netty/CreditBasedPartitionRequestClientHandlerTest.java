@@ -439,6 +439,68 @@ public class CreditBasedPartitionRequestClientHandlerTest {
 		}
 	}
 
+	@Test
+	public void testReceivedBufferForRemovedChannel() throws Exception {
+		final int bufferSize = 1024;
+
+		NetworkBufferPool networkBufferPool = new NetworkBufferPool(10, bufferSize, 2);
+		SingleInputGate inputGate = createSingleInputGate(1);
+		RemoteInputChannel inputChannel = createRemoteInputChannel(inputGate, null, networkBufferPool);
+		inputGate.assignExclusiveSegments();
+
+		CreditBasedPartitionRequestClientHandler handler = new CreditBasedPartitionRequestClientHandler();
+		handler.addInputChannel(inputChannel);
+
+		try {
+			Buffer buffer = TestBufferFactory.createBuffer(bufferSize);
+			BufferResponse bufferResponse = createBufferResponse(
+				buffer,
+				0,
+				inputChannel.getInputChannelId(),
+				1,
+				handler);
+
+			handler.removeInputChannel(inputChannel);
+			handler.channelRead(null, bufferResponse);
+
+			assertNotNull(bufferResponse.getBuffer());
+			assertTrue(bufferResponse.getBuffer().isRecycled());
+		} finally {
+			releaseResource(inputGate, networkBufferPool);
+		}
+	}
+
+	@Test
+	public void testReceivedBufferForReleasedChannel() throws Exception {
+		final int bufferSize = 1024;
+
+		NetworkBufferPool networkBufferPool = new NetworkBufferPool(10, bufferSize, 2);
+		SingleInputGate inputGate = createSingleInputGate(1);
+		RemoteInputChannel inputChannel = createRemoteInputChannel(inputGate, null, networkBufferPool);
+		inputGate.assignExclusiveSegments();
+
+		CreditBasedPartitionRequestClientHandler handler = new CreditBasedPartitionRequestClientHandler();
+		handler.addInputChannel(inputChannel);
+
+		try {
+			Buffer buffer = TestBufferFactory.createBuffer(bufferSize);
+			BufferResponse bufferResponse = createBufferResponse(
+				buffer,
+				0,
+				inputChannel.getInputChannelId(),
+				1,
+				handler);
+
+			inputGate.close();
+			handler.channelRead(null, bufferResponse);
+
+			assertNotNull(bufferResponse.getBuffer());
+			assertTrue(bufferResponse.getBuffer().isRecycled());
+		} finally {
+			releaseResource(inputGate, networkBufferPool);
+		}
+	}
+
 	private static void releaseResource(SingleInputGate inputGate, NetworkBufferPool networkBufferPool) throws IOException {
 		// Release all the buffer resources
 		inputGate.close();
