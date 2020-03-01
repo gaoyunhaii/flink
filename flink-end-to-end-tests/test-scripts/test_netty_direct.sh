@@ -19,10 +19,8 @@
 
 source "$(dirname "$0")"/common.sh
 
-CHECKPOINT_DIR="file://$TEST_DATA_DIR/savepoint-e2e-test-chckpt-dir"
-
-TEST=flink-heavy-deployment-stress-test
-TEST_PROGRAM_NAME=HeavyDeploymentStressTestProgram
+TEST=flink-netty-direct-test
+TEST_PROGRAM_NAME=NettyDirectTestProgram
 TEST_PROGRAM_JAR=${END_TO_END_DIR}/$TEST/target/$TEST_PROGRAM_NAME.jar
 
 set_config_key "akka.ask.timeout" "60 s"
@@ -37,15 +35,13 @@ set_config_key "taskmanager.network.request-backoff.max" "60000"
 set_config_key "taskmanager.memory.segment-size" "8kb"
 set_config_key "taskmanager.memory.jvm-metaspace.size" "64m"
 
-set_config_key "taskmanager.numberOfTaskSlots" "100" # 20 slots per TM
+set_config_key "taskmanager.numberOfTaskSlots" "20" # 20 slots per TM
+set_config_key "taskmanager.network.netty.num-arenas" "1"
 
 start_cluster # this also starts 1TM
-start_taskmanagers 20 # 1TM + 4TM = 5TM a 20 slots = 100 slots
+start_taskmanagers 4 # 1TM + 4TM = 5TM a 20 slots = 100 slots
 
 # This call will result in a deployment with state meta data of 100 x 100 x 40 union states x each 40 entries.
 # We can scale up the numbers to make the test even heavier.
 $FLINK_DIR/bin/flink run ${TEST_PROGRAM_JAR} \
---environment.max_parallelism 1024 --environment.parallelism 100 \
---environment.restart_strategy fixed_delay --environment.restart_strategy.fixed_delay.attempts 3 \
---state_backend.checkpoint_directory ${CHECKPOINT_DIR} \
---heavy_deployment_test.num_list_states_per_op 40 --heavy_deployment_test.num_partitions_per_list_state 40
+--map.parallelism 80 --reduce.parallelism 20 --rate 10000000 --flatmap.str.bytes 2048 --maxCount 10000000
