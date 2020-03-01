@@ -30,39 +30,37 @@ import static org.junit.Assert.assertSame;
  * Tests the methods in {@link ByteBufUtils}.
  */
 public class ByteBufUtilsTest {
+	private final byte CONTENT_BYTE = 0x7d;
 
 	@Test
 	public void testAccumulateWithoutCopy() {
-		final int sourceLength = 128;
-		final int sourceStartPosition = 32;
-		final int expectedAccumulationSize = 16;
+		int sourceLength = 128;
+		int sourceReaderIndex = 32;
+		int expectedAccumulationSize = 16;
 
-		ByteBuf src = createSourceBuffer(sourceLength, sourceStartPosition);
-
+		ByteBuf src = createSourceBuffer(sourceLength, sourceReaderIndex);
 		ByteBuf target = Unpooled.buffer(expectedAccumulationSize);
 
 		// If src has enough data and no data has been copied yet, src will be returned without modification.
 		ByteBuf accumulated = ByteBufUtils.accumulate(target, src, expectedAccumulationSize, target.readableBytes());
 
 		assertSame(src, accumulated);
-		assertEquals(sourceStartPosition, src.readerIndex());
-
-		verifyBufferContent(src, sourceStartPosition, sourceLength - sourceStartPosition, sourceStartPosition);
+		assertEquals(sourceReaderIndex, src.readerIndex());
+		verifyBufferContent(src, sourceReaderIndex, sourceLength - sourceReaderIndex);
 	}
 
 	@Test
 	public void testAccumulateWithCopy() {
-		final int firstSourceLength = 128;
-		final int firstSourceStartPosition = 32;
-		final int secondSourceLength = 64;
-		final int secondSourceStartPosition = 0;
-		final int expectedAccumulationSize = 128;
+		int sourceLength = 128;
+		int firstSourceReaderIndex = 32;
+		int secondSourceReaderIndex = 0;
+		int expectedAccumulationSize = 128;
 
-		final int firstCopyLength = firstSourceLength - firstSourceStartPosition;
-		final int secondCopyLength = expectedAccumulationSize - firstCopyLength;
+		int firstCopyLength = sourceLength - firstSourceReaderIndex;
+		int secondCopyLength = expectedAccumulationSize - firstCopyLength;
 
-		ByteBuf firstSource = createSourceBuffer(firstSourceLength, firstSourceStartPosition);
-		ByteBuf secondSource = createSourceBuffer(secondSourceLength, secondSourceStartPosition);
+		ByteBuf firstSource = createSourceBuffer(sourceLength, firstSourceReaderIndex);
+		ByteBuf secondSource = createSourceBuffer(sourceLength, secondSourceReaderIndex);
 
 		ByteBuf target = Unpooled.buffer(expectedAccumulationSize);
 
@@ -73,7 +71,7 @@ public class ByteBufUtilsTest {
 			expectedAccumulationSize,
 			target.readableBytes());
 		assertNull(accumulated);
-		assertEquals(firstSourceLength, firstSource.readerIndex());
+		assertEquals(sourceLength, firstSource.readerIndex());
 		assertEquals(firstCopyLength, target.readableBytes());
 
 		// The remaining data will be copied from the second buffer, and the target buffer will be returned
@@ -84,17 +82,16 @@ public class ByteBufUtilsTest {
 			expectedAccumulationSize,
 			target.readableBytes());
 		assertSame(target, accumulated);
-		assertEquals(secondSourceStartPosition + secondCopyLength, secondSource.readerIndex());
+		assertEquals(secondSourceReaderIndex + secondCopyLength, secondSource.readerIndex());
 		assertEquals(expectedAccumulationSize, target.readableBytes());
 
-		verifyBufferContent(accumulated, 0, firstCopyLength, firstSourceStartPosition);
-		verifyBufferContent(accumulated, firstCopyLength, secondCopyLength, secondSourceStartPosition);
+		verifyBufferContent(accumulated, 0, expectedAccumulationSize);
 	}
 
 	private ByteBuf createSourceBuffer(int size, int readerIndex) {
 		ByteBuf buf = Unpooled.buffer(size);
 		for (int i = 0; i < size; ++i) {
-			buf.writeByte((byte) i);
+			buf.writeByte(CONTENT_BYTE);
 		}
 
 		buf.readerIndex(readerIndex);
@@ -102,10 +99,10 @@ public class ByteBufUtilsTest {
 		return buf;
 	}
 
-	private void verifyBufferContent(ByteBuf buf, int start, int length, int startValue) {
+	private void verifyBufferContent(ByteBuf buf, int start, int length) {
 		for (int i = 0; i < length; ++i) {
 			byte b = buf.getByte(start + i);
-			assertEquals((byte) (startValue + i), b);
+			assertEquals(CONTENT_BYTE, b);
 		}
 	}
 }

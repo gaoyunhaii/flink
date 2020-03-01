@@ -110,8 +110,8 @@ class BufferResponseDecoder extends NettyMessageDecoder {
 
 	@Override
 	public void close() {
-		if (bufferResponse != null && bufferResponse.getBuffer() != null) {
-			bufferResponse.getBuffer().recycleBuffer();
+		if (bufferResponse != null) {
+			bufferResponse.releaseBuffer();
 		}
 
 		messageHeaderBuffer.release();
