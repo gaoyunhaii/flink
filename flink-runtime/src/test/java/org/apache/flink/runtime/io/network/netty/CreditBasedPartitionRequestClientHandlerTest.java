@@ -62,6 +62,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -242,8 +243,9 @@ public class CreditBasedPartitionRequestClientHandlerTest {
 			inputChannel.getInputChannelId(),
 			2,
 			new NetworkBufferAllocator(handler));
-		handler.channelRead(mock(ChannelHandlerContext.class), bufferResponse);
+		assertNull(bufferResponse.getBuffer());
 
+		handler.channelRead(mock(ChannelHandlerContext.class), bufferResponse);
 		verify(inputChannel, times(1)).onError(any(IllegalStateException.class));
 	}
 
@@ -302,6 +304,7 @@ public class CreditBasedPartitionRequestClientHandlerTest {
 	@Test
 	public void testNotifyCreditAvailable() throws Exception {
 		final CreditBasedPartitionRequestClientHandler handler = new CreditBasedPartitionRequestClientHandler();
+		final NetworkBufferAllocator allocator = new NetworkBufferAllocator(handler);
 		final EmbeddedChannel channel = new EmbeddedChannel(handler);
 		final PartitionRequestClient client = new NettyPartitionRequestClient(
 			channel, handler, mock(ConnectionID.class), mock(PartitionRequestClientFactory.class));
@@ -337,13 +340,13 @@ public class CreditBasedPartitionRequestClientHandlerTest {
 				0,
 				inputChannel1.getInputChannelId(),
 				1,
-				new NetworkBufferAllocator(handler));
+				allocator);
 			final BufferResponse bufferResponse2 = createBufferResponse(
 				TestBufferFactory.createBuffer(32),
 				0,
 				inputChannel2.getInputChannelId(),
 				1,
-				new NetworkBufferAllocator(handler));
+				allocator);
 			handler.channelRead(mock(ChannelHandlerContext.class), bufferResponse1);
 			handler.channelRead(mock(ChannelHandlerContext.class), bufferResponse2);
 
@@ -372,7 +375,7 @@ public class CreditBasedPartitionRequestClientHandlerTest {
 				1,
 				inputChannel1.getInputChannelId(),
 				1,
-				new NetworkBufferAllocator(handler));
+				allocator);
 			handler.channelRead(mock(ChannelHandlerContext.class), bufferResponse3);
 
 			assertEquals(1, inputChannel1.getUnannouncedCredit());
@@ -457,29 +460,55 @@ public class CreditBasedPartitionRequestClientHandlerTest {
 	}
 
 	@Test
-	public void testReceivedBufferForRemovedChannel() throws Exception {
-		final int bufferSize = 1024;
+	public void testChannelReleasedBeforeDecodingBufferResponse() throws Exception {
+		testChannelReleasedOrRemovedBeforeDecodingBufferResponse(false);
+	}
+
+	@Test
+	public void testChannelRemovedBeforeDecodingBufferResponse() throws Exception {
+		testChannelReleasedOrRemovedBeforeDecodingBufferResponse(true);
+	}
+
+	@Test
+	public void testChannelReleasedBeforeReceivingBufferResponse() throws Exception {
+		testChannelReleasedOrRemovedBeforeReceivingBufferResponse(false);
+	}
+
+	@Test
+	public void testChannelRemovedBeforeReceivingBufferResponse() throws Exception {
+		testChannelReleasedOrRemovedBeforeReceivingBufferResponse(true);
+	}
+
+	private void testChannelReleasedOrRemovedBeforeDecodingBufferResponse(boolean isRemoved) throws Exception {
+		int bufferSize = 1024;
 
 		NetworkBufferPool networkBufferPool = new NetworkBufferPool(10, bufferSize, 2);
 		SingleInputGate inputGate = createSingleInputGate(1);
-		RemoteInputChannel inputChannel = createRemoteInputChannel(inputGate, null, networkBufferPool);
+		RemoteInputChannel inputChannel = new InputChannelBuilder()
+			.setMemorySegmentProvider(networkBufferPool)
+			.buildRemoteAndSetToGate(inputGate);
 		inputGate.assignExclusiveSegments();
 
 		CreditBasedPartitionRequestClientHandler handler = new CreditBasedPartitionRequestClientHandler();
 		handler.addInputChannel(inputChannel);
 
 		try {
-			Buffer buffer = TestBufferFactory.createBuffer(bufferSize);
 			BufferResponse bufferResponse = createBufferResponse(
-				buffer,
+				TestBufferFactory.createBuffer(bufferSize),
 				0,
 				inputChannel.getInputChannelId(),
 				1,
 				new NetworkBufferAllocator(handler));
 
-			handler.removeInputChannel(inputChannel);
+			// Release the channel.
+			inputGate.close();
+			if (isRemoved) {
+				handler.removeInputChannel(inputChannel);
+			}
+
 			handler.channelRead(null, bufferResponse);
 
+			assertEquals(0, inputChannel.getNumberOfQueuedBuffers());
 			assertNotNull(bufferResponse.getBuffer());
 			assertTrue(bufferResponse.getBuffer().isRecycled());
 		} finally {
@@ -487,32 +516,37 @@ public class CreditBasedPartitionRequestClientHandlerTest {
 		}
 	}
 
-	@Test
-	public void testReceivedBufferForReleasedChannel() throws Exception {
-		final int bufferSize = 1024;
+	private void testChannelReleasedOrRemovedBeforeReceivingBufferResponse(boolean isRemoved) throws Exception {
+		int bufferSize = 1024;
 
 		NetworkBufferPool networkBufferPool = new NetworkBufferPool(10, bufferSize, 2);
 		SingleInputGate inputGate = createSingleInputGate(1);
-		RemoteInputChannel inputChannel = createRemoteInputChannel(inputGate, null, networkBufferPool);
+		RemoteInputChannel inputChannel = new InputChannelBuilder()
+			.setMemorySegmentProvider(networkBufferPool)
+			.buildRemoteAndSetToGate(inputGate);
 		inputGate.assignExclusiveSegments();
 
-		CreditBasedPartitionRequestClientHandler handler = new CreditBasedPartitionRequestClientHandler();
+		CreditBasedPartitionRequestClientHandler handler = spy(new CreditBasedPartitionRequestClientHandler());
 		handler.addInputChannel(inputChannel);
 
 		try {
-			Buffer buffer = TestBufferFactory.createBuffer(bufferSize);
+			// Release the channel.
+			inputGate.close();
+			if (isRemoved) {
+				handler.removeInputChannel(inputChannel);
+			}
+
 			BufferResponse bufferResponse = createBufferResponse(
-				buffer,
+				TestBufferFactory.createBuffer(bufferSize),
 				0,
 				inputChannel.getInputChannelId(),
 				1,
 				new NetworkBufferAllocator(handler));
-
-			inputGate.close();
 			handler.channelRead(null, bufferResponse);
 
-			assertNotNull(bufferResponse.getBuffer());
-			assertTrue(bufferResponse.getBuffer().isRecycled());
+			assertEquals(0, inputChannel.getNumberOfQueuedBuffers());
+			assertNull(bufferResponse.getBuffer());
+			verify(handler, times(1)).cancelRequestFor(eq(inputChannel.getInputChannelId()));
 		} finally {
 			releaseResource(inputGate, networkBufferPool);
 		}
@@ -543,9 +577,8 @@ public class CreditBasedPartitionRequestClientHandlerTest {
 		// Skip general header bytes
 		serialized.readBytes(NettyMessage.FRAME_HEADER_LENGTH);
 
-		// Deserialize the bytes again. We have to go this way, because we only partly deserialize
-		// the header of the response and wait for a buffer from the buffer pool to copy the payload
-		// data into.
+		// Deserialize the bytes again. We have to go this way to ensure the data buffer part
+		// is consistent with the input channel sent to.
 		BufferResponse deserialized = BufferResponse.readFrom(serialized, allocator);
 
 		if (deserialized.getBuffer() != null) {

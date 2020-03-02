@@ -19,7 +19,6 @@
 package org.apache.flink.runtime.io.network.netty;
 
 import org.apache.flink.runtime.io.network.NetworkClientHandler;
-import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.netty.exception.LocalTransportException;
 import org.apache.flink.runtime.io.network.netty.exception.RemoteTransportException;
 import org.apache.flink.runtime.io.network.netty.exception.TransportException;
@@ -249,7 +248,7 @@ class CreditBasedPartitionRequestClientHandler extends ChannelInboundHandlerAdap
 			NettyMessage.BufferResponse bufferOrEvent = (NettyMessage.BufferResponse) msg;
 
 			RemoteInputChannel inputChannel = inputChannels.get(bufferOrEvent.receiverId);
-			if (inputChannel == null) {
+			if (inputChannel == null || inputChannel.isReleased()) {
 				bufferOrEvent.releaseBuffer();
 
 				cancelRequestFor(bufferOrEvent.receiverId);
@@ -290,18 +289,10 @@ class CreditBasedPartitionRequestClientHandler extends ChannelInboundHandlerAdap
 	}
 
 	private void decodeBufferOrEvent(RemoteInputChannel inputChannel, NettyMessage.BufferResponse bufferOrEvent) throws Throwable {
-		// Early return for empty buffers.
 		if (bufferOrEvent.isBuffer() && bufferOrEvent.bufferSize == 0) {
 			inputChannel.onEmptyBuffer(bufferOrEvent.sequenceNumber, bufferOrEvent.backlog);
-			return;
-		}
-
-		Buffer dataBuffer = bufferOrEvent.getBuffer();
-
-		if (dataBuffer != null) {
-			inputChannel.onBuffer(dataBuffer, bufferOrEvent.sequenceNumber, bufferOrEvent.backlog);
-		} else if (inputChannel.isReleased()) {
-			cancelRequestFor(bufferOrEvent.receiverId);
+		} else if (bufferOrEvent.getBuffer() != null) {
+			inputChannel.onBuffer(bufferOrEvent.getBuffer(), bufferOrEvent.sequenceNumber, bufferOrEvent.backlog);
 		} else {
 			throw new IllegalStateException("The read buffer is null in credit-based input channel.");
 		}
