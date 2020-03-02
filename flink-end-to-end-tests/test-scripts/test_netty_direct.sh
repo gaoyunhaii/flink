@@ -19,9 +19,14 @@
 
 source "$(dirname "$0")"/common.sh
 
+MORE_TMS=$1
+MAX_COUNT=$2
+
 TEST=flink-netty-direct-test
 TEST_PROGRAM_NAME=NettyDirectTestProgram
 TEST_PROGRAM_JAR=${END_TO_END_DIR}/$TEST/target/$TEST_PROGRAM_NAME.jar
+
+# export HADOOP_CLASSPATH=""
 
 set_config_key "akka.ask.timeout" "60 s"
 set_config_key "web.timeout" "60000"
@@ -41,9 +46,9 @@ est_set_config_key "taskmanager.network.netty.max-order" "11"
 set_config_key "taskmanager.memory.framework.off-heap.size" "20m"
 
 start_cluster # this also starts 1TM
-start_taskmanagers 4 # 1TM + 4TM = 5TM a 20 slots = 100 slots
+start_taskmanagers ${MORE_TMS} # 1TM + 4TM = 5TM a 20 slots = 100 slots
 
 # This call will result in a deployment with state meta data of 100 x 100 x 40 union states x each 40 entries.
 # We can scale up the numbers to make the test even heavier.
 $FLINK_DIR/bin/flink run ${TEST_PROGRAM_JAR} \
--map.parallelism 80 --reduce.parallelism 20 --rate 10000000 --flatmap.str.bytes 2048 --maxCount 300000
+--map.parallelism $(echo "${MORE_TMS} * 20" | bc) --reduce.parallelism 20 --rate 10000000 --flatmap.str.bytes 2048 --maxCount ${MAX_COUNT}
