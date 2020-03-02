@@ -37,6 +37,7 @@ set_config_key "taskmanager.memory.jvm-metaspace.size" "64m"
 
 set_config_key "taskmanager.numberOfTaskSlots" "20" # 20 slots per TM
 set_config_key "taskmanager.network.netty.num-arenas" "1"
+set_config_key "taskmanager.memory.framework.off-heap.size" "20m"
 
 start_cluster # this also starts 1TM
 start_taskmanagers 4 # 1TM + 4TM = 5TM a 20 slots = 100 slots
@@ -44,4 +45,4 @@ start_taskmanagers 4 # 1TM + 4TM = 5TM a 20 slots = 100 slots
 # This call will result in a deployment with state meta data of 100 x 100 x 40 union states x each 40 entries.
 # We can scale up the numbers to make the test even heavier.
 $FLINK_DIR/bin/flink run ${TEST_PROGRAM_JAR} \
---map.parallelism 80 --reduce.parallelism 20 --rate 10000000 --flatmap.str.bytes 2048 --maxCount 10000000
+-map.parallelism 80 --reduce.parallelism 20 --rate 10000000 --flatmap.str.bytes 2048 --maxCount 300000
