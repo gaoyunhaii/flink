@@ -40,14 +40,23 @@ abstract class NettyMessageDecoder implements AutoCloseable {
 	static class DecodingResult {
 		final static DecodingResult NOT_FINISHED = new DecodingResult(false, null);
 
-		final boolean finished;
+		private final boolean finished;
 
 		@Nullable
-		final NettyMessage message;
+		private final NettyMessage message;
 
 		private DecodingResult(boolean finished, @Nullable NettyMessage message) {
 			this.finished = finished;
 			this.message = message;
+		}
+
+		public boolean isFinished() {
+			return finished;
+		}
+
+		@Nullable
+		public NettyMessage getMessage() {
+			return message;
 		}
 
 		static DecodingResult fullMessage(NettyMessage message) {

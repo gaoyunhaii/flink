@@ -106,10 +106,10 @@ public class NettyMessageClientDecoderDelegate extends ChannelInboundHandlerAdap
             while (data.isReadable()) {
             	if (currentDecoder != null) {
 					NettyMessageDecoder.DecodingResult result = currentDecoder.onChannelRead(data);
-					if (!result.finished) {
+					if (!result.isFinished()) {
 						break;
 					}
-					ctx.fireChannelRead(result.message);
+					ctx.fireChannelRead(result.getMessage());
 
 					currentDecoder = null;
 					frameHeaderBuffer.clear();
