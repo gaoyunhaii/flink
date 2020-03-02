@@ -37,6 +37,7 @@ set_config_key "taskmanager.memory.jvm-metaspace.size" "64m"
 
 set_config_key "taskmanager.numberOfTaskSlots" "20" # 20 slots per TM
 set_config_key "taskmanager.network.netty.num-arenas" "1"
+est_set_config_key "taskmanager.network.netty.max-order" "11"
 set_config_key "taskmanager.memory.framework.off-heap.size" "20m"
 
 start_cluster # this also starts 1TM
