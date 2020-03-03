@@ -30,6 +30,9 @@ import java.net.InetSocketAddress;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
+import static junit.framework.TestCase.assertEquals;
+import static org.apache.flink.runtime.io.network.netty.NettyMessage.ErrorResponse;
+import static org.apache.flink.runtime.io.network.netty.NettyMessage.BufferResponse;
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.junit.Assert.assertTrue;
@@ -177,6 +180,23 @@ public class NettyTestUtil {
 		assertTrue(channel.writeInbound(encoded));
 
 		return (T) channel.readInbound();
+	}
+
+	// ---------------------------------------------------------------------------------------------
+	// Message Verification
+	// ---------------------------------------------------------------------------------------------
+
+	static void verifyErrorResponse(ErrorResponse expected, ErrorResponse actual) {
+		assertEquals(expected.receiverId, actual.receiverId);
+		assertEquals(expected.cause.getClass(), actual.cause.getClass());
+		assertEquals(expected.cause.getMessage(), actual.cause.getMessage());
+	}
+
+	static void verifyBufferResponseHeader(BufferResponse expected, BufferResponse actual) {
+		assertEquals(expected.backlog, actual.backlog);
+		assertEquals(expected.sequenceNumber, actual.sequenceNumber);
+		assertEquals(expected.bufferSize, actual.bufferSize);
+		assertEquals(expected.receiverId, actual.receiverId);
 	}
 
 	// ------------------------------------------------------------------------

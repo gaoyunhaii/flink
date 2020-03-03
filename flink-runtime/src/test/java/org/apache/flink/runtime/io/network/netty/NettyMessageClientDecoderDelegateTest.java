@@ -23,14 +23,14 @@ import org.apache.flink.core.memory.MemorySegmentFactory;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.buffer.FreeingBufferRecycler;
 import org.apache.flink.runtime.io.network.buffer.NetworkBuffer;
-import org.apache.flink.runtime.io.network.partition.consumer.BufferProviderInputChannelBuilder;
+import org.apache.flink.runtime.io.network.partition.consumer.BufferProviderRemoteInputChannel;
 import org.apache.flink.runtime.io.network.partition.consumer.InputChannelID;
 import org.apache.flink.runtime.io.network.partition.consumer.RemoteInputChannel;
+import org.apache.flink.runtime.io.network.partition.consumer.SingleInputGate;
 import org.apache.flink.shaded.netty4.io.netty.buffer.ByteBuf;
 import org.apache.flink.shaded.netty4.io.netty.channel.embedded.EmbeddedChannel;
 import org.junit.Test;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -38,6 +38,9 @@ import static junit.framework.TestCase.assertEquals;
 import static junit.framework.TestCase.assertTrue;
 import static org.apache.flink.runtime.io.network.netty.NettyMessage.BufferResponse;
 import static org.apache.flink.runtime.io.network.netty.NettyMessage.ErrorResponse;
+import static org.apache.flink.runtime.io.network.netty.NettyTestUtil.verifyBufferResponseHeader;
+import static org.apache.flink.runtime.io.network.netty.NettyTestUtil.verifyErrorResponse;
+import static org.apache.flink.runtime.io.network.partition.InputChannelTestUtils.createSingleInputGate;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
 
@@ -45,21 +48,33 @@ import static org.junit.Assert.fail;
  * Tests the client side message decoder.
  */
 public class NettyMessageClientDecoderDelegateTest {
+
+	private static final int BUFFER_SIZE = 1024;
+
 	private static final NettyBufferPool ALLOCATOR = new NettyBufferPool(1);
-
-	private static final InputChannelID NORMAL_CHANNEL_ID = new InputChannelID();
-
-	private static final InputChannelID RELEASED_CHANNEL_ID = new InputChannelID();
-
-	private static final InputChannelID REMOVED_CHANNEL_ID = new InputChannelID();
 
 	/**
 	 * Verifies that the client side decoder works well for unreleased input channels.
 	 */
 	@Test
 	public void testDownstreamMessageDecode() throws Exception {
-		// 3 buffers required.
-		testRepartitionMessagesAndDecode(3, false, false, false);
+		int totalBufferRequired = 3;
+
+		SingleInputGate inputGate = createSingleInputGate(1);
+		RemoteInputChannel normalInputChannel = new BufferProviderRemoteInputChannel(inputGate, totalBufferRequired, BUFFER_SIZE);
+
+		CreditBasedPartitionRequestClientHandler handler = new CreditBasedPartitionRequestClientHandler();
+		handler.addInputChannel(normalInputChannel);
+
+		EmbeddedChannel channel = new EmbeddedChannel(new NettyMessageClientDecoderDelegate(handler));
+
+		testRepartitionMessagesAndDecode(
+			channel,
+			false,
+			false,
+			false,
+			normalInputChannel.getInputChannelId(),
+			null);
 	}
 
 	/**
@@ -68,74 +83,96 @@ public class NettyMessageClientDecoderDelegateTest {
 	 */
 	@Test
 	public void testDownstreamMessageDecodeWithEmptyBuffers() throws Exception {
-		// 4 buffers required.
-		testRepartitionMessagesAndDecode(4, true, false, false);
+		int totalBufferRequired = 3;
+
+		SingleInputGate inputGate = createSingleInputGate(1);
+		RemoteInputChannel normalInputChannel = new BufferProviderRemoteInputChannel(inputGate, totalBufferRequired, BUFFER_SIZE);
+
+		CreditBasedPartitionRequestClientHandler handler = new CreditBasedPartitionRequestClientHandler();
+		handler.addInputChannel(normalInputChannel);
+
+		EmbeddedChannel channel = new EmbeddedChannel(new NettyMessageClientDecoderDelegate(handler));
+
+		testRepartitionMessagesAndDecode(
+			channel,
+			true,
+			false,
+			false,
+			normalInputChannel.getInputChannelId(),
+			null);
 	}
 
 	/**
-	 * Verifies that NettyMessageDecoder works well with buffers sent to a released  and removed input channels.
-	 * For such channels, no Buffer is available to receive the data buffer in the message, and the data buffer
+	 * Verifies that NettyMessageDecoder works well with buffers sent to a released input channel. The data buffer
 	 * part should be discarded before reading the next message.
 	 */
 	@Test
-	public void testDownstreamMessageDecodeWithReleasedAndRemovedInputChannel() throws Exception {
-		// 3 buffers required.
-		testRepartitionMessagesAndDecode(3, false, true, true);
+	public void testDownstreamMessageDecodeWithReleasedInputChannel() throws Exception {
+		int totalBufferRequired = 3;
+
+		SingleInputGate normalInputGate = createSingleInputGate(1);
+		RemoteInputChannel normalInputChannel = new BufferProviderRemoteInputChannel(normalInputGate, totalBufferRequired, BUFFER_SIZE);
+
+		SingleInputGate releasedInputGate = createSingleInputGate(1);
+		RemoteInputChannel releasedInputChannel = new BufferProviderRemoteInputChannel(releasedInputGate, 0, BUFFER_SIZE);
+		releasedInputGate.close();
+
+		CreditBasedPartitionRequestClientHandler handler = new CreditBasedPartitionRequestClientHandler();
+		handler.addInputChannel(normalInputChannel);
+		handler.addInputChannel(releasedInputChannel);
+
+		EmbeddedChannel channel = new EmbeddedChannel(new NettyMessageClientDecoderDelegate(handler));
+
+		testRepartitionMessagesAndDecode(
+			channel,
+			false,
+			true,
+			false,
+			normalInputChannel.getInputChannelId(),
+			releasedInputChannel.getInputChannelId());
+	}
+
+	/**
+	 * Verifies that NettyMessageDecoder works well with buffers sent to a removed input channel. The data buffer
+	 * part should be discarded before reading the next message.
+	 */
+	@Test
+	public void testDownstreamMessageDecodeWithRemovedInputChannel() throws Exception {
+		int totalBufferRequired = 3;
+
+		SingleInputGate normalInputGate = createSingleInputGate(1);
+		RemoteInputChannel normalInputChannel = new BufferProviderRemoteInputChannel(normalInputGate, totalBufferRequired, BUFFER_SIZE);
+
+		CreditBasedPartitionRequestClientHandler handler = new CreditBasedPartitionRequestClientHandler();
+		handler.addInputChannel(normalInputChannel);
+
+		EmbeddedChannel channel = new EmbeddedChannel(new NettyMessageClientDecoderDelegate(handler));
+
+		testRepartitionMessagesAndDecode(
+			channel,
+			false,
+			false,
+			true,
+			normalInputChannel.getInputChannelId(),
+			null);
 	}
 
 	//------------------------------------------------------------------------------------------------------------------
 
 	private void testRepartitionMessagesAndDecode(
-		int numberOfBuffersInNormalChannel,
-		boolean hasEmptyBuffer,
-		boolean hasBufferForReleasedChannel,
-		boolean hasBufferForRemovedChannel) throws Exception {
-
-		EmbeddedChannel channel = createPartitionRequestClientHandler(numberOfBuffersInNormalChannel);
-
-		try {
-			List<NettyMessage> messages = createMessageList(hasEmptyBuffer, hasBufferForReleasedChannel, hasBufferForRemovedChannel);
-			repartitionMessagesAndVerifyDecoding(channel, messages);
-		} finally {
-			channel.close();
-		}
-	}
-
-	private List<NettyMessage> createMessageList(
-		boolean hasEmptyBuffer,
-		boolean hasBufferForReleasedChannel,
-		boolean hasBufferForRemovedChannel) {
-
-		List<NettyMessage> messages = new ArrayList<>();
-
-		Buffer event = createDataBuffer(32);
-		event.tagAsEvent();
-
-		messages.add(new NettyMessage.BufferResponse(createDataBuffer(128), 0, NORMAL_CHANNEL_ID, 4));
-		messages.add(new NettyMessage.BufferResponse(createDataBuffer(256), 1, NORMAL_CHANNEL_ID, 3));
-
-		if (hasEmptyBuffer) {
-			messages.add(new NettyMessage.BufferResponse(createDataBuffer(0), 1, NORMAL_CHANNEL_ID, 2));
-		}
-
-		if (hasBufferForReleasedChannel) {
-			messages.add(new NettyMessage.BufferResponse(createDataBuffer(256), 1, RELEASED_CHANNEL_ID, 3));
-		}
-
-		if (hasBufferForRemovedChannel) {
-			messages.add(new NettyMessage.BufferResponse(createDataBuffer(256), 1, REMOVED_CHANNEL_ID, 3));
-		}
-
-		messages.add(new NettyMessage.BufferResponse(event, 2, NORMAL_CHANNEL_ID, 4));
-		messages.add(new NettyMessage.ErrorResponse(new RuntimeException("test"), NORMAL_CHANNEL_ID));
-		messages.add(new NettyMessage.BufferResponse(createDataBuffer(56), 3, NORMAL_CHANNEL_ID, 4));
-
-		return messages;
-	}
-
-	private void repartitionMessagesAndVerifyDecoding(
 		EmbeddedChannel channel,
-		List<NettyMessage> messages) throws Exception {
+		boolean hasEmptyBuffer,
+		boolean hasBufferForReleasedChannel,
+		boolean hasBufferForRemovedChannel,
+		InputChannelID normalInputChannelId,
+		InputChannelID releasedInputChannelId) throws Exception {
+
+		List<NettyMessage> messages = createMessageList(
+			hasEmptyBuffer,
+			hasBufferForReleasedChannel,
+			hasBufferForRemovedChannel,
+			normalInputChannelId,
+			releasedInputChannelId);
 
 		ByteBuf[] serializedBuffers = null;
 		ByteBuf mergedBuffer = null;
@@ -148,7 +185,7 @@ public class NettyMessageClientDecoderDelegateTest {
 			List<ByteBuf> partitionedBuffers = partitionBuffer(mergedBuffer, sizes);
 			List<NettyMessage> decodedMessages = decodedMessages(channel, partitionedBuffers);
 
-			verifyDecodedMessages(messages, decodedMessages);
+			verifyDecodedMessages(messages, decodedMessages, normalInputChannelId);
 		} finally {
 			if (serializedBuffers != null) {
 				releaseBuffers(serializedBuffers);
@@ -157,7 +194,43 @@ public class NettyMessageClientDecoderDelegateTest {
 			if (mergedBuffer != null) {
 				mergedBuffer.release();
 			}
+
+			channel.close();
 		}
+	}
+
+	private List<NettyMessage> createMessageList(
+		boolean hasEmptyBuffer,
+		boolean hasBufferForReleasedChannel,
+		boolean hasBufferForRemovedChannel,
+		InputChannelID normalInputChannelId,
+		InputChannelID releasedInputChannelId) {
+
+		List<NettyMessage> messages = new ArrayList<>();
+
+		Buffer event = createDataBuffer(32);
+		event.tagAsEvent();
+
+		messages.add(new NettyMessage.BufferResponse(createDataBuffer(128), 0, normalInputChannelId, 4));
+		messages.add(new NettyMessage.BufferResponse(createDataBuffer(256), 1, normalInputChannelId, 3));
+
+		if (hasEmptyBuffer) {
+			messages.add(new NettyMessage.BufferResponse(createDataBuffer(0), 1, normalInputChannelId, 2));
+		}
+
+		if (hasBufferForReleasedChannel) {
+			messages.add(new NettyMessage.BufferResponse(createDataBuffer(256), 1, releasedInputChannelId, 3));
+		}
+
+		if (hasBufferForRemovedChannel) {
+			messages.add(new NettyMessage.BufferResponse(createDataBuffer(256), 1, new InputChannelID(), 3));
+		}
+
+		messages.add(new NettyMessage.BufferResponse(event, 2, normalInputChannelId, 4));
+		messages.add(new NettyMessage.ErrorResponse(new RuntimeException("test"), normalInputChannelId));
+		messages.add(new NettyMessage.BufferResponse(createDataBuffer(56), 3, normalInputChannelId, 4));
+
+		return messages;
 	}
 
 	private ByteBuf[] serializeMessages(List<NettyMessage> messages) throws Exception {
@@ -250,37 +323,28 @@ public class NettyMessageClientDecoderDelegateTest {
 		return decodedMessages;
 	}
 
-	private void verifyDecodedMessages(List<NettyMessage> expected, List<NettyMessage> decodedMessages) {
-		assertEquals(expected.size(), decodedMessages.size());
-		for (int i = 0; i < expected.size(); ++i) {
-			assertEquals(expected.get(i).getClass(), decodedMessages.get(i).getClass());
+	private void verifyDecodedMessages(
+		List<NettyMessage> expectedMessages,
+		List<NettyMessage> decodedMessages,
+		InputChannelID normalChannelId) {
 
-			if (expected.get(i) instanceof NettyMessage.BufferResponse) {
-				BufferResponse expectedBufferResponse = (BufferResponse) expected.get(i);
-				BufferResponse decodedBufferResponse = (BufferResponse) decodedMessages.get(i);
+		assertEquals(expectedMessages.size(), decodedMessages.size());
+		for (int i = 0; i < expectedMessages.size(); ++i) {
+			assertEquals(expectedMessages.get(i).getClass(), decodedMessages.get(i).getClass());
 
-				assertEquals(expectedBufferResponse.backlog, decodedBufferResponse.backlog);
-				assertEquals(expectedBufferResponse.sequenceNumber, decodedBufferResponse.sequenceNumber);
-				assertEquals(expectedBufferResponse.bufferSize, decodedBufferResponse.bufferSize);
-				assertEquals(expectedBufferResponse.receiverId, decodedBufferResponse.receiverId);
+			if (expectedMessages.get(i) instanceof NettyMessage.BufferResponse) {
+				BufferResponse expected = (BufferResponse) expectedMessages.get(i);
+				BufferResponse actual = (BufferResponse) decodedMessages.get(i);
 
-				if (expectedBufferResponse.bufferSize == 0 ||
-					expectedBufferResponse.receiverId.equals(RELEASED_CHANNEL_ID) ||
-					expectedBufferResponse.receiverId.equals(REMOVED_CHANNEL_ID)) {
-
-					assertNull(decodedBufferResponse.getBuffer());
-				} else if (expectedBufferResponse.receiverId.equals(NORMAL_CHANNEL_ID)) {
-					assertEquals(expectedBufferResponse.getBuffer(), decodedBufferResponse.getBuffer());
+				verifyBufferResponseHeader(expected, actual);
+				if (expected.bufferSize == 0 || !expected.receiverId.equals(normalChannelId)) {
+					assertNull(actual.getBuffer());
 				} else {
-					fail("The decoded buffer response was sent to unknown input channel.");
+					assertEquals(expected.getBuffer(), actual.getBuffer());
 				}
-			} else if (expected.get(i) instanceof NettyMessage.ErrorResponse) {
-				ErrorResponse expectedErrorResponse = (ErrorResponse) expected.get(i);
-				ErrorResponse decodedErrorResponse = (ErrorResponse) decodedMessages.get(i);
 
-				assertEquals(expectedErrorResponse.receiverId, decodedErrorResponse.receiverId);
-				assertEquals(expectedErrorResponse.cause.getClass(), decodedErrorResponse.cause.getClass());
-				assertEquals(expectedErrorResponse.cause.getMessage(), decodedErrorResponse.cause.getMessage());
+			} else if (expectedMessages.get(i) instanceof NettyMessage.ErrorResponse) {
+				verifyErrorResponse((ErrorResponse) expectedMessages.get(i), (ErrorResponse) decodedMessages.get(i));
 			} else {
 				fail("Unsupported message type");
 			}
@@ -301,24 +365,5 @@ public class NettyMessageClientDecoderDelegateTest {
 		}
 
 		return buffer;
-	}
-
-	private EmbeddedChannel createPartitionRequestClientHandler(int numberOfBuffersInNormalChannel) throws IOException, InterruptedException {
-		RemoteInputChannel normalInputChannel = new BufferProviderInputChannelBuilder()
-			.setId(NORMAL_CHANNEL_ID)
-			.setMaxNumberOfBuffers(numberOfBuffersInNormalChannel)
-			.build();
-
-		RemoteInputChannel releasedInputChannel = new BufferProviderInputChannelBuilder()
-			.setId(RELEASED_CHANNEL_ID)
-			.setMaxNumberOfBuffers(0)
-			.setReleased(true)
-			.build();
-
-		CreditBasedPartitionRequestClientHandler handler = new CreditBasedPartitionRequestClientHandler();
-		handler.addInputChannel(normalInputChannel);
-		handler.addInputChannel(releasedInputChannel);
-
-		return new EmbeddedChannel(new NettyMessageClientDecoderDelegate(handler));
 	}
 }
