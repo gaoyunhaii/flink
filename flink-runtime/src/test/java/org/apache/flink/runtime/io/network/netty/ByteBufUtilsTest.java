@@ -30,7 +30,8 @@ import static org.junit.Assert.assertSame;
  * Tests the methods in {@link ByteBufUtils}.
  */
 public class ByteBufUtilsTest {
-	private final byte CONTENT_BYTE = 0x7d;
+	private static final byte ACCUMULATION_BYTE = 0x7d;
+	private static final byte NON_ACCUMULATION_BYTE = 0x23;
 
 	@Test
 	public void testAccumulateWithoutCopy() {
@@ -38,7 +39,7 @@ public class ByteBufUtilsTest {
 		int sourceReaderIndex = 32;
 		int expectedAccumulationSize = 16;
 
-		ByteBuf src = createSourceBuffer(sourceLength, sourceReaderIndex);
+		ByteBuf src = createSourceBuffer(sourceLength, sourceReaderIndex, expectedAccumulationSize);
 		ByteBuf target = Unpooled.buffer(expectedAccumulationSize);
 
 		// If src has enough data and no data has been copied yet, src will be returned without modification.
@@ -46,7 +47,7 @@ public class ByteBufUtilsTest {
 
 		assertSame(src, accumulated);
 		assertEquals(sourceReaderIndex, src.readerIndex());
-		verifyBufferContent(src, sourceReaderIndex, sourceLength - sourceReaderIndex);
+		verifyBufferContent(src, sourceReaderIndex, expectedAccumulationSize);
 	}
 
 	@Test
@@ -59,8 +60,8 @@ public class ByteBufUtilsTest {
 		int firstCopyLength = sourceLength - firstSourceReaderIndex;
 		int secondCopyLength = expectedAccumulationSize - firstCopyLength;
 
-		ByteBuf firstSource = createSourceBuffer(sourceLength, firstSourceReaderIndex);
-		ByteBuf secondSource = createSourceBuffer(sourceLength, secondSourceReaderIndex);
+		ByteBuf firstSource = createSourceBuffer(sourceLength, firstSourceReaderIndex, firstCopyLength);
+		ByteBuf secondSource = createSourceBuffer(sourceLength, secondSourceReaderIndex, secondCopyLength);
 
 		ByteBuf target = Unpooled.buffer(expectedAccumulationSize);
 
@@ -88,21 +89,40 @@ public class ByteBufUtilsTest {
 		verifyBufferContent(accumulated, 0, expectedAccumulationSize);
 	}
 
-	private ByteBuf createSourceBuffer(int size, int readerIndex) {
+	/**
+	 * Create a source buffer whose length is size. The content between readerIndex and
+	 * readerIndex + accumulationSize is ACCUMULATION_BYTE and the remaining is
+	 * NON_ACCUMULATION_BYTE.
+	 *
+	 * @param size The size of the source buffer.
+	 * @param readerIndex The reader index of the source buffer.
+	 * @param accumulationSize The size of bytes that will be read for accumulating.
+	 *
+	 * @return The required source buffer.
+	 */
+	private ByteBuf createSourceBuffer(int size, int readerIndex, int accumulationSize) {
 		ByteBuf buf = Unpooled.buffer(size);
-		for (int i = 0; i < size; ++i) {
-			buf.writeByte(CONTENT_BYTE);
+
+		for (int i = 0; i < readerIndex; i++) {
+			buf.writeByte(NON_ACCUMULATION_BYTE);
+		}
+
+		for (int i = readerIndex; i < readerIndex + accumulationSize; i++) {
+			buf.writeByte(ACCUMULATION_BYTE);
+		}
+
+		for (int i = readerIndex + accumulationSize; i < size; i++) {
+			buf.writeByte(NON_ACCUMULATION_BYTE);
 		}
 
 		buf.readerIndex(readerIndex);
-
 		return buf;
 	}
 
 	private void verifyBufferContent(ByteBuf buf, int start, int length) {
 		for (int i = 0; i < length; ++i) {
 			byte b = buf.getByte(start + i);
-			assertEquals(CONTENT_BYTE, b);
+			assertEquals(String.format("The byte at position %d is not right.", start + i), ACCUMULATION_BYTE, b);
 		}
 	}
 }
