@@ -45,6 +45,16 @@ set_config_key "taskmanager.memory.framework.off-heap.size" "20m"
 start_cluster # this also starts 1TM
 start_taskmanagers ${MORE_TMS} # 1TM + 4TM = 5TM a 20 slots = 100 slots
 
+function check() {
+  while true;do
+    jps | grep TaskManagerRunner | while read a b;do echo $a $b;jmap -histo:live $a | egrep -i "DirectArena|Chunk";jstack $a | grep -i "Flink Netty";done;sleep 5;printf "\n\n";
+  done
+}
+
+check &
+PID=$!
+
+echo "pid is $PID"
 # This call will result in a deployment with state meta data of 100 x 100 x 40 union states x each 40 entries.
 # We can scale up the numbers to make the test even heavier.
 $FLINK_DIR/bin/flink run ${TEST_PROGRAM_JAR} \
@@ -53,3 +63,4 @@ $FLINK_DIR/bin/flink run ${TEST_PROGRAM_JAR} \
 --test.rate 10000000 \
 --test.record_length 2048 \
 --test.total_records ${TOTAL_RECORDS}
+kill -9 $PID
