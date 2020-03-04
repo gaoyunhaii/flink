@@ -43,5 +43,11 @@ start_taskmanagers 4 # 1TM + 4TM = 5TM a 20 slots = 100 slots
 $FLINK_DIR/bin/flink run ${TEST_PROGRAM_JAR} \
 --test.map_parallelism 80 \
 --test.reduce_parallelism 20 \
---test.record_length 4096 \
+--test.record_length 2048 \
+--test.running_time_in_seconds 120
+
+$FLINK_DIR/bin/flink run ${TEST_PROGRAM_JAR} \
+--test.map_parallelism 80 \
+--test.reduce_parallelism 20 \
+--test.record_length 1024 \
 --test.running_time_in_seconds 120
