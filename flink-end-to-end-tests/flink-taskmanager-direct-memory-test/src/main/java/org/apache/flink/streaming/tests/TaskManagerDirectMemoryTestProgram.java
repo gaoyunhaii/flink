@@ -29,7 +29,7 @@ import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunctio
 import static org.apache.flink.util.Preconditions.checkArgument;
 
 /**
- * Test program for
+ * Test program for taskmanager direct memory consumption.
  */
 public class TaskManagerDirectMemoryTestProgram {
 	private static ConfigOption<Integer> RUNNING_TIME_IN_SECONDS = ConfigOptions
@@ -56,10 +56,14 @@ public class TaskManagerDirectMemoryTestProgram {
 		// parse the parameters
 		final ParameterTool params = ParameterTool.fromArgs(args);
 
+		final int runningTimeInSeconds = params.getInt(RUNNING_TIME_IN_SECONDS.key(), RUNNING_TIME_IN_SECONDS.defaultValue());
 		final int recordLength = params.getInt(RECORD_LENGTH.key(), RECORD_LENGTH.defaultValue());
 		final int mapParallelism = params.getInt(MAP_PARALLELISM.key(), MAP_PARALLELISM.defaultValue());
 		final int reduceParallelism = params.getInt(REDUCE_PARALLELISM.key(), REDUCE_PARALLELISM.defaultValue());
 
+		checkArgument(runningTimeInSeconds > 0,
+			"The running time in seconds should be positive, but it is {}",
+			recordLength);
 		checkArgument(recordLength > 0,
 			"The record length should be positive, but it is {}",
 			recordLength);
@@ -77,7 +81,7 @@ public class TaskManagerDirectMemoryTestProgram {
 		String str = new String(bytes);
 
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-		env.addSource(new StringSourceFunction(str))
+		env.addSource(new StringSourceFunction(str, runningTimeInSeconds))
 			.setParallelism(mapParallelism)
 			.slotSharingGroup("a")
 			.rebalance()
@@ -96,20 +100,23 @@ public class TaskManagerDirectMemoryTestProgram {
 
 		private final String str;
 
+		private final long runningTimeInSeconds;
+
 		private transient long stopTime;
 
-		public StringSourceFunction(String str) {
+		public StringSourceFunction(String str, long runningTimeInSeconds) {
 			this.str = str;
+			this.runningTimeInSeconds = runningTimeInSeconds;
 		}
 
 		@Override
 		public void open(Configuration parameters) {
 			isRunning = true;
-			stopTime = (long) (System.nanoTime() + 120 * 1e9);
+			stopTime = System.nanoTime() + runningTimeInSeconds * 1_000_000_000L;
 		}
 
 		@Override
-		public void run(SourceContext<String> ctx) throws Exception {
+		public void run(SourceContext<String> ctx) {
 			while (isRunning && (System.nanoTime() < stopTime)) {
 				ctx.collect(str);
 			}
