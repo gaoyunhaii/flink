@@ -126,7 +126,7 @@ public class NettyDirectTest {
 					.slotSharingGroup("u_" + i));
 		}
 
-		first.keyBy(keySelector)
+		first.rebalance()
 			.addSink(new RichSinkFunction() {
 				private NettyReporter reporter;
 
@@ -170,9 +170,9 @@ public class NettyDirectTest {
 
 		@Override
 		public void flatMap(Integer integer, Collector<String> collector) throws Exception {
-			for (int i = 0; i < flatMapCount; ++i) {
-				collector.collect(str);
-			}
+			// for (int i = 0; i < flatMapCount; ++i) {
+			collector.collect(str);
+			//}
 
 			reporter.test("m" + myIndex + "", getRuntimeContext().getIndexOfThisSubtask());
 		}
