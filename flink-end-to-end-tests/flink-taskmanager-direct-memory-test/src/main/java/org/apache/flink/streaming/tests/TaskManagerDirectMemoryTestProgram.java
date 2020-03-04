@@ -84,7 +84,7 @@ public class TaskManagerDirectMemoryTestProgram {
 		env.addSource(new StringSourceFunction(str, runningTimeInSeconds))
 			.setParallelism(mapParallelism)
 			.slotSharingGroup("a")
-			.rebalance()
+			.shuffle()
 			.addSink(new DummySink())
 			.setParallelism(reduceParallelism)
 			.slotSharingGroup("b");
