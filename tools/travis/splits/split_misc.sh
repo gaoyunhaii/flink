@@ -82,7 +82,7 @@ echo "Flink distribution directory: $FLINK_DIR"
 #run_test "Walkthrough DataStream Java nightly end-to-end test" "$END_TO_END_DIR/test-scripts/test_datastream_walkthroughs.sh java"
 #run_test "Walkthrough DataStream Scala nightly end-to-end test" "$END_TO_END_DIR/test-scripts/test_datastream_walkthroughs.sh scala"
 
-run_test "Netty Direct memory Consumption end-to-end test" "$END_TO_END_DIR/test-scripts/test_taskmanager_direct_memory.sh 4 30000"
+run_test "Netty Direct memory Consumption end-to-end test" "$END_TO_END_DIR/test-scripts/test_taskmanager_direct_memory.sh 6 30000"
 
 printf "\n[PASS] All tests passed\n"
 exit 0

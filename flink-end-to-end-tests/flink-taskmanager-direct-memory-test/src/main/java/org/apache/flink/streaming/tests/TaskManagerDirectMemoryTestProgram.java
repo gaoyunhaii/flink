@@ -97,9 +97,11 @@ public class TaskManagerDirectMemoryTestProgram {
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 		env.addSource(new StringSourceFunction(rate, totalRecords, str))
 			.setParallelism(mapParallelism)
+			.slotSharingGroup("a")
 			.rebalance()
 			.addSink(new DummySink())
-			.setParallelism(reduceParallelism);
+			.setParallelism(reduceParallelism)
+			.slotSharingGroup("b");
 
 		// execute program
 		env.execute("TaskManager Direct Memory Test");
