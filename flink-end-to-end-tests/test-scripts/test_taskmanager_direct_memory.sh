@@ -40,11 +40,21 @@ set_config_key "taskmanager.memory.jvm-metaspace.size" "64m"
 
 set_config_key "taskmanager.numberOfTaskSlots" "20" # 20 slots per TM
 set_config_key "taskmanager.network.netty.num-arenas" "1"
-set_config_key "taskmanager.memory.framework.off-heap.size" "20m"
+set_config_key "taskmanager.memory.framework.off-heap.size" "120m"
 
 start_cluster # this also starts 1TM
 start_taskmanagers ${MORE_TMS} # 1TM + 4TM = 5TM a 20 slots = 100 slots
 
+function check() {
+  while true;do
+    jps | grep TaskManagerRunner | while read a b;do echo $a $b;jmap -histo:live $a | egrep -i "DirectArena|Chunk";jstack $a | grep -i "Flink Netty";done;sleep 10;printf "\n\n";
+  done
+}
+
+check &
+PID=$!
+
+echo "pid is $PID"
 # This call will result in a deployment with state meta data of 100 x 100 x 40 union states x each 40 entries.
 # We can scale up the numbers to make the test even heavier.
 $FLINK_DIR/bin/flink run ${TEST_PROGRAM_JAR} \
