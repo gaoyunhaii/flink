@@ -26,28 +26,16 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.concurrent.TimeUnit;
-
 import static org.apache.flink.util.Preconditions.checkArgument;
 
 /**
- * Test program.
+ * Test program for
  */
 public class TaskManagerDirectMemoryTestProgram {
-	private static final Logger LOG = LoggerFactory.getLogger(TaskManagerDirectMemoryTestProgram.class);
-
-	private static ConfigOption<Long> RATE = ConfigOptions
-		.key("test.rate")
-		.defaultValue(10000L)
-		.withDescription("The number of record sent per second by one map task.");
-
-	private static ConfigOption<Long> TOTAL_RECORDS = ConfigOptions
-		.key("test.total_records")
-		.defaultValue(30000L)
-		.withDescription("The number of records sent by each map task.");
+	private static ConfigOption<Integer> RUNNING_TIME_IN_SECONDS = ConfigOptions
+		.key("test.running_time_in_seconds")
+		.defaultValue(120)
+		.withDescription("The time to run.");
 
 	private static ConfigOption<Integer> RECORD_LENGTH = ConfigOptions
 		.key("test.record_length")
@@ -68,16 +56,10 @@ public class TaskManagerDirectMemoryTestProgram {
 		// parse the parameters
 		final ParameterTool params = ParameterTool.fromArgs(args);
 
-		final long rate = params.getLong(RATE.key(), RATE.defaultValue());
-		final long totalRecords = params.getLong(TOTAL_RECORDS.key(), TOTAL_RECORDS.defaultValue());
 		final int recordLength = params.getInt(RECORD_LENGTH.key(), RECORD_LENGTH.defaultValue());
 		final int mapParallelism = params.getInt(MAP_PARALLELISM.key(), MAP_PARALLELISM.defaultValue());
 		final int reduceParallelism = params.getInt(REDUCE_PARALLELISM.key(), REDUCE_PARALLELISM.defaultValue());
 
-		checkArgument(rate > 0, "The sending rate should be positive, but it is {}", rate);
-		checkArgument(totalRecords > 0,
-			"The number of records to send should be positive, but it is {}",
-			totalRecords);
 		checkArgument(recordLength > 0,
 			"The record length should be positive, but it is {}",
 			recordLength);
@@ -95,7 +77,7 @@ public class TaskManagerDirectMemoryTestProgram {
 		String str = new String(bytes);
 
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-		env.addSource(new StringSourceFunction(rate, totalRecords, str))
+		env.addSource(new StringSourceFunction(str))
 			.setParallelism(mapParallelism)
 			.slotSharingGroup("a")
 			.rebalance()
@@ -112,37 +94,24 @@ public class TaskManagerDirectMemoryTestProgram {
 
 		private volatile boolean isRunning;
 
-		private final long sleepIntervalInNanos;
-
-		private long remainingRecords;
-
 		private final String str;
 
-		public StringSourceFunction(long rate, long totalRecords, String str) {
-			if (rate >= 1e7) {
-				this.sleepIntervalInNanos = 0;
-			} else {
-				this.sleepIntervalInNanos = 1_000_000_000L / rate;
-			}
+		private transient long stopTime;
 
-			this.remainingRecords = totalRecords;
+		public StringSourceFunction(String str) {
 			this.str = str;
 		}
 
 		@Override
 		public void open(Configuration parameters) {
 			isRunning = true;
+			stopTime = (long) (System.nanoTime() + 120 * 1e9);
 		}
 
 		@Override
 		public void run(SourceContext<String> ctx) throws Exception {
-			while (isRunning && remainingRecords > 0) {
+			while (isRunning && (System.nanoTime() < stopTime)) {
 				ctx.collect(str);
-				remainingRecords--;
-
-				if (sleepIntervalInNanos > 0) {
-					TimeUnit.NANOSECONDS.sleep(sleepIntervalInNanos);
-				}
 			}
 		}
 

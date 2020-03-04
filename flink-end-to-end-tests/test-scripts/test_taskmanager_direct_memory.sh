@@ -31,7 +31,7 @@ TEST_PROGRAM_JAR=${END_TO_END_DIR}/$TEST/target/$TEST_PROGRAM_NAME.jar
 set_config_key "akka.ask.timeout" "60 s"
 set_config_key "web.timeout" "60000"
 
-set_config_key "taskmanager.memory.process.size" "1024m" # 1024Mb x 5TMs = 5Gb total heap
+set_config_key "taskmanager.memory.process.size" "1524m" # 1024Mb x 5TMs = 5Gb total heap
 
 set_config_key "taskmanager.memory.managed.size" "8" # 8Mb
 set_config_key "taskmanager.memory.network.min" "192mb"
@@ -40,7 +40,7 @@ set_config_key "taskmanager.memory.jvm-metaspace.size" "64m"
 
 set_config_key "taskmanager.numberOfTaskSlots" "20" # 20 slots per TM
 set_config_key "taskmanager.network.netty.num-arenas" "1"
-set_config_key "taskmanager.memory.framework.off-heap.size" "120m"
+set_config_key "taskmanager.memory.framework.off-heap.size" "20m"
 
 start_cluster # this also starts 1TM
 start_taskmanagers ${MORE_TMS} # 1TM + 4TM = 5TM a 20 slots = 100 slots
@@ -51,10 +51,6 @@ function check() {
   done
 }
 
-check &
-PID=$!
-
-echo "pid is $PID"
 # This call will result in a deployment with state meta data of 100 x 100 x 40 union states x each 40 entries.
 # We can scale up the numbers to make the test even heavier.
 $FLINK_DIR/bin/flink run ${TEST_PROGRAM_JAR} \
