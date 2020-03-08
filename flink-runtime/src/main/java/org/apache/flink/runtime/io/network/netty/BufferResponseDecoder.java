@@ -45,8 +45,8 @@ class BufferResponseDecoder extends NettyMessageDecoder {
 	@Nullable
 	private BufferResponse bufferResponse;
 
-	/** How many bytes have been received or discarded for the buffer part. */
-	private int decodedBytesOfBuffer;
+	/** How many bytes have been received or discarded for the data buffer part. */
+	private int decodedDataBufferSize;
 
 	BufferResponseDecoder(NetworkBufferAllocator allocator) {
 		this.allocator = checkNotNull(allocator);
@@ -64,7 +64,7 @@ class BufferResponseDecoder extends NettyMessageDecoder {
 		}
 
 		if (bufferResponse != null) {
-			int remainingBufferSize = bufferResponse.bufferSize - decodedBytesOfBuffer;
+			int remainingBufferSize = bufferResponse.bufferSize - decodedDataBufferSize;
 			int actualBytesToDecode = Math.min(data.readableBytes(), remainingBufferSize);
 
 			// For the case of data buffer really exists in BufferResponse now.
@@ -77,10 +77,10 @@ class BufferResponseDecoder extends NettyMessageDecoder {
 					bufferResponse.getBuffer().asByteBuf().writeBytes(data, actualBytesToDecode);
 				}
 
-				decodedBytesOfBuffer += actualBytesToDecode;
+				decodedDataBufferSize += actualBytesToDecode;
 			}
 
-			if (decodedBytesOfBuffer == bufferResponse.bufferSize) {
+			if (decodedDataBufferSize == bufferResponse.bufferSize) {
 				BufferResponse result = bufferResponse;
 				clearState();
 				return DecodingResult.fullMessage(result);
@@ -103,7 +103,7 @@ class BufferResponseDecoder extends NettyMessageDecoder {
 
 	private void clearState() {
 		bufferResponse = null;
-		decodedBytesOfBuffer = 0;
+		decodedDataBufferSize = 0;
 
 		messageHeaderBuffer.clear();
 	}

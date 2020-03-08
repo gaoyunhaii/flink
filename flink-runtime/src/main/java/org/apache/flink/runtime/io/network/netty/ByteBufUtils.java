@@ -28,13 +28,15 @@ import javax.annotation.Nullable;
 public class ByteBufUtils {
 
 	/**
-	 * Accumulates data from the source buffer to the target buffer. If no data has been accumulated yet and the source
-	 * buffer has enough data, source buffer will be returned directly. Otherwise, data will be copied into the target
-	 * buffer. If the size of data copied after this operation has reached the expected total size, the target buffer
-	 * will be returned for read, otherwise <tt>null</tt> will be return to indicate more data is required.
+	 * Accumulates data from <tt>source</tt> to <tt>target</tt>. If no data has been
+	 * accumulated yet and <tt>source</tt> has enough data, <tt>source</tt> will be
+	 * returned directly. Otherwise, data will be copied into <tt>target</tt>. If the
+	 * size of data copied after this operation has reached <tt>targetAccumulationSize</tt>,
+	 * <tt>target</tt> will be returned, otherwise <tt>null</tt> will be returned to indicate
+	 * more data is required.
 	 *
 	 * @param target The target buffer.
-	 * @param src The source buffer.
+	 * @param source The source buffer.
 	 * @param targetAccumulationSize The target size of data to accumulate.
 	 * @param accumulatedSize The size of data accumulated so far.
 	 *
@@ -42,14 +44,14 @@ public class ByteBufUtils {
 	 * 		<tt>null</tt> will be returned.
 	 */
 	@Nullable
-	public static ByteBuf accumulate(ByteBuf target, ByteBuf src, int targetAccumulationSize, int accumulatedSize) {
-		if (accumulatedSize == 0 && src.readableBytes() >= targetAccumulationSize) {
-			return src;
+	public static ByteBuf accumulate(ByteBuf target, ByteBuf source, int targetAccumulationSize, int accumulatedSize) {
+		if (accumulatedSize == 0 && source.readableBytes() >= targetAccumulationSize) {
+			return source;
 		}
 
-		int copyLength = Math.min(src.readableBytes(), targetAccumulationSize - accumulatedSize);
+		int copyLength = Math.min(source.readableBytes(), targetAccumulationSize - accumulatedSize);
 		if (copyLength > 0) {
-			target.writeBytes(src, copyLength);
+			target.writeBytes(source, copyLength);
 		}
 
 		if (accumulatedSize + copyLength == targetAccumulationSize) {
