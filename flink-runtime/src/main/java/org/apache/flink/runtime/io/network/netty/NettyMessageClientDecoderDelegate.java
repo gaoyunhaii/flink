@@ -22,6 +22,10 @@ import org.apache.flink.runtime.io.network.NetworkClientHandler;
 import org.apache.flink.shaded.netty4.io.netty.buffer.ByteBuf;
 import org.apache.flink.shaded.netty4.io.netty.channel.ChannelHandlerContext;
 import org.apache.flink.shaded.netty4.io.netty.channel.ChannelInboundHandlerAdapter;
+import org.apache.flink.util.IOUtils;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.apache.flink.runtime.io.network.netty.NettyMessage.FRAME_HEADER_LENGTH;
 import static org.apache.flink.runtime.io.network.netty.NettyMessage.MAGIC_NUMBER;
@@ -47,6 +51,7 @@ import static org.apache.flink.util.Preconditions.checkState;
  * +------------------+------------------+--------+
  */
 public class NettyMessageClientDecoderDelegate extends ChannelInboundHandlerAdapter {
+	private final Logger LOG = LoggerFactory.getLogger(NettyMessageClientDecoderDelegate.class);
 
 	/** The decoder for BufferResponse. */
     private final NettyMessageDecoder bufferResponseDecoder;
@@ -78,17 +83,15 @@ public class NettyMessageClientDecoderDelegate extends ChannelInboundHandlerAdap
     }
 
 	/**
-	 * Releases resources when the channel is closed. When exceptions are thrown during processing received netty
-	 * buffers, {@link CreditBasedPartitionRequestClientHandler} is expected to catch the exception and close the
-	 * channel and trigger this notification.
+	 * Releases resources when the channel is closed. When exceptions are thrown during
+	 * processing received netty buffers, {@link CreditBasedPartitionRequestClientHandler}
+	 * is expected to catch the exception and close the channel and trigger this notification.
 	 *
 	 * @param ctx The context of the channel close notification.
 	 */
 	@Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-		bufferResponseDecoder.close();
-		nonBufferResponseDecoder.close();
-
+		IOUtils.cleanup(LOG, bufferResponseDecoder, nonBufferResponseDecoder);
 		frameHeaderBuffer.release();
 
 		super.channelInactive(ctx);
