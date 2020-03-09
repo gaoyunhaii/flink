@@ -60,7 +60,7 @@ class BufferResponseDecoder extends NettyMessageDecoder {
 	@Override
 	public DecodingResult onChannelRead(ByteBuf data) throws Exception {
 		if (bufferResponse == null) {
-			extractMessageHeader(data);
+			decodeMessageHeader(data);
 		}
 
 		if (bufferResponse != null) {
@@ -90,14 +90,14 @@ class BufferResponseDecoder extends NettyMessageDecoder {
 		return DecodingResult.NOT_FINISHED;
 	}
 
-	private void extractMessageHeader(ByteBuf data) {
-		ByteBuf toDecode = ByteBufUtils.accumulate(
+	private void decodeMessageHeader(ByteBuf data) {
+		ByteBuf fullFrameHeaderBuf = ByteBufUtils.accumulate(
 			messageHeaderBuffer,
 			data,
 			MESSAGE_HEADER_LENGTH,
 			messageHeaderBuffer.readableBytes());
-		if (toDecode != null) {
-			bufferResponse = BufferResponse.readFrom(toDecode, allocator);
+		if (fullFrameHeaderBuf != null) {
+			bufferResponse = BufferResponse.readFrom(fullFrameHeaderBuf, allocator);
 		}
 	}
 

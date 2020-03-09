@@ -127,20 +127,20 @@ public class NettyMessageClientDecoderDelegate extends ChannelInboundHandlerAdap
     }
 
     private void decodeFrameHeader(ByteBuf data) {
-		ByteBuf toDecode = ByteBufUtils.accumulate(
+		ByteBuf fullFrameHeaderBuf = ByteBufUtils.accumulate(
 			frameHeaderBuffer,
 			data,
 			FRAME_HEADER_LENGTH,
 			frameHeaderBuffer.readableBytes());
 
-		if (toDecode != null) {
-			int messageAndFrameLength = toDecode.readInt();
+		if (fullFrameHeaderBuf != null) {
+			int messageAndFrameLength = fullFrameHeaderBuf.readInt();
 			checkState(messageAndFrameLength >= 0, "The length field of current message must be non-negative");
 
-			int magicNumber = toDecode.readInt();
+			int magicNumber = fullFrameHeaderBuf.readInt();
 			checkState(magicNumber == MAGIC_NUMBER, "Network stream corrupted: received incorrect magic number.");
 
-			int msgId = toDecode.readByte();
+			int msgId = fullFrameHeaderBuf.readByte();
 			if (msgId == NettyMessage.BufferResponse.ID) {
 				currentDecoder = bufferResponseDecoder;
 			} else {

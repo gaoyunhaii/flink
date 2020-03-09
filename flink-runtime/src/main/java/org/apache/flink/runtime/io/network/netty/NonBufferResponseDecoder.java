@@ -34,7 +34,7 @@ class NonBufferResponseDecoder extends NettyMessageDecoder {
 	/** The initial size of the message header accumulation buffer. */
 	private static final int INITIAL_MESSAGE_HEADER_BUFFER_LENGTH = 128;
 
-	/** The accumulation buffer of the message header. */
+	/** The accumulation buffer of the message. */
 	private ByteBuf messageBuffer;
 
 	@Override
@@ -45,31 +45,27 @@ class NonBufferResponseDecoder extends NettyMessageDecoder {
 	@Override
 	void onNewMessageReceived(int msgId, int messageLength) {
 		super.onNewMessageReceived(msgId, messageLength);
+		messageBuffer.clear();
 		ensureBufferCapacity();
 	}
 
 	@Override
 	public DecodingResult onChannelRead(ByteBuf data) throws Exception {
-		ByteBuf toDecode = ByteBufUtils.accumulate(
+		ByteBuf fullFrameHeaderBuf = ByteBufUtils.accumulate(
 			messageBuffer,
 			data,
 			messageLength,
 			messageBuffer.readableBytes());
-		if (toDecode == null) {
+		if (fullFrameHeaderBuf == null) {
 			return DecodingResult.NOT_FINISHED;
 		}
 
-		NettyMessage nettyMessage;
 		switch (msgId) {
 			case ErrorResponse.ID:
-				nettyMessage = ErrorResponse.readFrom(toDecode);
-				break;
+				return DecodingResult.fullMessage(ErrorResponse.readFrom(fullFrameHeaderBuf));
 			default:
 				throw new ProtocolException("Received unknown message from producer: " + msgId);
 		}
-
-		messageBuffer.clear();
-		return DecodingResult.fullMessage(nettyMessage);
 	}
 
 	/**
@@ -77,7 +73,7 @@ class NonBufferResponseDecoder extends NettyMessageDecoder {
 	 * the current message.
 	 */
 	private void ensureBufferCapacity() {
-		if (messageBuffer.writerIndex() == 0 && messageBuffer.capacity() < messageLength) {
+		if (messageBuffer.capacity() < messageLength) {
 			messageBuffer.capacity(messageLength);
 		}
 	}
