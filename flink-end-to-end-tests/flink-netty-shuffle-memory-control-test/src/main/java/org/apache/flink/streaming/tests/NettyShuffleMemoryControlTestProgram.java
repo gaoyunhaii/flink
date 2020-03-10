@@ -29,18 +29,23 @@ import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunctio
 import static org.apache.flink.util.Preconditions.checkArgument;
 
 /**
- * Test program for taskmanager direct memory consumption.
+ * <p>Test program to verify the direct memory consumption of Netty. Without zero-copy
+ * Netty may create more than one chunk, thus we may encounter the exception of
+ * {@link org.apache.flink.shaded.netty4.io.netty.util.internal.OutOfDirectMemoryError}
+ * if we limit the total direct memory to be less than two chunks. Instead, with zero-copy
+ * one chunk will be enough and the exception will not occur.
+ *
+ * <p>Since Netty uses lower API of Unsafe to allocate direct buffer when using JDK8 and
+ * these memory will not be counted in direct memory, the test is only effective when JDK11
+ * is used.
  */
-public class TaskManagerDirectMemoryTestProgram {
+public class NettyShuffleMemoryControlTestProgram {
+	private static final int RECORD_LENGTH = 2048;
+
 	private static final ConfigOption<Integer> RUNNING_TIME_IN_SECONDS = ConfigOptions
 		.key("test.running_time_in_seconds")
 		.defaultValue(120)
 		.withDescription("The time to run.");
-
-	private static final ConfigOption<Integer> RECORD_LENGTH = ConfigOptions
-		.key("test.record_length")
-		.defaultValue(2048)
-		.withDescription("The length of record.");
 
 	private static final ConfigOption<Integer> MAP_PARALLELISM = ConfigOptions
 		.key("test.map_parallelism")
@@ -57,16 +62,12 @@ public class TaskManagerDirectMemoryTestProgram {
 		final ParameterTool params = ParameterTool.fromArgs(args);
 
 		final int runningTimeInSeconds = params.getInt(RUNNING_TIME_IN_SECONDS.key(), RUNNING_TIME_IN_SECONDS.defaultValue());
-		final int recordLength = params.getInt(RECORD_LENGTH.key(), RECORD_LENGTH.defaultValue());
 		final int mapParallelism = params.getInt(MAP_PARALLELISM.key(), MAP_PARALLELISM.defaultValue());
 		final int reduceParallelism = params.getInt(REDUCE_PARALLELISM.key(), REDUCE_PARALLELISM.defaultValue());
 
 		checkArgument(runningTimeInSeconds > 0,
 			"The running time in seconds should be positive, but it is {}",
-			recordLength);
-		checkArgument(recordLength > 0,
-			"The record length should be positive, but it is {}",
-			recordLength);
+			runningTimeInSeconds);
 		checkArgument(mapParallelism > 0,
 			"The number of map tasks should be positive, but it is {}",
 			mapParallelism);
@@ -74,14 +75,8 @@ public class TaskManagerDirectMemoryTestProgram {
 			"The number of reduce tasks should be positve, but it is {}",
 			reduceParallelism);
 
-		byte[] bytes = new byte[recordLength];
-		for (int i = 0; i < recordLength; ++i) {
-			bytes[i] = 'a';
-		}
-		String str = new String(bytes);
-
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-		env.addSource(new StringSourceFunction(str, runningTimeInSeconds))
+		env.addSource(new StringSourceFunction(runningTimeInSeconds))
 			.setParallelism(mapParallelism)
 			.slotSharingGroup("a")
 			.shuffle()
@@ -98,14 +93,11 @@ public class TaskManagerDirectMemoryTestProgram {
 
 		private volatile boolean isRunning;
 
-		private final String str;
-
 		private final long runningTimeInSeconds;
 
 		private transient long stopTime;
 
-		public StringSourceFunction(String str, long runningTimeInSeconds) {
-			this.str = str;
+		public StringSourceFunction(long runningTimeInSeconds) {
 			this.runningTimeInSeconds = runningTimeInSeconds;
 		}
 
@@ -117,6 +109,12 @@ public class TaskManagerDirectMemoryTestProgram {
 
 		@Override
 		public void run(SourceContext<String> ctx) {
+			byte[] bytes = new byte[RECORD_LENGTH];
+			for (int i = 0; i < RECORD_LENGTH; ++i) {
+				bytes[i] = 'a';
+			}
+			String str = new String(bytes);
+
 			while (isRunning && (System.nanoTime() < stopTime)) {
 				ctx.collect(str);
 			}
