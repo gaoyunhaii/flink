@@ -23,9 +23,9 @@ TEST=flink-netty-shuffle-memory-control-test
 TEST_PROGRAM_NAME=NettyShuffleMemoryControlTestProgram
 TEST_PROGRAM_JAR=${END_TO_END_DIR}/$TEST/target/$TEST_PROGRAM_NAME.jar
 
-set_config_key "taskmanager.memory.process.size" "512m"
-set_config_key "taskmanager.memory.network.min" "128mb"
-set_config_key "taskmanager.memory.network.max" "128mb"
+set_config_key "taskmanager.memory.flink.size" "512m"
+set_config_key "taskmanager.memory.network.min" "128m"
+set_config_key "taskmanager.memory.network.max" "128m"
 
 set_config_key "taskmanager.numberOfTaskSlots" "20" # 20 slots per TM
 set_config_key "taskmanager.network.netty.num-arenas" "1" # Use only one arena for each TM
