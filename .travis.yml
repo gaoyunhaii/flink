@@ -365,7 +365,7 @@ jobs:
 #      script: ./tools/travis/nightly.sh split_tpcds.sh
 #      name: e2e - tpcds
     # E2E profiles - Java 11
-    - if type in (pull_request, push)
+    - if: type in (pull_request, push)
       stage: test
       jdk: "openjdk11"
       env: PROFILE="-Djdk11 -Dinclude-hadoop -Dhadoop.version=2.8.3 -Pe2e-travis1,e2e-hadoop"
