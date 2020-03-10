@@ -172,14 +172,13 @@ public class NettyTestUtil {
 	// Encoding & Decoding
 	// ---------------------------------------------------------------------------------------------
 
-	@SuppressWarnings("unchecked")
 	static <T extends NettyMessage> T encodeAndDecode(T msg, EmbeddedChannel channel) {
 		channel.writeOutbound(msg);
 		ByteBuf encoded = channel.readOutbound();
 
 		assertTrue(channel.writeInbound(encoded));
 
-		return (T) channel.readInbound();
+		return channel.readInbound();
 	}
 
 	// ---------------------------------------------------------------------------------------------
@@ -190,6 +189,10 @@ public class NettyTestUtil {
 		assertEquals(expected.receiverId, actual.receiverId);
 		assertEquals(expected.cause.getClass(), actual.cause.getClass());
 		assertEquals(expected.cause.getMessage(), actual.cause.getMessage());
+
+		if (expected.receiverId == null) {
+			assertTrue(actual.isFatalError());
+		}
 	}
 
 	static void verifyBufferResponseHeader(BufferResponse expected, BufferResponse actual) {

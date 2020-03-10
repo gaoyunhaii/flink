@@ -71,7 +71,10 @@ public class NettyMessageServerSideSerializationTest {
 
 	@Test
 	public void testTaskEventRequest() {
-		NettyMessage.TaskEventRequest expected = new NettyMessage.TaskEventRequest(new IntegerTaskEvent(random.nextInt()), new ResultPartitionID(), new InputChannelID());
+		NettyMessage.TaskEventRequest expected = new NettyMessage.TaskEventRequest(
+			new IntegerTaskEvent(random.nextInt()),
+			new ResultPartitionID(),
+			new InputChannelID());
 		NettyMessage.TaskEventRequest actual = encodeAndDecode(expected, channel);
 
 		assertEquals(expected.event, actual.event);
@@ -81,7 +84,8 @@ public class NettyMessageServerSideSerializationTest {
 
 	@Test
 	public void testCancelPartitionRequest() {
-		NettyMessage.CancelPartitionRequest expected = new NettyMessage.CancelPartitionRequest(new InputChannelID());
+		NettyMessage.CancelPartitionRequest expected = new NettyMessage.CancelPartitionRequest(
+			new InputChannelID());
 		NettyMessage.CancelPartitionRequest actual = encodeAndDecode(expected, channel);
 
 		assertEquals(expected.receiverId, actual.receiverId);
@@ -97,7 +101,9 @@ public class NettyMessageServerSideSerializationTest {
 
 	@Test
 	public void testAddCredit() {
-		NettyMessage.AddCredit expected = new NettyMessage.AddCredit(random.nextInt(Integer.MAX_VALUE) + 1, new InputChannelID());
+		NettyMessage.AddCredit expected = new NettyMessage.AddCredit(
+			random.nextInt(Integer.MAX_VALUE) + 1,
+			new InputChannelID());
 		NettyMessage.AddCredit actual = encodeAndDecode(expected, channel);
 
 		assertEquals(expected.credit, actual.credit);

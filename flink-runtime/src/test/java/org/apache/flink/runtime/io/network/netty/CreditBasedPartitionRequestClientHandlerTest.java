@@ -460,25 +460,28 @@ public class CreditBasedPartitionRequestClientHandlerTest {
 
 	@Test
 	public void testReadBufferResponseBeforeReleasingChannel() throws Exception {
-		testReadBufferResponseBeforeReleasingOrRemovingChannel(false);
+		testReadBufferResponseWithReleasingOrRemovingChannel(false, true);
 	}
 
 	@Test
 	public void testReadBufferResponseBeforeRemovingChannel() throws Exception {
-		testReadBufferResponseBeforeReleasingOrRemovingChannel(true);
+		testReadBufferResponseWithReleasingOrRemovingChannel(true, true);
 	}
 
 	@Test
 	public void testReadBufferResponseAfterReleasingChannel() throws Exception {
-		testReadBufferResponseAfterReleasingAndRemovingChannel(false);
+		testReadBufferResponseWithReleasingOrRemovingChannel(false, false);
 	}
 
 	@Test
 	public void testReadBufferResponseAfterRemovingChannel() throws Exception {
-		testReadBufferResponseAfterReleasingAndRemovingChannel(true);
+		testReadBufferResponseWithReleasingOrRemovingChannel(true, false);
 	}
 
-	private void testReadBufferResponseBeforeReleasingOrRemovingChannel(boolean isRemoved) throws Exception {
+	private void testReadBufferResponseWithReleasingOrRemovingChannel(
+		boolean isRemoved,
+		boolean readBeforeReleasingOrRemoving) throws Exception {
+
 		int bufferSize = 1024;
 
 		NetworkBufferPool networkBufferPool = new NetworkBufferPool(10, bufferSize, 2);
@@ -493,53 +496,12 @@ public class CreditBasedPartitionRequestClientHandlerTest {
 		handler.addInputChannel(inputChannel);
 
 		try {
-			BufferResponse bufferResponse = createBufferResponse(
-				TestBufferFactory.createBuffer(bufferSize),
-				0,
-				inputChannel.getInputChannelId(),
-				1,
-				new NetworkBufferAllocator(handler));
-
-			// Release the channel.
-			inputGate.close();
-			if (isRemoved) {
-				handler.removeInputChannel(inputChannel);
-			}
-
-			handler.channelRead(null, bufferResponse);
-
-			assertEquals(0, inputChannel.getNumberOfQueuedBuffers());
-			assertNotNull(bufferResponse.getBuffer());
-			assertTrue(bufferResponse.getBuffer().isRecycled());
-
-			embeddedChannel.runScheduledPendingTasks();
-			NettyMessage.CancelPartitionRequest cancelPartitionRequest = embeddedChannel.readOutbound();
-			assertNotNull(cancelPartitionRequest);
-			assertEquals(inputChannel.getInputChannelId(), cancelPartitionRequest.receiverId);
-		} finally {
-			releaseResource(inputGate, networkBufferPool);
-		}
-	}
-
-	private void testReadBufferResponseAfterReleasingAndRemovingChannel(boolean isRemoved) throws Exception {
-		int bufferSize = 1024;
-
-		NetworkBufferPool networkBufferPool = new NetworkBufferPool(10, bufferSize, 2);
-		SingleInputGate inputGate = createSingleInputGate(1);
-		RemoteInputChannel inputChannel = new InputChannelBuilder()
-			.setMemorySegmentProvider(networkBufferPool)
-			.buildRemoteAndSetToGate(inputGate);
-		inputGate.assignExclusiveSegments();
-
-		CreditBasedPartitionRequestClientHandler handler = new CreditBasedPartitionRequestClientHandler();
-		EmbeddedChannel embeddedChannel = new EmbeddedChannel(handler);
-		handler.addInputChannel(inputChannel);
-
-		try {
-			// Release the channel.
-			inputGate.close();
-			if (isRemoved) {
-				handler.removeInputChannel(inputChannel);
+			if (readBeforeReleasingOrRemoving) {
+				// Release the channel.
+				inputGate.close();
+				if (isRemoved) {
+					handler.removeInputChannel(inputChannel);
+				}
 			}
 
 			BufferResponse bufferResponse = createBufferResponse(
@@ -548,10 +510,24 @@ public class CreditBasedPartitionRequestClientHandlerTest {
 				inputChannel.getInputChannelId(),
 				1,
 				new NetworkBufferAllocator(handler));
+
+			if (!readBeforeReleasingOrRemoving) {
+				// Release the channel.
+				inputGate.close();
+				if (isRemoved) {
+					handler.removeInputChannel(inputChannel);
+				}
+			}
+
 			handler.channelRead(null, bufferResponse);
 
 			assertEquals(0, inputChannel.getNumberOfQueuedBuffers());
-			assertNull(bufferResponse.getBuffer());
+			if (readBeforeReleasingOrRemoving) {
+				assertNull(bufferResponse.getBuffer());
+			} else {
+				assertNotNull(bufferResponse.getBuffer());
+				assertTrue(bufferResponse.getBuffer().isRecycled());
+			}
 
 			embeddedChannel.runScheduledPendingTasks();
 			NettyMessage.CancelPartitionRequest cancelPartitionRequest = embeddedChannel.readOutbound();

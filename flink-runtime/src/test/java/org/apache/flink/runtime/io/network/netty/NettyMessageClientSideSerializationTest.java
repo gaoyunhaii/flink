@@ -45,6 +45,9 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Random;
 
+import static org.apache.flink.runtime.io.network.netty.NettyMessage.BufferResponse;
+import static org.apache.flink.runtime.io.network.netty.NettyMessage.ErrorResponse;
+import static org.apache.flink.runtime.io.network.netty.NettyMessage.NettyMessageEncoder;
 import static org.apache.flink.runtime.io.network.netty.NettyTestUtil.encodeAndDecode;
 import static org.apache.flink.runtime.io.network.netty.NettyTestUtil.verifyBufferResponseHeader;
 import static org.apache.flink.runtime.io.network.netty.NettyTestUtil.verifyErrorResponse;
@@ -115,7 +118,7 @@ public class NettyMessageClientSideSerializationTest {
 		handler.addInputChannel(inputChannel);
 
 		channel = new EmbeddedChannel(
-			new NettyMessage.NettyMessageEncoder(), // For outbound messages
+			new NettyMessageEncoder(), // For outbound messages
 			new NettyMessageClientDecoderDelegate(handler)); // For inbound messages
 
 		inputChannelId = inputChannel.getInputChannelId();
@@ -133,7 +136,9 @@ public class NettyMessageClientSideSerializationTest {
 
 	@Test
 	public void testBufferResponse() {
-		NetworkBuffer buffer = new NetworkBuffer(MemorySegmentFactory.allocateUnpooledSegment(BUFFER_SIZE), FreeingBufferRecycler.INSTANCE);
+		NetworkBuffer buffer = new NetworkBuffer(
+			MemorySegmentFactory.allocateUnpooledSegment(BUFFER_SIZE),
+			FreeingBufferRecycler.INSTANCE);
 
 		for (int i = 0; i < BUFFER_SIZE; i += 8) {
 			buffer.writeLong(i);
@@ -144,9 +149,9 @@ public class NettyMessageClientSideSerializationTest {
 			testBuffer = COMPRESSOR.compressToOriginalBuffer(buffer);
 		}
 
-		NettyMessage.BufferResponse expected = new NettyMessage.BufferResponse(
+		BufferResponse expected = new BufferResponse(
 			testBuffer, random.nextInt(), inputChannelId, random.nextInt());
-		NettyMessage.BufferResponse actual = encodeAndDecode(expected, channel);
+		BufferResponse actual = encodeAndDecode(expected, channel);
 
 		assertTrue(buffer.isRecycled());
 		assertTrue(testBuffer.isRecycled());
@@ -180,35 +185,24 @@ public class NettyMessageClientSideSerializationTest {
 
 	@Test
 	public void testErrorResponseWithoutErrorMessage() {
-		IllegalStateException expectedError = new IllegalStateException();
-		InputChannelID receiverId = new InputChannelID();
-
-		NettyMessage.ErrorResponse expected = new NettyMessage.ErrorResponse(expectedError, receiverId);
-		NettyMessage.ErrorResponse actual = encodeAndDecode(expected, channel);
-
-		verifyErrorResponse(expected, actual);
+		testErrorResponse(new ErrorResponse(new IllegalStateException(), new InputChannelID()));
 	}
 
 	@Test
 	public void testErrorResponseWithErrorMessage() {
-		IllegalStateException expectedError = new IllegalStateException("Illegal illegal illegal");
-		InputChannelID receiverId = new InputChannelID();
-
-		NettyMessage.ErrorResponse expected = new NettyMessage.ErrorResponse(expectedError, receiverId);
-		NettyMessage.ErrorResponse actual = encodeAndDecode(expected, channel);
-
-		verifyErrorResponse(expected, actual);
+		testErrorResponse(new ErrorResponse(
+			new IllegalStateException("Illegal illegal illegal"),
+			new InputChannelID()));
 	}
 
 	@Test
 	public void testErrorResponseWithFatalError() {
-		IllegalStateException expectedError = new IllegalStateException("Illegal illegal illegal");
+		testErrorResponse(new ErrorResponse(new IllegalStateException("Illegal illegal illegal")));
+	}
 
-		NettyMessage.ErrorResponse expected = new NettyMessage.ErrorResponse(expectedError);
-		NettyMessage.ErrorResponse actual = encodeAndDecode(expected, channel);
-
-		verifyErrorResponse(expected, actual);
-		assertTrue(actual.isFatalError());
+	private void testErrorResponse(ErrorResponse expect) {
+		ErrorResponse actual = encodeAndDecode(expect, channel);
+		verifyErrorResponse(expect, actual);
 	}
 
 	private ByteBuf decompress(ByteBuf buffer) {
