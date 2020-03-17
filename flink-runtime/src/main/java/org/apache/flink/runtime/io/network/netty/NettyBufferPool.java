@@ -53,7 +53,8 @@ public class NettyBufferPool extends PooledByteBufAllocator {
 
 	/**
 	 * Arenas allocate chunks of pageSize << maxOrder bytes. With these defaults, this results in
-	 * chunks of 16 MB.
+	 * chunks of 4 MB. According to the manual test result, after introducing client side zero-copy
+	 * in FLINK-10742, 4 MB is enough to support large-scale netty shuffle.
 	 *
 	 * @see #MAX_ORDER
 	 */
@@ -61,11 +62,12 @@ public class NettyBufferPool extends PooledByteBufAllocator {
 
 	/**
 	 * Arenas allocate chunks of pageSize << maxOrder bytes. With these defaults, this results in
-	 * chunks of 16 MB.
+	 * chunks of 4 MB. According to the manual test result, after introducing client side zero-copy
+	 * in FLINK-10742, 4 MB is enough to support large-scale netty shuffle.
 	 *
 	 * @see #PAGE_SIZE
 	 */
-	private static final int MAX_ORDER = 11;
+	private static final int MAX_ORDER = 9;
 
 	/**
 	 * Creates Netty's buffer pool with the specified number of direct arenas.
