@@ -61,11 +61,11 @@ public class NettyBufferPool extends PooledByteBufAllocator {
 
 	/**
 	 * Arenas allocate chunks of pageSize << maxOrder bytes. With these defaults, this results in
-	 * chunks of 4 MB.
+	 * chunks of 16 MB.
 	 *
 	 * @see #PAGE_SIZE
 	 */
-	private static final int MAX_ORDER = 9;
+	private static final int MAX_ORDER = 11;
 
 	/**
 	 * Creates Netty's buffer pool with the specified number of direct arenas.
