@@ -35,17 +35,45 @@ import scala.reflect.macros.Context
 @Internal
 private[flink] trait TypeInformationGen[C <: Context] {
   this: MacroContextHolder[C]
-  with TypeDescriptors[C]
-  with TypeAnalyzer[C]
-  with TreeGen[C] =>
+    with TypeDescriptors[C]
+    with TypeAnalyzer[C]
+    with TreeGen[C] =>
 
   import c.universe._
+
+  def mkTypeInfo2[T: c.WeakTypeTag]: c.Expr[TypeInformation[T]] = {
+    // iterate over all the parameters
+    println("1. hahaha")
+    println("2. " + weakTypeTag[T].tpe)
+    val tpe = weakTypeTag[T].tpe
+
+    val tpeClazz = c.Expr[Class[T]](Literal(Constant(tpe)))
+    val genericTypeInfos = tpe match {
+      case TypeRef(_, _, typeParams) =>
+        val typeInfos = typeParams map { tpe => mkTypeInfo2(c.WeakTypeTag[T](tpe)).tree }
+        c.Expr[List[TypeInformation[_]]](mkList(typeInfos))
+      case _ =>
+        reify {
+          List[TypeInformation[_]]()
+        }
+    }
+
+    reify{
+      println("Trying to output")
+      println(tpeClazz)
+      println(genericTypeInfos.splice)
+      TypeExtractor.createTypeInfo(tpeClazz.splice)
+    }
+  }
 
   // This is for external calling by TypeUtils.createTypeInfo
   def mkTypeInfo[T: c.WeakTypeTag]: c.Expr[TypeInformation[T]] = {
     val desc = getUDTDescriptor(weakTypeTag[T].tpe)
     val result: c.Expr[TypeInformation[T]] = mkTypeInfo(desc)(c.WeakTypeTag(desc.tpe))
-    result
+
+    val result2: c.Expr[TypeInformation[T]] = mkTypeInfo2(c.weakTypeTag(weakTypeTag[T]))
+
+    result2
   }
 
   // We have this for internal use so that we can use it to recursively generate a tree of
@@ -60,13 +88,17 @@ private[flink] trait TypeInformationGen[C <: Context] {
 
     case tp: TypeParameterDescriptor => mkTypeParameter(tp)
 
-    case p : PrimitiveDescriptor => mkPrimitiveTypeInfo(p.tpe)
-    case p : BoxedPrimitiveDescriptor => mkPrimitiveTypeInfo(p.tpe)
+    case p: PrimitiveDescriptor => mkPrimitiveTypeInfo(p.tpe)
+    case p: BoxedPrimitiveDescriptor => mkPrimitiveTypeInfo(p.tpe)
 
     case n: NothingDescriptor =>
-      reify { new ScalaNothingTypeInfo().asInstanceOf[TypeInformation[T]] }
+      reify {
+        new ScalaNothingTypeInfo().asInstanceOf[TypeInformation[T]]
+      }
 
-    case u: UnitDescriptor => reify { new UnitTypeInfo().asInstanceOf[TypeInformation[T]] }
+    case u: UnitDescriptor => reify {
+      new UnitTypeInfo().asInstanceOf[TypeInformation[T]]
+    }
 
     case e: EitherDescriptor => mkEitherTypeInfo(e)
 
@@ -76,11 +108,11 @@ private[flink] trait TypeInformationGen[C <: Context] {
 
     case o: OptionDescriptor => mkOptionTypeInfo(o)
 
-    case a : ArrayDescriptor => mkArrayTypeInfo(a)
+    case a: ArrayDescriptor => mkArrayTypeInfo(a)
 
-    case l : TraversableDescriptor => mkTraversableTypeInfo(l)
+    case l: TraversableDescriptor => mkTraversableTypeInfo(l)
 
-    case v : ValueDescriptor =>
+    case v: ValueDescriptor =>
       mkValueTypeInfo(v)(c.WeakTypeTag(v.tpe).asInstanceOf[c.WeakTypeTag[Value]])
         .asInstanceOf[c.Expr[TypeInformation[T]]]
 
@@ -92,7 +124,7 @@ private[flink] trait TypeInformationGen[C <: Context] {
   }
 
   def mkTypeInfoFromFactory[T: c.WeakTypeTag](desc: FactoryTypeDescriptor)
-    : c.Expr[TypeInformation[T]] = {
+  : c.Expr[TypeInformation[T]] = {
 
     val tpeClazz = c.Expr[Class[T]](Literal(Constant(desc.tpe)))
     val baseClazz = c.Expr[Class[T]](Literal(Constant(desc.baseType)))
@@ -104,14 +136,14 @@ private[flink] trait TypeInformationGen[C <: Context] {
       val factory = TypeExtractor.getTypeInfoFactory[T](baseClazz.splice)
       val genericParameters = typeInfosList.splice
         .zip(baseClazz.splice.getTypeParameters).map { case (typeInfo, typeParam) =>
-          typeParam.getName -> typeInfo
-        }.toMap[String, TypeInformation[_]]
+        typeParam.getName -> typeInfo
+      }.toMap[String, TypeInformation[_]]
       factory.createTypeInfo(tpeClazz.splice, genericParameters.asJava)
     }
   }
 
   def mkCaseClassTypeInfo[T <: Product : c.WeakTypeTag](
-      desc: CaseClassDescriptor): c.Expr[TypeInformation[T]] = {
+                                                         desc: CaseClassDescriptor): c.Expr[TypeInformation[T]] = {
     val tpeClazz = c.Expr[Class[T]](Literal(Constant(desc.tpe)))
 
     val genericTypeInfos = desc.tpe match {
@@ -119,7 +151,9 @@ private[flink] trait TypeInformationGen[C <: Context] {
         val typeInfos = typeParams map { tpe => mkTypeInfo(c.WeakTypeTag[T](tpe)).tree }
         c.Expr[List[TypeInformation[_]]](mkList(typeInfos))
       case _ =>
-        reify { List[TypeInformation[_]]() }
+        reify {
+          List[TypeInformation[_]]()
+        }
     }
 
     val fields = desc.getters.toList map { field =>
@@ -167,7 +201,8 @@ private[flink] trait TypeInformationGen[C <: Context] {
     val leftTypeInfo = mkTypeInfo(desc.left)(c.WeakTypeTag(desc.left.tpe))
     val rightTypeInfo = mkTypeInfo(desc.right)(c.WeakTypeTag(desc.right.tpe))
 
-    val result = q"""
+    val result =
+      q"""
       import org.apache.flink.api.scala.typeutils.EitherTypeInfo
 
       new EitherTypeInfo[${desc.left.tpe}, ${desc.right.tpe}, ${desc.tpe}](
@@ -183,7 +218,8 @@ private[flink] trait TypeInformationGen[C <: Context] {
 
     val enumValueClass = c.Expr[Class[T]](Literal(Constant(weakTypeOf[T])))
 
-    val result = q"""
+    val result =
+      q"""
       import org.apache.flink.api.scala.typeutils.EnumValueTypeInfo
 
       new EnumValueTypeInfo[${d.enum.typeSignature}](${d.enum}, $enumValueClass)
@@ -196,7 +232,8 @@ private[flink] trait TypeInformationGen[C <: Context] {
 
     val elemTypeInfo = mkTypeInfo(desc.elem)(c.WeakTypeTag(desc.elem.tpe))
 
-    val result = q"""
+    val result =
+      q"""
       import org.apache.flink.api.scala.typeutils.TryTypeInfo
 
       new TryTypeInfo[${desc.elem.tpe}, ${desc.tpe}]($elemTypeInfo)
@@ -209,7 +246,8 @@ private[flink] trait TypeInformationGen[C <: Context] {
 
     val elemTypeInfo = mkTypeInfo(desc.elem)(c.WeakTypeTag(desc.elem.tpe))
 
-    val result = q"""
+    val result =
+      q"""
       import org.apache.flink.api.scala.typeutils.OptionTypeInfo
 
       new OptionTypeInfo[${desc.elem.tpe}, ${desc.tpe}]($elemTypeInfo)
@@ -219,7 +257,7 @@ private[flink] trait TypeInformationGen[C <: Context] {
   }
 
   def mkTraversableTypeInfo[T: c.WeakTypeTag](
-      desc: TraversableDescriptor): c.Expr[TypeInformation[T]] = {
+                                               desc: TraversableDescriptor): c.Expr[TypeInformation[T]] = {
     val collectionClass = c.Expr[Class[T]](Literal(Constant(desc.tpe)))
     val elementClazz = c.Expr[Class[T]](Literal(Constant(desc.elem.tpe)))
     val elementTypeInfo = mkTypeInfo(desc.elem)(c.WeakTypeTag(desc.elem.tpe))
@@ -251,6 +289,7 @@ private[flink] trait TypeInformationGen[C <: Context] {
         innerTpe
       }
     }
+
     val traversableTpe = desc.tpe.map(replaceGenericTypeParameter)
     val elemTpe = desc.elem.tpe.map(replaceGenericTypeParameter)
 
@@ -259,7 +298,8 @@ private[flink] trait TypeInformationGen[C <: Context] {
 
     val cbfStringLiteral = c.Expr[Class[T]](Literal(Constant(cbfString)))
 
-    val result = q"""
+    val result =
+      q"""
       import scala.collection.generic.CanBuildFrom
       import org.apache.flink.api.scala.typeutils.TraversableTypeInfo
       import org.apache.flink.api.scala.typeutils.TraversableSerializer
@@ -351,7 +391,7 @@ private[flink] trait TypeInformationGen[C <: Context] {
   }
 
   def mkValueTypeInfo[T <: Value : c.WeakTypeTag](
-      desc: UDTDescriptor): c.Expr[TypeInformation[T]] = {
+                                                   desc: UDTDescriptor): c.Expr[TypeInformation[T]] = {
     val tpeClazz = c.Expr[Class[T]](Literal(Constant(desc.tpe)))
     reify {
       new ValueTypeInfo[T](tpeClazz.splice)
@@ -367,7 +407,7 @@ private[flink] trait TypeInformationGen[C <: Context] {
     val tpeClazz = c.Expr[Class[T]](Literal(Constant(desc.tpe)))
 
     reify {
-      val fields =  fieldsList.splice
+      val fields = fieldsList.splice
       val clazz = tpeClazz.splice.asInstanceOf[Class[org.apache.flink.api.java.tuple.Tuple]]
       new TupleTypeInfo[org.apache.flink.api.java.tuple.Tuple](clazz, fields: _*)
         .asInstanceOf[TypeInformation[T]]
@@ -381,13 +421,15 @@ private[flink] trait TypeInformationGen[C <: Context] {
       f =>
         val name = c.Expr(Literal(Constant(f.name)))
         val fieldType = mkTypeInfo(f.desc)(c.WeakTypeTag(f.tpe))
-        reify { (name.splice, fieldType.splice) }.tree
+        reify {
+          (name.splice, fieldType.splice)
+        }.tree
     }
 
     val fieldsList = c.Expr[List[(String, TypeInformation[_])]](mkList(fieldsTrees.toList))
 
     reify {
-      val fields =  fieldsList.splice
+      val fields = fieldsList.splice
       val clazz: Class[T] = tpeClazz.splice
 
       var traversalClazz: Class[_] = clazz
@@ -435,7 +477,7 @@ private[flink] trait TypeInformationGen[C <: Context] {
   }
 
   def mkTypeParameter[T: c.WeakTypeTag](
-      typeParameter: TypeParameterDescriptor): c.Expr[TypeInformation[T]] = {
+                                         typeParameter: TypeParameterDescriptor): c.Expr[TypeInformation[T]] = {
 
     val result = c.inferImplicitValue(
       c.weakTypeOf[TypeInformation[T]],
