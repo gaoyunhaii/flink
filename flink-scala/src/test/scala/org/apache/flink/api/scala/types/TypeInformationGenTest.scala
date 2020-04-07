@@ -294,6 +294,7 @@ class TypeInformationGenTest {
 
   @Test
   def testBasicArray(): Unit = {
+    println("trigger test 222")
     val ti = createTypeInformation[Array[String]]
 
     Assert.assertFalse(ti.isBasicType)
@@ -330,6 +331,7 @@ class TypeInformationGenTest {
   @Test
   def testTupleArray(): Unit = {
     val ti = createTypeInformation[Array[(String, String)]]
+    println(ti, "1222")
 
     Assert.assertTrue(ti.isInstanceOf[ObjectArrayTypeInfo[_, _]])
     val oati = ti.asInstanceOf[ObjectArrayTypeInfo[_, _]]
@@ -617,6 +619,7 @@ class TypeInformationGenTest {
   def testNestedTraversableWithSpecificTypesDoesNotReplaceTypeParametersInCanBuildFrom(): Unit = {
 
     val traversableTypeInfo = createTypeInformation[Seq[Seq[Int]]]
+    println(traversableTypeInfo)
     val outerTraversableSerializer = traversableTypeInfo.createSerializer(new ExecutionConfig)
       .asInstanceOf[TraversableSerializer[Seq[Seq[Int]], Seq[Int]]]
 

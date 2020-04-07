@@ -18,7 +18,7 @@
 
 package org.apache.flink.api.scala.typeutils
 
-import java.lang.reflect.Type
+import java.lang.reflect.{ParameterizedType, Type}
 import java.util
 
 import org.apache.flink.api.common.ExecutionConfig
@@ -39,6 +39,7 @@ class TypeInfoFactoryTest extends TestLogger with JUnitSuiteLike {
   @Test
   def testSimpleType(): Unit = {
     val ti = createTypeInformation[ScalaIntLike]
+    println("ti is", ti)
     assertEquals(INT_TYPE_INFO, ti)
   }
 
@@ -68,7 +69,11 @@ class TypeInfoFactoryTest extends TestLogger with JUnitSuiteLike {
 
   @Test
   def testMyTupleHierarchyWithCaseClass(): Unit = {
+    val pt = classOf[MyScalaTupleCaseClass].getGenericSuperclass.asInstanceOf[ParameterizedType]
+    println("?????", pt.getActualTypeArguments.mkString(", "))
+
     val ti = createTypeInformation[MyScalaTupleCaseClass]
+
     assertTrue(ti.isInstanceOf[MyTupleTypeInfo[_, _]])
     val mtti = ti.asInstanceOf[MyTupleTypeInfo[_, _]]
     assertEquals(DOUBLE_TYPE_INFO, mtti.getField0)

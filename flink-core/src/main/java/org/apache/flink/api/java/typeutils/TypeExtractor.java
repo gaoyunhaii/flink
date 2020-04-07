@@ -774,7 +774,7 @@ public class TypeExtractor {
 	@PublicEvolving
 	@SuppressWarnings({ "unchecked"})
 	@Nonnull
-	static TypeInformation<?> extract(
+	public static TypeInformation<?> extract(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
 		final List<Class<?>> extractingClasses) {
@@ -789,6 +789,10 @@ public class TypeExtractor {
 
 		TypeInformation<?> typeInformation;
 
+		if ((typeInformation = TypeInfoFactoryExtractor.extract(type, typeVariableBindings, extractingClasses)) != null) {
+			return typeInformation;
+		}
+
 		if ((typeInformation = AvroTypeExtractorChecker.extract(type)) != null) {
 			return typeInformation;
 		}
@@ -801,7 +805,22 @@ public class TypeExtractor {
 			return typeInformation;
 		}
 
+		// Special logic to try to load the scala type extractor directly
+		try {
+			Class<?> scalaFactoryClazz = Class.forName("org.apache.flink.api.scala.typeutils.ScalaTypeInfoExtractor");
+			Object scalaFactory = scalaFactoryClazz.newInstance();
+			Method method = scalaFactoryClazz.getDeclaredMethod("createTypeInfo", Type.class, Map.class);
+
+			if ((typeInformation = (TypeInformation<?>) method.invoke(scalaFactory, type, typeVariableBindings)) != null) {
+				System.out.println("Scala transformation parse " + type + " returns " + typeInformation + ", class is " + typeInformation.getClass());
+				return typeInformation;
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
 		if ((typeInformation = DefaultExtractor.extract(type, typeVariableBindings, currentExtractingClasses)) != null) {
+			System.out.println("Default transformation parse " + type + " returns " + typeInformation + ", class is " + typeInformation.getClass());
 			return typeInformation;
 		}
 		throw new InvalidTypesException("Type Information could not be created.");

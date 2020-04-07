@@ -214,6 +214,7 @@ class TableEnvironmentITCase(tableEnvName: String) {
 
   @Test
   def testFromToDataStreamAndSqlUpdate(): Unit = {
+    println("1+1=222222222222222")
     if (!tableEnvName.equals("StreamTableEnvironment")) {
       return
     }
@@ -229,6 +230,7 @@ class TableEnvironmentITCase(tableEnvName: String) {
     val table = streamTableEnv.sqlQuery("select last from MyTable where id > 0")
     val resultSet = streamTableEnv.toAppendStream[Row](table)
     resultSet.addSink(new StreamITCase.StringSink[Row])
+
 
     streamTableEnv.sqlUpdate("insert into MySink1 select first from MyTable")
 

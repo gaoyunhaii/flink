@@ -81,10 +81,6 @@ class DefaultExtractor {
 			return typeInformation;
 		}
 
-		if ((typeInformation = TypeInfoFactoryExtractor.extract(type, typeVariableBindings, extractingClasses)) != null) {
-			return typeInformation;
-		}
-
 		if ((typeInformation = PojoTypeExtractor.extract(type, typeVariableBindings, extractingClasses)) != null) {
 			return typeInformation;
 		}

@@ -75,7 +75,10 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
 
           case CaseClassType() => analyzeCaseClass(id, tpe)
 
-          case TraversableType(elemTpe) => analyzeTraversable(id, tpe, elemTpe)
+          case TraversableType(elemTpe) => {
+            println("ts 3", id, tpe, elemTpe)
+            analyzeTraversable(id, tpe, elemTpe)
+          }
 
           case ValueType() => ValueDescriptor(id, tpe)
 
@@ -171,6 +174,8 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
         // We don't support POJOs with immutable fields
         return GenericClassDescriptor(id, tpe)
       }
+
+      println(tpe, "checking", tpe.decls.mkString(",\n\t"))
 
       val fields = tpe.members
         .filter { _.isTerm }
@@ -311,6 +316,7 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
 //            .find(t => t.erasure =:= typeOf[TraversableOnce[_]].erasure)
 
           val traversable = tpe.baseType(typeOf[TraversableOnce[_]].typeSymbol)
+          // println("ts 1", traversable)
 
           traversable match {
             case TypeRef(_, _, elemTpe :: Nil) =>
@@ -326,10 +332,12 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
                 tpe :: elemTpe :: tpe :: Nil)
 
               val cbf = c.inferImplicitValue(cbfTpe, silent = true)
+               println("ts 2 cbf is", cbf)
 
               if (cbf == EmptyTree) {
                 None
               } else {
+                // println("ts 3", elemTpe, elemTpe.asSeenFrom(tpe, tpe.typeSymbol))
                 Some(elemTpe.asSeenFrom(tpe, tpe.typeSymbol))
               }
             case _ => None
@@ -379,6 +387,11 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
           val fqn = tpe.normalize.toString.split('.')
           // get FQN parent
           val owner = m.staticModule(fqn.slice(0, fqn.size - 1).mkString("."))
+          println("Old enum owner: ", owner)
+
+          // check another
+          val owner2 = tpe.typeSymbol.owner
+          println("another owner", owner2)
 
           val enumerationSymbol = typeOf[scala.Enumeration].typeSymbol
           if (owner.typeSignature.baseClasses.contains(enumerationSymbol)) {

@@ -78,7 +78,6 @@ class ScalaCaseClassSerializer[T <: Product](
     in.defaultReadObject()
     constructor = lookupConstructor(clazz)
   }
-
 }
 
 object ScalaCaseClassSerializer {

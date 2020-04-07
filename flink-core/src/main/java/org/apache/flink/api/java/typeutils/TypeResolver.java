@@ -31,7 +31,7 @@ import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.sameTypeVa
 /**
  * This class is used to resolve the type from the type hierarchy.
  */
-class TypeResolver {
+public class TypeResolver {
 
 	/**
 	 * Resolve all {@link TypeVariable}s of the type from the type hierarchy.
@@ -142,13 +142,13 @@ class TypeResolver {
 		return inTypeTypeVar;
 	}
 
-	private static class ResolvedGenericArrayType implements GenericArrayType {
+	public static class ResolvedGenericArrayType implements GenericArrayType {
 
 		private final Type componentType;
 
 		private final String typeName;
 
-		ResolvedGenericArrayType(String typeName, Type componentType) {
+		public ResolvedGenericArrayType(String typeName, Type componentType) {
 			this.componentType = componentType;
 			this.typeName = typeName;
 		}
@@ -163,7 +163,7 @@ class TypeResolver {
 		}
 	}
 
-	private static class ResolvedParameterizedType implements ParameterizedType {
+	public static class ResolvedParameterizedType implements ParameterizedType {
 
 		private final Type rawType;
 
@@ -173,7 +173,7 @@ class TypeResolver {
 
 		private final String typeName;
 
-		ResolvedParameterizedType(Type rawType, Type ownerType, Type[] actualTypeArguments, String typeName) {
+		public ResolvedParameterizedType(Type rawType, Type ownerType, Type[] actualTypeArguments, String typeName) {
 			this.rawType = rawType;
 			this.ownerType = ownerType;
 			this.actualTypeArguments = actualTypeArguments;

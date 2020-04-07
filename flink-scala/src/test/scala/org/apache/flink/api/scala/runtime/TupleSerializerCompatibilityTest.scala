@@ -37,6 +37,7 @@ class TupleSerializerCompatibilityTest {
 
   @Test
   def testCompatibilityWithFlink_1_3(): Unit = {
+    println("heihei")
     var is: InputStream = null
     try {
       is = getClass.getClassLoader.getResourceAsStream(SNAPSHOT_RESOURCE)

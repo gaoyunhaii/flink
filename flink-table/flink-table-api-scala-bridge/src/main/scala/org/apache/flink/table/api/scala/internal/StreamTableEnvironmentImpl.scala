@@ -40,9 +40,10 @@ import org.apache.flink.table.operations.{OutputConversionModifyOperation, Query
 import org.apache.flink.table.sources.{TableSource, TableSourceValidation}
 import org.apache.flink.table.types.utils.TypeConversions
 import org.apache.flink.table.typeutils.FieldInfoUtils
-
 import java.util
 import java.util.{Collections, List => JList, Map => JMap}
+
+import org.apache.flink.types.Row
 
 import _root_.scala.collection.JavaConverters._
 

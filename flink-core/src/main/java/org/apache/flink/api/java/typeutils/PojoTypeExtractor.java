@@ -143,6 +143,12 @@ public class PojoTypeExtractor {
 			}
 		}
 
+		System.out.println("Extracting pojo for " + clazz);
+		for (Constructor<?> c : clazz.getDeclaredConstructors()) {
+			System.out.println("\t constructor " + c);
+		}
+
+
 		// Try retrieving the default constructor, if it does not have one
 		// we cannot use this because the serializer uses it.
 		Constructor defaultConstructor = null;
