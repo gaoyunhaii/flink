@@ -16,13 +16,12 @@ object Test {
     println(ds.getType())
     println(new haha.MyClassSub[String]("a").a)
   }
-
 }
 
 package haha {
 
   case class MyClass[T1, T2](a: T1, b: T2) {
-    println("abcde")
+    println("abcdedfghilmaaaalaadbaaa")
   }
 
   class MyClassSub[T1](val a: T1) {

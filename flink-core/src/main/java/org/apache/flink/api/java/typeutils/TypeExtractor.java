@@ -730,7 +730,21 @@ public class TypeExtractor {
 		return (TypeInformation<T>) createTypeInfo((Type) type);
 	}
 
+	public static void print(Type t) {
+		System.out.println("Parsing " + t.getTypeName() + ", ");
+		if (t instanceof ParameterizedType) {
+			for (Type au : ((ParameterizedType) t).getActualTypeArguments()) {
+				System.out.println("\t " + au.getTypeName());
+				if (au instanceof ParameterizedType) {
+					print(au);
+				}
+			}
+		}
+	}
+
 	public static TypeInformation<?> createTypeInfo(Type t) {
+		print(t);
+
 		TypeInformation<?> ti = new TypeExtractor().privateCreateTypeInfo(t);
 		if (ti == null) {
 			throw new InvalidTypesException("Could not extract type information.");
@@ -2059,7 +2073,7 @@ public class TypeExtractor {
 		}
 	}
 
-	static class ResolvedParameterizedType implements ParameterizedType {
+	public static class ResolvedParameterizedType implements ParameterizedType {
 
 		private final Type rawType;
 

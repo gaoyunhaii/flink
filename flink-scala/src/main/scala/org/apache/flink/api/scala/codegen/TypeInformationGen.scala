@@ -23,6 +23,7 @@ import org.apache.flink.annotation.Internal
 import org.apache.flink.api.common.ExecutionConfig
 import org.apache.flink.api.common.typeinfo._
 import org.apache.flink.api.common.typeutils._
+import org.apache.flink.api.java.typeutils.TypeExtractor.ResolvedParameterizedType
 import org.apache.flink.api.java.typeutils._
 import org.apache.flink.api.scala.typeutils._
 import org.apache.flink.types.Value
@@ -41,28 +42,81 @@ private[flink] trait TypeInformationGen[C <: Context] {
 
   import c.universe._
 
-  def mkTypeInfo2[T: c.WeakTypeTag]: c.Expr[TypeInformation[T]] = {
-    // iterate over all the parameters
-    println("1. hahaha")
-    println("2. " + weakTypeTag[T].tpe)
-    val tpe = weakTypeTag[T].tpe
+  def extractType[T](tpe: Type): c.Expr[java.lang.reflect.Type] = {
+    // val tpe = weakTypeTag[T].tpe
 
     val tpeClazz = c.Expr[Class[T]](Literal(Constant(tpe)))
-    val genericTypeInfos = tpe match {
+    val genericTypes = tpe match {
       case TypeRef(_, _, typeParams) =>
-        val typeInfos = typeParams map { tpe => mkTypeInfo2(c.WeakTypeTag[T](tpe)).tree }
-        c.Expr[List[TypeInformation[_]]](mkList(typeInfos))
+        val typeInfos = typeParams map { tpe => extractType[tpe.type](tpe).tree }
+        c.Expr[List[java.lang.reflect.Type]](mkList(typeInfos))
       case _ =>
         reify {
-          List[TypeInformation[_]]()
+          List[java.lang.reflect.Type]()
         }
     }
 
-    reify{
-      println("Trying to output")
-      println(tpeClazz)
-      println(genericTypeInfos.splice)
-      TypeExtractor.createTypeInfo(tpeClazz.splice)
+    print("extract", tpeClazz, genericTypes)
+
+    reify {
+      val list = genericTypes.splice
+      if (list.isEmpty) {
+        tpeClazz.splice
+      } else {
+        new ResolvedParameterizedType(
+          tpeClazz.splice,
+          null,
+          genericTypes.splice.toArray,
+          tpeClazz.splice.getTypeName)
+      }
+    }
+//
+//    if (tpe.typeParams.isEmpty) {
+//      reify {
+//        tpeClazz.splice
+//      }
+//    } else {
+//      val extracedTypes = tpe.typeParams.map{param=>extractType(c.weakTypeTag[T](param.asType.info))}
+//    }
+//
+//    val genericTypeInfos = tpe match {
+//      case TypeRef(_, _, typeParams) =>
+//        val typeInfos = typeParams map { tpe => mkTypeInfo2(c.WeakTypeTag[T](tpe)).tree }
+//        c.Expr[List[TypeInformation[_]]](mkList(typeInfos))
+//      case _ =>
+//        reify {
+//          List[TypeInformation[_]]()
+//        }
+//    }
+  }
+
+  def mkTypeInfo2[T: c.WeakTypeTag]: c.Expr[TypeInformation[T]] = {
+    // iterate over all the parameters
+    println("1. hahahaa")
+    println("2. " + weakTypeTag[T].tpe)
+    val tpe = weakTypeTag[T].tpe
+
+    val tpeJavaType = extractType(tpe)
+    print("extract", tpeJavaType)
+    // val tpeJavaTypeExpr = c.Expr[java.lang.reflect.Type](Literal(Constant(tpeJavaType)))
+
+//
+//    val tpeClazz = c.Expr[Class[T]](Literal(Constant(tpe)))
+//    val genericTypeInfos = tpe match {
+//      case TypeRef(_, _, typeParams) =>
+//        val typeInfos = typeParams map { tpe => mkTypeInfo2(c.WeakTypeTag[T](tpe)).tree }
+//        c.Expr[List[TypeInformation[_]]](mkList(typeInfos))
+//      case _ =>
+//        reify {
+//          List[TypeInformation[_]]()
+//        }
+//    }
+//
+//    val constant = c.Expr[String](Literal(Constant("aaa")))
+
+    reify {
+      println("extractor", tpeJavaType.splice)
+      TypeExtractor.createTypeInfo(tpeJavaType.splice).asInstanceOf[TypeInformation[T]]
     }
   }
 
@@ -72,6 +126,7 @@ private[flink] trait TypeInformationGen[C <: Context] {
     val result: c.Expr[TypeInformation[T]] = mkTypeInfo(desc)(c.WeakTypeTag(desc.tpe))
 
     val result2: c.Expr[TypeInformation[T]] = mkTypeInfo2(c.weakTypeTag(weakTypeTag[T]))
+    println("result 2: ", result2)
 
     result2
   }
