@@ -115,8 +115,11 @@ private[flink] trait TypeInformationGen[C <: Context] {
 //    val constant = c.Expr[String](Literal(Constant("aaa")))
 
     reify {
-      println("extractor", tpeJavaType.splice)
-      TypeExtractor.createTypeInfo(tpeJavaType.splice).asInstanceOf[TypeInformation[T]]
+      val javaType = tpeJavaType.splice
+
+      println("extractos", javaType)
+      val extractorFactory = new ScalaTypeInfoExtractor()
+      extractorFactory.createTypeInfo(javaType).asInstanceOf[TypeInformation[T]]
     }
   }
 

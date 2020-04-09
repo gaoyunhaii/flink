@@ -743,8 +743,6 @@ public class TypeExtractor {
 	}
 
 	public static TypeInformation<?> createTypeInfo(Type t) {
-		print(t);
-
 		TypeInformation<?> ti = new TypeExtractor().privateCreateTypeInfo(t);
 		if (ti == null) {
 			throw new InvalidTypesException("Could not extract type information.");

@@ -429,7 +429,7 @@ class TypeInformationGenTest {
 
     val tupleTypeInfo = createTypeInformation[(Int, Int, Int, Int)].
       asInstanceOf[CaseClassTypeInfo[(Int, Int, Int, Int)]]
-    Assert.assertEquals(0, tupleTypeInfo.getFlatFields("0").get(0).getPosition)
+    Assert.assertEquals(0, tupleTypeInfo.getFlatFields("01").get(0).getPosition)
     Assert.assertEquals(1, tupleTypeInfo.getFlatFields("1").get(0).getPosition)
     Assert.assertEquals(2, tupleTypeInfo.getFlatFields("2").get(0).getPosition)
     Assert.assertEquals(3, tupleTypeInfo.getFlatFields("3").get(0).getPosition)
@@ -617,6 +617,7 @@ class TypeInformationGenTest {
   def testNestedTraversableWithSpecificTypesDoesNotReplaceTypeParametersInCanBuildFrom(): Unit = {
 
     val traversableTypeInfo = createTypeInformation[Seq[Seq[Int]]]
+    println(traversableTypeInfo)
     val outerTraversableSerializer = traversableTypeInfo.createSerializer(new ExecutionConfig)
       .asInstanceOf[TraversableSerializer[Seq[Seq[Int]], Seq[Int]]]
 

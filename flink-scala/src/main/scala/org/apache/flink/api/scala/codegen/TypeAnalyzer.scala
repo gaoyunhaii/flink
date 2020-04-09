@@ -379,6 +379,7 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
           val fqn = tpe.normalize.toString.split('.')
           // get FQN parent
           val owner = m.staticModule(fqn.slice(0, fqn.size - 1).mkString("."))
+          println("Old enum owner: ", owner)
 
           val enumerationSymbol = typeOf[scala.Enumeration].typeSymbol
           if (owner.typeSignature.baseClasses.contains(enumerationSymbol)) {
