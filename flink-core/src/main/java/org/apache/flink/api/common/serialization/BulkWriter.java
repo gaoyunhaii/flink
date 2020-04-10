@@ -20,6 +20,9 @@ package org.apache.flink.api.common.serialization;
 
 import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.core.fs.FSDataOutputStream;
+import org.apache.flink.core.fs.FileSystem;
+import org.apache.flink.core.fs.Path;
+import sun.plugin2.message.Serializer;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -91,5 +94,12 @@ public interface BulkWriter<T> {
 		 *                     stream throws an exception.
 		 */
 		BulkWriter<T> create(FSDataOutputStream out) throws IOException;
+	}
+
+	@FunctionalInterface
+	interface PathBasedFactory<T> extends Serializable {
+
+		BulkWriter<T> create(Path path, FileSystem fileSystem) throws IOException;
+
 	}
 }

@@ -20,6 +20,7 @@ package org.apache.flink.streaming.api.functions.sink.filesystem;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.serialization.Encoder;
+import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.core.fs.RecoverableFsDataOutputStream;
 import org.apache.flink.core.fs.RecoverableWriter;
@@ -46,7 +47,7 @@ final class RowWisePartWriter<IN, BucketID> extends PartFileWriter<IN, BucketID>
 	}
 
 	@Override
-	void write(IN element, long currentTime) throws IOException {
+	public void write(IN element, long currentTime) throws IOException {
 		encoder.encode(element, currentPartStream);
 		markWrite(currentTime);
 	}
@@ -65,29 +66,25 @@ final class RowWisePartWriter<IN, BucketID> extends PartFileWriter<IN, BucketID>
 		}
 
 		@Override
-		public PartFileWriter<IN, BucketID> resumeFrom(
-				final BucketID bucketId,
-				final RecoverableFsDataOutputStream stream,
-				final RecoverableWriter.ResumeRecoverable resumable,
-				final long creationTime) throws IOException {
-
-			Preconditions.checkNotNull(stream);
+		public PartFileWriter<IN, BucketID> resumeFrom(BucketID bucketId, FileSystem fileSystem, RecoverableWriter recoverableWriter, RecoverableWriter.ResumeRecoverable resumable, long creationTime) throws IOException {
 			Preconditions.checkNotNull(resumable);
+			RecoverableFsDataOutputStream stream = recoverableWriter.recover(resumable);
 
 			return new RowWisePartWriter<>(bucketId, stream, encoder, creationTime);
 		}
 
 		@Override
-		public PartFileWriter<IN, BucketID> openNew(
-				final BucketID bucketId,
-				final RecoverableFsDataOutputStream stream,
-				final Path path,
-				final long creationTime) throws IOException {
-
+		public PartFileWriter<IN, BucketID> openNew(BucketID bucketId, FileSystem fileSystem, RecoverableWriter recoverableWriter, Path path, long creationTime) throws IOException {
+			RecoverableFsDataOutputStream stream = recoverableWriter.open(path);
 			Preconditions.checkNotNull(stream);
 			Preconditions.checkNotNull(path);
 
 			return new RowWisePartWriter<>(bucketId, stream, encoder, creationTime);
+		}
+
+		@Override
+		public void commitRecoveredFile(BucketID bucketId, FileSystem fileSystem, RecoverableWriter recoverableWriter, PendingFileStatus status) throws IOException {
+			recoverableWriter.recoverForCommit(((Wrapper) status).getCommitRecoverable()).commitAfterRecovery();
 		}
 	}
 }

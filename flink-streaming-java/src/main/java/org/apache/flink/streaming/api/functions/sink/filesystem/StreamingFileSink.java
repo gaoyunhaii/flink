@@ -153,6 +153,16 @@ public class StreamingFileSink<IN>
 		this.bucketCheckInterval = bucketCheckInterval;
 	}
 
+	protected StreamingFileSink(
+		final PathBasedBulkFormatBuilder<IN, ?, ? extends BucketsBuilder<IN, ?, ?>> bucketsBuilder,
+		final long bucketCheckInterval) {
+
+		Preconditions.checkArgument(bucketCheckInterval > 0L);
+
+		this.bucketsBuilder = Preconditions.checkNotNull(bucketsBuilder);
+		this.bucketCheckInterval = bucketCheckInterval;
+	}
+
 	// ------------------------------------------------------------------------
 
 	// --------------------------- Sink Builders  -----------------------------
@@ -308,6 +318,101 @@ public class StreamingFileSink<IN>
 		}
 	}
 
+	@PublicEvolving
+	public static class PathBasedBulkFormatBuilder<IN, BucketID, T extends BulkFormatBuilder<IN, BucketID, T>> extends StreamingFileSink.BucketsBuilder<IN, BucketID, T> {
+
+		private static final long serialVersionUID = 1L;
+
+		private long bucketCheckInterval;
+
+		private final Path basePath;
+
+		private BulkWriter.PathBasedFactory<IN> writerFactory;
+
+		private BucketAssigner<IN, BucketID> bucketAssigner;
+
+		private CheckpointRollingPolicy<IN, BucketID> rollingPolicy;
+
+		private BucketFactory<IN, BucketID> bucketFactory;
+
+		private OutputFileConfig outputFileConfig;
+
+		protected PathBasedBulkFormatBuilder(Path basePath, BulkWriter.PathBasedFactory<IN> writerFactory, BucketAssigner<IN, BucketID> assigner) {
+			this(basePath, writerFactory, assigner, OnCheckpointRollingPolicy.build(), DEFAULT_BUCKET_CHECK_INTERVAL,
+				new DefaultBucketFactoryImpl<>(), OutputFileConfig.builder().build());
+		}
+
+		protected PathBasedBulkFormatBuilder(
+			Path basePath,
+			BulkWriter.PathBasedFactory<IN> writerFactory,
+			BucketAssigner<IN, BucketID> assigner,
+			CheckpointRollingPolicy<IN, BucketID> policy,
+			long bucketCheckInterval,
+			BucketFactory<IN, BucketID> bucketFactory,
+			OutputFileConfig outputFileConfig) {
+			this.basePath = Preconditions.checkNotNull(basePath);
+			this.writerFactory = writerFactory;
+			this.bucketAssigner = Preconditions.checkNotNull(assigner);
+			this.rollingPolicy = Preconditions.checkNotNull(policy);
+			this.bucketCheckInterval = bucketCheckInterval;
+			this.bucketFactory = Preconditions.checkNotNull(bucketFactory);
+			this.outputFileConfig = Preconditions.checkNotNull(outputFileConfig);
+		}
+
+		public long getBucketCheckInterval() {
+			return bucketCheckInterval;
+		}
+
+		public T withBucketCheckInterval(long interval) {
+			this.bucketCheckInterval = interval;
+			return self();
+		}
+
+		public T withBucketAssigner(BucketAssigner<IN, BucketID> assigner) {
+			this.bucketAssigner = Preconditions.checkNotNull(assigner);
+			return self();
+		}
+
+		public T withRollingPolicy(CheckpointRollingPolicy<IN, BucketID> rollingPolicy) {
+			this.rollingPolicy = Preconditions.checkNotNull(rollingPolicy);
+			return self();
+		}
+
+		@VisibleForTesting
+		T withBucketFactory(final BucketFactory<IN, BucketID> factory) {
+			this.bucketFactory = Preconditions.checkNotNull(factory);
+			return self();
+		}
+
+		public T withOutputFileConfig(final OutputFileConfig outputFileConfig) {
+			this.outputFileConfig = outputFileConfig;
+			return self();
+		}
+
+		public <ID> StreamingFileSink.PathBasedBulkFormatBuilder<IN, ID, ? extends BulkFormatBuilder<IN, ID, ?>> withNewBucketAssigner(final BucketAssigner<IN, ID> assigner) {
+			Preconditions.checkState(bucketFactory.getClass() == DefaultBucketFactoryImpl.class, "newBuilderWithBucketAssigner() cannot be called after specifying a customized bucket factory");
+			return new PathBasedBulkFormatBuilder(basePath, writerFactory, Preconditions.checkNotNull(assigner),
+				rollingPolicy, bucketCheckInterval, new DefaultBucketFactoryImpl<>(), outputFileConfig);
+		}
+
+		/** Creates the actual sink. */
+		public StreamingFileSink<IN> build() {
+			return new StreamingFileSink<>(this, bucketCheckInterval);
+		}
+
+		@Override
+		Buckets<IN, BucketID> createBuckets(int subtaskIndex) throws IOException {
+			return new WALBucket<>(
+				basePath,
+				bucketAssigner,
+				bucketFactory,
+				new PathBasedPartWriter.Factory<>(writerFactory),
+				rollingPolicy,
+				subtaskIndex,
+				outputFileConfig);
+		}
+	}
+
 	/**
 	 * A builder for configuring the sink for bulk-encoding formats, e.g. Parquet/ORC.
 	 */
@@ -418,6 +523,8 @@ public class StreamingFileSink<IN>
 			super(basePath, writerFactory, assigner);
 		}
 	}
+
+
 
 	// --------------------------- Sink Methods -----------------------------
 

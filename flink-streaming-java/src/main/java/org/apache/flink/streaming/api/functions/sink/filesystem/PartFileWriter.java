@@ -19,6 +19,7 @@
 package org.apache.flink.streaming.api.functions.sink.filesystem;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.core.fs.RecoverableFsDataOutputStream;
 import org.apache.flink.core.fs.RecoverableWriter;
@@ -39,7 +40,7 @@ import java.io.IOException;
  * <p>This also implements the {@link PartFileInfo}.
  */
 @Internal
-abstract class PartFileWriter<IN, BucketID> implements PartFileInfo<BucketID> {
+abstract class PartFileWriter<IN, BucketID> implements PartFileWriterInterface<IN, BucketID> {
 
 	private final BucketID bucketId;
 
@@ -61,23 +62,23 @@ abstract class PartFileWriter<IN, BucketID> implements PartFileInfo<BucketID> {
 		this.lastUpdateTime = creationTime;
 	}
 
-	abstract void write(IN element, long currentTime) throws IOException;
+	public abstract void write(IN element, long currentTime) throws IOException;
 
 	RecoverableWriter.ResumeRecoverable persist() throws IOException {
 		return currentPartStream.persist();
 	}
 
-	RecoverableWriter.CommitRecoverable closeForCommit() throws IOException {
-		return currentPartStream.closeForCommit().getRecoverable();
+	public PendingFileStatus closeForCommit() throws IOException {
+		return new Wrapper(currentPartStream.closeForCommit().getRecoverable());
 	}
 
-	void dispose() {
+	public void dispose() {
 		// we can suppress exceptions here, because we do not rely on close() to
 		// flush or persist any data
 		IOUtils.closeQuietly(currentPartStream);
 	}
 
-	void markWrite(long now) {
+	public void markWrite(long now) {
 		this.lastUpdateTime = now;
 	}
 
@@ -101,41 +102,17 @@ abstract class PartFileWriter<IN, BucketID> implements PartFileInfo<BucketID> {
 		return lastUpdateTime;
 	}
 
-	// ------------------------------------------------------------------------
+	public class Wrapper implements PendingFileStatus {
+		private final RecoverableWriter.CommitRecoverable commitRecoverable;
 
-	/**
-	 * An interface for factories that create the different {@link PartFileWriter writers}.
-	 */
-	interface PartFileFactory<IN, BucketID> {
+		public Wrapper(RecoverableWriter.CommitRecoverable commitRecoverable) {
+			this.commitRecoverable = commitRecoverable;
+		}
 
-		/**
-		 * Used upon recovery from a failure to recover a {@link PartFileWriter writer}.
-		 * @param bucketId the id of the bucket this writer is writing to.
-		 * @param stream the filesystem-specific output stream to use when writing to the filesystem.
-		 * @param resumable the state of the stream we are resurrecting.
-		 * @param creationTime the creation time of the stream.
-		 * @return the recovered {@link PartFileWriter writer}.
-		 * @throws IOException
-		 */
-		PartFileWriter<IN, BucketID> resumeFrom(
-			final BucketID bucketId,
-			final RecoverableFsDataOutputStream stream,
-			final RecoverableWriter.ResumeRecoverable resumable,
-			final long creationTime) throws IOException;
-
-		/**
-		 * Used to create a new {@link PartFileWriter writer}.
-		 * @param bucketId the id of the bucket this writer is writing to.
-		 * @param stream the filesystem-specific output stream to use when writing to the filesystem.
-		 * @param path the part this writer will write to.
-		 * @param creationTime the creation time of the stream.
-		 * @return the new {@link PartFileWriter writer}.
-		 * @throws IOException
-		 */
-		PartFileWriter<IN, BucketID> openNew(
-			final BucketID bucketId,
-			final RecoverableFsDataOutputStream stream,
-			final Path path,
-			final long creationTime) throws IOException;
+		public RecoverableWriter.CommitRecoverable getCommitRecoverable() {
+			return commitRecoverable;
+		}
 	}
+
+
 }
