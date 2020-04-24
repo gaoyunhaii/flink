@@ -46,30 +46,30 @@ class BucketState<BucketID> {
 	private final long inProgressFileCreationTime;
 
 	/**
-	 * A {@link RecoverableWriter.ResumeRecoverable} for the currently open
+	 * A {@link org.apache.flink.streaming.api.functions.sink.filesystem.PartFileWriter.InProgressFileSnapshot} for the currently open
 	 * part file, or null if there is no currently open part file.
 	 */
 	@Nullable
-	private final RecoverableWriter.ResumeRecoverable inProgressResumableFile;
+	private final PartFileWriter.InProgressFileSnapshot inProgressFileSnapshot;
 
 	/**
 	 * The {@link RecoverableWriter.CommitRecoverable files} pending to be
 	 * committed, organized by checkpoint id.
 	 */
-	private final Map<Long, List<RecoverableWriter.CommitRecoverable>> committableFilesPerCheckpoint;
+	private final Map<Long, List<PartFileWriter.PendingFileSnapshot>> pendingFileSnapshots;
 
 	BucketState(
 			final BucketID bucketId,
 			final Path bucketPath,
 			final long inProgressFileCreationTime,
-			@Nullable final RecoverableWriter.ResumeRecoverable inProgressResumableFile,
-			final Map<Long, List<RecoverableWriter.CommitRecoverable>> pendingCommittablesPerCheckpoint
+			@Nullable final PartFileWriter.InProgressFileSnapshot inProgressFileSnapshot,
+			final Map<Long, List<PartFileWriter.PendingFileSnapshot>> pendingFileSnapshots
 	) {
 		this.bucketId = Preconditions.checkNotNull(bucketId);
 		this.bucketPath = Preconditions.checkNotNull(bucketPath);
 		this.inProgressFileCreationTime = inProgressFileCreationTime;
-		this.inProgressResumableFile = inProgressResumableFile;
-		this.committableFilesPerCheckpoint = Preconditions.checkNotNull(pendingCommittablesPerCheckpoint);
+		this.inProgressFileSnapshot = inProgressFileSnapshot;
+		this.pendingFileSnapshots = Preconditions.checkNotNull(pendingFileSnapshots);
 	}
 
 	BucketID getBucketId() {
@@ -85,16 +85,16 @@ class BucketState<BucketID> {
 	}
 
 	boolean hasInProgressResumableFile() {
-		return inProgressResumableFile != null;
+		return inProgressFileSnapshot != null;
 	}
 
 	@Nullable
-	RecoverableWriter.ResumeRecoverable getInProgressResumableFile() {
-		return inProgressResumableFile;
+	PartFileWriter.InProgressFileSnapshot getInProgressFileSnapshot() {
+		return inProgressFileSnapshot;
 	}
 
-	Map<Long, List<RecoverableWriter.CommitRecoverable>> getCommittableFilesPerCheckpoint() {
-		return committableFilesPerCheckpoint;
+	Map<Long, List<PartFileWriter.PendingFileSnapshot>> getPendingFileSnapshots() {
+		return pendingFileSnapshots;
 	}
 
 	@Override
@@ -109,9 +109,9 @@ class BucketState<BucketID> {
 			strBuilder.append(", has open part file created @ ").append(inProgressFileCreationTime);
 		}
 
-		if (!committableFilesPerCheckpoint.isEmpty()) {
+		if (!pendingFileSnapshots.isEmpty()) {
 			strBuilder.append(", has pending files for checkpoints: {");
-			for (long checkpointId: committableFilesPerCheckpoint.keySet()) {
+			for (long checkpointId: pendingFileSnapshots.keySet()) {
 				strBuilder.append(checkpointId).append(' ');
 			}
 			strBuilder.append('}');

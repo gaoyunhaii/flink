@@ -45,42 +45,46 @@ class BucketStateSerializer<BucketID> implements SimpleVersionedSerializer<Bucke
 
 	private static final int MAGIC_NUMBER = 0x1e764b79;
 
-	private final SimpleVersionedSerializer<RecoverableWriter.ResumeRecoverable> resumableSerializer;
+	private final SimpleVersionedSerializer<PartFileWriter.InProgressFileSnapshot> inProgressFileSnapshotSerializer;
 
-	private final SimpleVersionedSerializer<RecoverableWriter.CommitRecoverable> commitableSerializer;
+	private final SimpleVersionedSerializer<PartFileWriter.PendingFileSnapshot> pendingFileSnapshotSerializer;
 
 	private final SimpleVersionedSerializer<BucketID> bucketIdSerializer;
 
 	BucketStateSerializer(
-			final SimpleVersionedSerializer<RecoverableWriter.ResumeRecoverable> resumableSerializer,
-			final SimpleVersionedSerializer<RecoverableWriter.CommitRecoverable> commitableSerializer,
+			final SimpleVersionedSerializer<PartFileWriter.InProgressFileSnapshot> inProgressFileSnapshotSerializer,
+			final SimpleVersionedSerializer<PartFileWriter.PendingFileSnapshot> pendingFileSnapshotSerializer,
 			final SimpleVersionedSerializer<BucketID> bucketIdSerializer
 	) {
-		this.resumableSerializer = Preconditions.checkNotNull(resumableSerializer);
-		this.commitableSerializer = Preconditions.checkNotNull(commitableSerializer);
+		this.inProgressFileSnapshotSerializer = Preconditions.checkNotNull(inProgressFileSnapshotSerializer);
+		this.pendingFileSnapshotSerializer = Preconditions.checkNotNull(pendingFileSnapshotSerializer);
 		this.bucketIdSerializer = Preconditions.checkNotNull(bucketIdSerializer);
 	}
 
 	@Override
 	public int getVersion() {
-		return 1;
+		return 2;
 	}
 
 	@Override
 	public byte[] serialize(BucketState<BucketID> state) throws IOException {
 		DataOutputSerializer out = new DataOutputSerializer(256);
 		out.writeInt(MAGIC_NUMBER);
-		serializeV1(state, out);
+		serializeV2(state, out);
 		return out.getCopyOfBuffer();
 	}
 
 	@Override
 	public BucketState<BucketID> deserialize(int version, byte[] serialized) throws IOException {
+		final DataInputDeserializer in = new DataInputDeserializer(serialized);
+
 		switch (version) {
 			case 1:
-				DataInputDeserializer in = new DataInputDeserializer(serialized);
 				validateMagicNumber(in);
 				return deserializeV1(in);
+			case 2:
+				validateMagicNumber(in);
+				return deserializeV2(in);
 			default:
 				throw new IOException("Unrecognized version or corrupt state: " + version);
 		}
@@ -88,13 +92,18 @@ class BucketStateSerializer<BucketID> implements SimpleVersionedSerializer<Bucke
 
 	@VisibleForTesting
 	void serializeV1(BucketState<BucketID> state, DataOutputView out) throws IOException {
+
+		final SimpleVersionedSerializer<RecoverableWriter.CommitRecoverable> commitableSerializer = getCommitableSerializer();
+		final SimpleVersionedSerializer<RecoverableWriter.ResumeRecoverable> resumableSerializer = getResumableSerializer();
+
 		SimpleVersionedSerialization.writeVersionAndSerialize(bucketIdSerializer, state.getBucketId(), out);
 		out.writeUTF(state.getBucketPath().toString());
 		out.writeLong(state.getInProgressFileCreationTime());
 
 		// put the current open part file
 		if (state.hasInProgressResumableFile()) {
-			final RecoverableWriter.ResumeRecoverable resumable = state.getInProgressResumableFile();
+			final RecoverableWriter.ResumeRecoverable resumable =
+				((OutputStreamBasedPartFileWriter.OutputStreamBasedInProgressSnapshot) state.getInProgressFileSnapshot()).getResumeRecoverable();
 			out.writeBoolean(true);
 			SimpleVersionedSerialization.writeVersionAndSerialize(resumableSerializer, resumable, out);
 		}
@@ -103,7 +112,7 @@ class BucketStateSerializer<BucketID> implements SimpleVersionedSerializer<Bucke
 		}
 
 		// put the map of pending files per checkpoint
-		final Map<Long, List<RecoverableWriter.CommitRecoverable>> pendingCommitters = state.getCommittableFilesPerCheckpoint();
+		final Map<Long, List<RecoverableWriter.CommitRecoverable>> pendingCommitters = getCommittablesPerCheckpoint(state);
 
 		// manually keep the version here to safe some bytes
 		out.writeInt(commitableSerializer.getVersion());
@@ -123,41 +132,143 @@ class BucketStateSerializer<BucketID> implements SimpleVersionedSerializer<Bucke
 		}
 	}
 
+	void serializeV2(BucketState<BucketID> state, DataOutputView dataOutputView) throws IOException {
+		SimpleVersionedSerialization.writeVersionAndSerialize(bucketIdSerializer, state.getBucketId(), dataOutputView);
+		dataOutputView.writeUTF(state.getBucketPath().toString());
+		dataOutputView.writeLong(state.getInProgressFileCreationTime());
+
+		// put the current open part file
+		if (state.hasInProgressResumableFile()) {
+			final PartFileWriter.InProgressFileSnapshot inProgressFileSnapshot = state.getInProgressFileSnapshot();
+			dataOutputView.writeBoolean(true);
+			SimpleVersionedSerialization.writeVersionAndSerialize(inProgressFileSnapshotSerializer, inProgressFileSnapshot, dataOutputView);
+		} else {
+			dataOutputView.writeBoolean(false);
+		}
+
+		// put the map of pending files per checkpoint
+		final Map<Long, List<PartFileWriter.PendingFileSnapshot>> pendingFileSnapshots = state.getPendingFileSnapshots();
+
+		dataOutputView.writeInt(pendingFileSnapshotSerializer.getVersion());
+
+		dataOutputView.writeInt(pendingFileSnapshots.size());
+
+		for (Entry<Long, List<PartFileWriter.PendingFileSnapshot>> pendingFilesForCheckpoint : pendingFileSnapshots.entrySet()) {
+			final List<PartFileWriter.PendingFileSnapshot> pendingFileSnapshotList = pendingFilesForCheckpoint.getValue();
+
+			dataOutputView.writeLong(pendingFilesForCheckpoint.getKey());
+			dataOutputView.writeInt(pendingFileSnapshotList.size());
+
+			for (PartFileWriter.PendingFileSnapshot pendingFileSnapshot : pendingFileSnapshotList) {
+				byte[] serialized = pendingFileSnapshotSerializer.serialize(pendingFileSnapshot);
+				dataOutputView.writeInt(serialized.length);
+				dataOutputView.write(serialized);
+			}
+		}
+	}
+
 	@VisibleForTesting
 	BucketState<BucketID> deserializeV1(DataInputView in) throws IOException {
+
+		final SimpleVersionedSerializer<RecoverableWriter.CommitRecoverable> commitableSerializer = getCommitableSerializer();
+		final SimpleVersionedSerializer<RecoverableWriter.ResumeRecoverable> resumableSerializer = getResumableSerializer();
+
 		final BucketID bucketId = SimpleVersionedSerialization.readVersionAndDeSerialize(bucketIdSerializer, in);
 		final String bucketPathStr = in.readUTF();
 		final long creationTime = in.readLong();
 
 		// then get the current resumable stream
-		RecoverableWriter.ResumeRecoverable current = null;
+		PartFileWriter.InProgressFileSnapshot current = null;
 		if (in.readBoolean()) {
-			current = SimpleVersionedSerialization.readVersionAndDeSerialize(resumableSerializer, in);
+			current =
+				new OutputStreamBasedPartFileWriter.OutputStreamBasedInProgressSnapshot(
+					SimpleVersionedSerialization.readVersionAndDeSerialize(resumableSerializer, in));
 		}
 
 		final int committableVersion = in.readInt();
 		final int numCheckpoints = in.readInt();
-		final HashMap<Long, List<RecoverableWriter.CommitRecoverable>> resumablesPerCheckpoint = new HashMap<>(numCheckpoints);
+		final HashMap<Long, List<PartFileWriter.PendingFileSnapshot>> pendingFileSnapshotPerCheckpoint = new HashMap<>(numCheckpoints);
 
 		for (int i = 0; i < numCheckpoints; i++) {
 			final long checkpointId = in.readLong();
 			final int noOfResumables = in.readInt();
 
-			final List<RecoverableWriter.CommitRecoverable> resumables = new ArrayList<>(noOfResumables);
+			final List<PartFileWriter.PendingFileSnapshot> pendingFileSnapshots = new ArrayList<>(noOfResumables);
 			for (int j = 0; j < noOfResumables; j++) {
 				final byte[] bytes = new byte[in.readInt()];
 				in.readFully(bytes);
-				resumables.add(commitableSerializer.deserialize(committableVersion, bytes));
+				pendingFileSnapshots.add(
+					new OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileSnapshot(commitableSerializer.deserialize(committableVersion, bytes)));
 			}
-			resumablesPerCheckpoint.put(checkpointId, resumables);
+			pendingFileSnapshotPerCheckpoint.put(checkpointId, pendingFileSnapshots);
 		}
 
 		return new BucketState<>(
-				bucketId,
-				new Path(bucketPathStr),
-				creationTime,
-				current,
-				resumablesPerCheckpoint);
+			bucketId,
+			new Path(bucketPathStr),
+			creationTime,
+			current,
+			pendingFileSnapshotPerCheckpoint);
+	}
+
+	BucketState<BucketID> deserializeV2(DataInputView dataInputView) throws IOException {
+		final BucketID bucketId = SimpleVersionedSerialization.readVersionAndDeSerialize(bucketIdSerializer, dataInputView);
+		final String bucketPathStr = dataInputView.readUTF();
+		final long creationTime = dataInputView.readLong();
+
+		// then get the current resumable stream
+		PartFileWriter.InProgressFileSnapshot current = null;
+		if (dataInputView.readBoolean()) {
+			current = SimpleVersionedSerialization.readVersionAndDeSerialize(inProgressFileSnapshotSerializer, dataInputView);
+		}
+
+		final int pendingFileSnapshotSerializerVersion = dataInputView.readInt();
+		final int numCheckpoints = dataInputView.readInt();
+		final HashMap<Long, List<PartFileWriter.PendingFileSnapshot>> pendingFileSnapshotsPerCheckpoint = new HashMap<>(numCheckpoints);
+
+		for (int i = 0; i < numCheckpoints; i++) {
+			final long checkpointId = dataInputView.readLong();
+			final int numOfPendingFileSnapshots = dataInputView.readInt();
+
+			final List<PartFileWriter.PendingFileSnapshot> pendingFileSnapshots = new ArrayList<>(numOfPendingFileSnapshots);
+			for (int j = 0; j < numOfPendingFileSnapshots; j++) {
+				final byte[] bytes = new byte[dataInputView.readInt()];
+				dataInputView.readFully(bytes);
+				pendingFileSnapshots.add(pendingFileSnapshotSerializer.deserialize(pendingFileSnapshotSerializerVersion, bytes));
+			}
+			pendingFileSnapshotsPerCheckpoint.put(checkpointId, pendingFileSnapshots);
+		}
+
+		return new BucketState(bucketId, new Path(bucketPathStr), creationTime, current, pendingFileSnapshotsPerCheckpoint);
+	}
+
+	private SimpleVersionedSerializer<RecoverableWriter.ResumeRecoverable> getResumableSerializer() {
+		final OutputStreamBasedPartFileWriter.OutputStreamBasedInProgressFileSnapshotSerializer
+			outputStreamBasedInProgressFileSnapshotSerializer =
+			(OutputStreamBasedPartFileWriter.OutputStreamBasedInProgressFileSnapshotSerializer) inProgressFileSnapshotSerializer;
+		return outputStreamBasedInProgressFileSnapshotSerializer.getResumeSerializer();
+	}
+
+	private SimpleVersionedSerializer<RecoverableWriter.CommitRecoverable> getCommitableSerializer() {
+		final OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileSnapshotSerializer
+			outputStreamBasedPendingFileSnapshotSerializer =
+			(OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileSnapshotSerializer) pendingFileSnapshotSerializer;
+		return outputStreamBasedPendingFileSnapshotSerializer.getCommitSerializer();
+	}
+
+	private Map<Long, List<RecoverableWriter.CommitRecoverable>> getCommittablesPerCheckpoint(BucketState<BucketID> bucketState) {
+		final Map<Long, List<RecoverableWriter.CommitRecoverable>> committablesPerCheckpoint = new HashMap<>();
+		for (Entry<Long, List<PartFileWriter.PendingFileSnapshot>> pendingFilesForCheckpoint : bucketState.getPendingFileSnapshots().entrySet()) {
+			final List<PartFileWriter.PendingFileSnapshot> pendingFileSnapshotList = pendingFilesForCheckpoint.getValue();
+			final List<RecoverableWriter.CommitRecoverable> commitRecoverableList = new ArrayList<>(pendingFileSnapshotList.size());
+			committablesPerCheckpoint.put(pendingFilesForCheckpoint.getKey(), commitRecoverableList);
+			for (PartFileWriter.PendingFileSnapshot pendingFileSnapshot : pendingFileSnapshotList) {
+				OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileSnapshot outputStreamBasedPendingFileSnapshot =
+					(OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileSnapshot) pendingFileSnapshot;
+				commitRecoverableList.add(outputStreamBasedPendingFileSnapshot.getCommitRecoverable());
+			}
+		}
+		return committablesPerCheckpoint;
 	}
 
 	private static void validateMagicNumber(DataInputView in) throws IOException {
