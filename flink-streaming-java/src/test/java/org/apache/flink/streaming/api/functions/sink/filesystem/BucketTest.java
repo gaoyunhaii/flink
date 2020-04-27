@@ -172,7 +172,7 @@ public class BucketTest {
 		return new TypeSafeMatcher<BucketState<String>>() {
 			@Override
 			protected boolean matchesSafely(BucketState<String> state) {
-				return state.getInProgressFileSnapshot() != null;
+				return state.getInProgressFileRecoverable() != null;
 			}
 
 			@Override
@@ -186,7 +186,7 @@ public class BucketTest {
 		return new TypeSafeMatcher<BucketState<String>>() {
 			@Override
 			protected boolean matchesSafely(BucketState<String> state) {
-				return state.getInProgressFileSnapshot() == null;
+				return state.getInProgressFileRecoverable() == null;
 			}
 
 			@Override
@@ -404,7 +404,7 @@ public class BucketTest {
 					"test",
 					new Path(),
 					12345L,
-					new OutputStreamBasedPartFileWriter.OutputStreamBasedInProgressSnapshot(new NoOpRecoverable()),
+					new OutputStreamBasedPartFileWriter.OutputStreamBasedInProgressFileRecoverable(new NoOpRecoverable()),
 					new HashMap<>());
 
 		return Bucket.restore(
@@ -417,7 +417,7 @@ public class BucketTest {
 	}
 
 	private Bucket<String, String> getRestoredBucketWithOnlyPendingParts(final BaseStubWriter writer, final int numberOfPendingParts) throws IOException {
-		final Map<Long, List<PartFileWriter.PendingFileSnapshot>> completePartsPerCheckpoint =
+		final Map<Long, List<PartFileWriter.PendingFileRecoverable>> completePartsPerCheckpoint =
 				createPendingPartsPerCheckpoint(numberOfPendingParts);
 
 		final BucketState<String> initStateWithOnlyInProgressFile =
@@ -435,11 +435,11 @@ public class BucketTest {
 			initStateWithOnlyInProgressFile, OutputFileConfig.builder().build());
 	}
 
-	private Map<Long, List<PartFileWriter.PendingFileSnapshot>> createPendingPartsPerCheckpoint(int noOfCheckpoints) {
-		final Map<Long, List<PartFileWriter.PendingFileSnapshot>> pendingCommittablesPerCheckpoint = new HashMap<>();
+	private Map<Long, List<PartFileWriter.PendingFileRecoverable>> createPendingPartsPerCheckpoint(int noOfCheckpoints) {
+		final Map<Long, List<PartFileWriter.PendingFileRecoverable>> pendingCommittablesPerCheckpoint = new HashMap<>();
 		for (int checkpointId = 0; checkpointId < noOfCheckpoints; checkpointId++) {
-			final List<PartFileWriter.PendingFileSnapshot> pending = new ArrayList<>();
-			pending.add(new OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileSnapshot(new NoOpRecoverable()));
+			final List<PartFileWriter.PendingFileRecoverable> pending = new ArrayList<>();
+			pending.add(new OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileRecoverable(new NoOpRecoverable()));
 			pendingCommittablesPerCheckpoint.put((long) checkpointId, pending);
 		}
 		return pendingCommittablesPerCheckpoint;

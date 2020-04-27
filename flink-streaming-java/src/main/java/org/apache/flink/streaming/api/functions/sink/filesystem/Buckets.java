@@ -110,8 +110,8 @@ public class Buckets<IN, BucketID> {
 		this.bucketerContext = new Buckets.BucketerContext();
 
 		this.bucketStateSerializer = new BucketStateSerializer(
-			partFileWriterFactory.getInProgressFileSnapshotSerializer(),
-			partFileWriterFactory.getPendingFileSnapshotSerializer(),
+			partFileWriterFactory.getInProgressFileRecoverableSerializer(),
+			partFileWriterFactory.getPendingFileRecoverableSerializer(),
 			bucketAssigner.getSerializer());
 		this.maxPartCounter = 0L;
 	}

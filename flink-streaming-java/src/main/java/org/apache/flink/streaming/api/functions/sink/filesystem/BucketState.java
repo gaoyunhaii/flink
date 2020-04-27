@@ -46,30 +46,30 @@ class BucketState<BucketID> {
 	private final long inProgressFileCreationTime;
 
 	/**
-	 * A {@link org.apache.flink.streaming.api.functions.sink.filesystem.PartFileWriter.InProgressFileSnapshot} for the currently open
+	 * A {@link PartFileWriter.InProgressFileRecoverable} for the currently open
 	 * part file, or null if there is no currently open part file.
 	 */
 	@Nullable
-	private final PartFileWriter.InProgressFileSnapshot inProgressFileSnapshot;
+	private final PartFileWriter.InProgressFileRecoverable inProgressFileRecoverable;
 
 	/**
 	 * The {@link RecoverableWriter.CommitRecoverable files} pending to be
 	 * committed, organized by checkpoint id.
 	 */
-	private final Map<Long, List<PartFileWriter.PendingFileSnapshot>> pendingFileSnapshots;
+	private final Map<Long, List<PartFileWriter.PendingFileRecoverable>> pendingFileRecoverables;
 
 	BucketState(
 			final BucketID bucketId,
 			final Path bucketPath,
 			final long inProgressFileCreationTime,
-			@Nullable final PartFileWriter.InProgressFileSnapshot inProgressFileSnapshot,
-			final Map<Long, List<PartFileWriter.PendingFileSnapshot>> pendingFileSnapshots
+			@Nullable final PartFileWriter.InProgressFileRecoverable inProgressFileRecoverable,
+			final Map<Long, List<PartFileWriter.PendingFileRecoverable>> pendingFileRecoverables
 	) {
 		this.bucketId = Preconditions.checkNotNull(bucketId);
 		this.bucketPath = Preconditions.checkNotNull(bucketPath);
 		this.inProgressFileCreationTime = inProgressFileCreationTime;
-		this.inProgressFileSnapshot = inProgressFileSnapshot;
-		this.pendingFileSnapshots = Preconditions.checkNotNull(pendingFileSnapshots);
+		this.inProgressFileRecoverable = inProgressFileRecoverable;
+		this.pendingFileRecoverables = Preconditions.checkNotNull(pendingFileRecoverables);
 	}
 
 	BucketID getBucketId() {
@@ -85,16 +85,16 @@ class BucketState<BucketID> {
 	}
 
 	boolean hasInProgressResumableFile() {
-		return inProgressFileSnapshot != null;
+		return inProgressFileRecoverable != null;
 	}
 
 	@Nullable
-	PartFileWriter.InProgressFileSnapshot getInProgressFileSnapshot() {
-		return inProgressFileSnapshot;
+	PartFileWriter.InProgressFileRecoverable getInProgressFileRecoverable() {
+		return inProgressFileRecoverable;
 	}
 
-	Map<Long, List<PartFileWriter.PendingFileSnapshot>> getPendingFileSnapshots() {
-		return pendingFileSnapshots;
+	Map<Long, List<PartFileWriter.PendingFileRecoverable>> getPendingFileRecoverables() {
+		return pendingFileRecoverables;
 	}
 
 	@Override
@@ -109,9 +109,9 @@ class BucketState<BucketID> {
 			strBuilder.append(", has open part file created @ ").append(inProgressFileCreationTime);
 		}
 
-		if (!pendingFileSnapshots.isEmpty()) {
+		if (!pendingFileRecoverables.isEmpty()) {
 			strBuilder.append(", has pending files for checkpoints: {");
-			for (long checkpointId: pendingFileSnapshots.keySet()) {
+			for (long checkpointId: pendingFileRecoverables.keySet()) {
 				strBuilder.append(checkpointId).append(' ');
 			}
 			strBuilder.append('}');

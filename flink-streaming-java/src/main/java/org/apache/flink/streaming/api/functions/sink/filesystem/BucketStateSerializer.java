@@ -45,19 +45,19 @@ class BucketStateSerializer<BucketID> implements SimpleVersionedSerializer<Bucke
 
 	private static final int MAGIC_NUMBER = 0x1e764b79;
 
-	private final SimpleVersionedSerializer<PartFileWriter.InProgressFileSnapshot> inProgressFileSnapshotSerializer;
+	private final SimpleVersionedSerializer<PartFileWriter.InProgressFileRecoverable> inProgressFileRecoverableSerializer;
 
-	private final SimpleVersionedSerializer<PartFileWriter.PendingFileSnapshot> pendingFileSnapshotSerializer;
+	private final SimpleVersionedSerializer<PartFileWriter.PendingFileRecoverable> pendingFileRecoverableSerializer;
 
 	private final SimpleVersionedSerializer<BucketID> bucketIdSerializer;
 
 	BucketStateSerializer(
-			final SimpleVersionedSerializer<PartFileWriter.InProgressFileSnapshot> inProgressFileSnapshotSerializer,
-			final SimpleVersionedSerializer<PartFileWriter.PendingFileSnapshot> pendingFileSnapshotSerializer,
+			final SimpleVersionedSerializer<PartFileWriter.InProgressFileRecoverable> inProgressFileRecoverableSerializer,
+			final SimpleVersionedSerializer<PartFileWriter.PendingFileRecoverable> pendingFileRecoverableSerializer,
 			final SimpleVersionedSerializer<BucketID> bucketIdSerializer
 	) {
-		this.inProgressFileSnapshotSerializer = Preconditions.checkNotNull(inProgressFileSnapshotSerializer);
-		this.pendingFileSnapshotSerializer = Preconditions.checkNotNull(pendingFileSnapshotSerializer);
+		this.inProgressFileRecoverableSerializer = Preconditions.checkNotNull(inProgressFileRecoverableSerializer);
+		this.pendingFileRecoverableSerializer = Preconditions.checkNotNull(pendingFileRecoverableSerializer);
 		this.bucketIdSerializer = Preconditions.checkNotNull(bucketIdSerializer);
 	}
 
@@ -103,7 +103,7 @@ class BucketStateSerializer<BucketID> implements SimpleVersionedSerializer<Bucke
 		// put the current open part file
 		if (state.hasInProgressResumableFile()) {
 			final RecoverableWriter.ResumeRecoverable resumable =
-				((OutputStreamBasedPartFileWriter.OutputStreamBasedInProgressSnapshot) state.getInProgressFileSnapshot()).getResumeRecoverable();
+				((OutputStreamBasedPartFileWriter.OutputStreamBasedInProgressFileRecoverable) state.getInProgressFileRecoverable()).getResumeRecoverable();
 			out.writeBoolean(true);
 			SimpleVersionedSerialization.writeVersionAndSerialize(resumableSerializer, resumable, out);
 		}
@@ -139,28 +139,28 @@ class BucketStateSerializer<BucketID> implements SimpleVersionedSerializer<Bucke
 
 		// put the current open part file
 		if (state.hasInProgressResumableFile()) {
-			final PartFileWriter.InProgressFileSnapshot inProgressFileSnapshot = state.getInProgressFileSnapshot();
+			final PartFileWriter.InProgressFileRecoverable inProgressFileRecoverable = state.getInProgressFileRecoverable();
 			dataOutputView.writeBoolean(true);
-			SimpleVersionedSerialization.writeVersionAndSerialize(inProgressFileSnapshotSerializer, inProgressFileSnapshot, dataOutputView);
+			SimpleVersionedSerialization.writeVersionAndSerialize(inProgressFileRecoverableSerializer, inProgressFileRecoverable, dataOutputView);
 		} else {
 			dataOutputView.writeBoolean(false);
 		}
 
 		// put the map of pending files per checkpoint
-		final Map<Long, List<PartFileWriter.PendingFileSnapshot>> pendingFileSnapshots = state.getPendingFileSnapshots();
+		final Map<Long, List<PartFileWriter.PendingFileRecoverable>> pendingFileRecoverables = state.getPendingFileRecoverables();
 
-		dataOutputView.writeInt(pendingFileSnapshotSerializer.getVersion());
+		dataOutputView.writeInt(pendingFileRecoverableSerializer.getVersion());
 
-		dataOutputView.writeInt(pendingFileSnapshots.size());
+		dataOutputView.writeInt(pendingFileRecoverables.size());
 
-		for (Entry<Long, List<PartFileWriter.PendingFileSnapshot>> pendingFilesForCheckpoint : pendingFileSnapshots.entrySet()) {
-			final List<PartFileWriter.PendingFileSnapshot> pendingFileSnapshotList = pendingFilesForCheckpoint.getValue();
+		for (Entry<Long, List<PartFileWriter.PendingFileRecoverable>> pendingFilesForCheckpoint : pendingFileRecoverables.entrySet()) {
+			final List<PartFileWriter.PendingFileRecoverable> pendingFileRecoverableList = pendingFilesForCheckpoint.getValue();
 
 			dataOutputView.writeLong(pendingFilesForCheckpoint.getKey());
-			dataOutputView.writeInt(pendingFileSnapshotList.size());
+			dataOutputView.writeInt(pendingFileRecoverableList.size());
 
-			for (PartFileWriter.PendingFileSnapshot pendingFileSnapshot : pendingFileSnapshotList) {
-				byte[] serialized = pendingFileSnapshotSerializer.serialize(pendingFileSnapshot);
+			for (PartFileWriter.PendingFileRecoverable pendingFileRecoverable : pendingFileRecoverableList) {
+				byte[] serialized = pendingFileRecoverableSerializer.serialize(pendingFileRecoverable);
 				dataOutputView.writeInt(serialized.length);
 				dataOutputView.write(serialized);
 			}
@@ -178,29 +178,29 @@ class BucketStateSerializer<BucketID> implements SimpleVersionedSerializer<Bucke
 		final long creationTime = in.readLong();
 
 		// then get the current resumable stream
-		PartFileWriter.InProgressFileSnapshot current = null;
+		PartFileWriter.InProgressFileRecoverable current = null;
 		if (in.readBoolean()) {
 			current =
-				new OutputStreamBasedPartFileWriter.OutputStreamBasedInProgressSnapshot(
+				new OutputStreamBasedPartFileWriter.OutputStreamBasedInProgressFileRecoverable(
 					SimpleVersionedSerialization.readVersionAndDeSerialize(resumableSerializer, in));
 		}
 
 		final int committableVersion = in.readInt();
 		final int numCheckpoints = in.readInt();
-		final HashMap<Long, List<PartFileWriter.PendingFileSnapshot>> pendingFileSnapshotPerCheckpoint = new HashMap<>(numCheckpoints);
+		final HashMap<Long, List<PartFileWriter.PendingFileRecoverable>> pendingFileRecoverablePerCheckpoint = new HashMap<>(numCheckpoints);
 
 		for (int i = 0; i < numCheckpoints; i++) {
 			final long checkpointId = in.readLong();
 			final int noOfResumables = in.readInt();
 
-			final List<PartFileWriter.PendingFileSnapshot> pendingFileSnapshots = new ArrayList<>(noOfResumables);
+			final List<PartFileWriter.PendingFileRecoverable> pendingFileRecoverables = new ArrayList<>(noOfResumables);
 			for (int j = 0; j < noOfResumables; j++) {
 				final byte[] bytes = new byte[in.readInt()];
 				in.readFully(bytes);
-				pendingFileSnapshots.add(
-					new OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileSnapshot(commitableSerializer.deserialize(committableVersion, bytes)));
+				pendingFileRecoverables.add(
+					new OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileRecoverable(commitableSerializer.deserialize(committableVersion, bytes)));
 			}
-			pendingFileSnapshotPerCheckpoint.put(checkpointId, pendingFileSnapshots);
+			pendingFileRecoverablePerCheckpoint.put(checkpointId, pendingFileRecoverables);
 		}
 
 		return new BucketState<>(
@@ -208,7 +208,7 @@ class BucketStateSerializer<BucketID> implements SimpleVersionedSerializer<Bucke
 			new Path(bucketPathStr),
 			creationTime,
 			current,
-			pendingFileSnapshotPerCheckpoint);
+			pendingFileRecoverablePerCheckpoint);
 	}
 
 	BucketState<BucketID> deserializeV2(DataInputView dataInputView) throws IOException {
@@ -217,55 +217,55 @@ class BucketStateSerializer<BucketID> implements SimpleVersionedSerializer<Bucke
 		final long creationTime = dataInputView.readLong();
 
 		// then get the current resumable stream
-		PartFileWriter.InProgressFileSnapshot current = null;
+		PartFileWriter.InProgressFileRecoverable current = null;
 		if (dataInputView.readBoolean()) {
-			current = SimpleVersionedSerialization.readVersionAndDeSerialize(inProgressFileSnapshotSerializer, dataInputView);
+			current = SimpleVersionedSerialization.readVersionAndDeSerialize(inProgressFileRecoverableSerializer, dataInputView);
 		}
 
-		final int pendingFileSnapshotSerializerVersion = dataInputView.readInt();
+		final int pendingFileRecoverableSerializerVersion = dataInputView.readInt();
 		final int numCheckpoints = dataInputView.readInt();
-		final HashMap<Long, List<PartFileWriter.PendingFileSnapshot>> pendingFileSnapshotsPerCheckpoint = new HashMap<>(numCheckpoints);
+		final HashMap<Long, List<PartFileWriter.PendingFileRecoverable>> pendingFileRecoverablesPerCheckpoint = new HashMap<>(numCheckpoints);
 
 		for (int i = 0; i < numCheckpoints; i++) {
 			final long checkpointId = dataInputView.readLong();
-			final int numOfPendingFileSnapshots = dataInputView.readInt();
+			final int numOfPendingFileRecoverables = dataInputView.readInt();
 
-			final List<PartFileWriter.PendingFileSnapshot> pendingFileSnapshots = new ArrayList<>(numOfPendingFileSnapshots);
-			for (int j = 0; j < numOfPendingFileSnapshots; j++) {
+			final List<PartFileWriter.PendingFileRecoverable> pendingFileRecoverables = new ArrayList<>(numOfPendingFileRecoverables);
+			for (int j = 0; j < numOfPendingFileRecoverables; j++) {
 				final byte[] bytes = new byte[dataInputView.readInt()];
 				dataInputView.readFully(bytes);
-				pendingFileSnapshots.add(pendingFileSnapshotSerializer.deserialize(pendingFileSnapshotSerializerVersion, bytes));
+				pendingFileRecoverables.add(pendingFileRecoverableSerializer.deserialize(pendingFileRecoverableSerializerVersion, bytes));
 			}
-			pendingFileSnapshotsPerCheckpoint.put(checkpointId, pendingFileSnapshots);
+			pendingFileRecoverablesPerCheckpoint.put(checkpointId, pendingFileRecoverables);
 		}
 
-		return new BucketState(bucketId, new Path(bucketPathStr), creationTime, current, pendingFileSnapshotsPerCheckpoint);
+		return new BucketState(bucketId, new Path(bucketPathStr), creationTime, current, pendingFileRecoverablesPerCheckpoint);
 	}
 
 	private SimpleVersionedSerializer<RecoverableWriter.ResumeRecoverable> getResumableSerializer() {
-		final OutputStreamBasedPartFileWriter.OutputStreamBasedInProgressFileSnapshotSerializer
-			outputStreamBasedInProgressFileSnapshotSerializer =
-			(OutputStreamBasedPartFileWriter.OutputStreamBasedInProgressFileSnapshotSerializer) inProgressFileSnapshotSerializer;
-		return outputStreamBasedInProgressFileSnapshotSerializer.getResumeSerializer();
+		final OutputStreamBasedPartFileWriter.OutputStreamBasedInProgressFileRecoverableSerializer
+			outputStreamBasedInProgressFileRecoverableSerializer =
+			(OutputStreamBasedPartFileWriter.OutputStreamBasedInProgressFileRecoverableSerializer) inProgressFileRecoverableSerializer;
+		return outputStreamBasedInProgressFileRecoverableSerializer.getResumeSerializer();
 	}
 
 	private SimpleVersionedSerializer<RecoverableWriter.CommitRecoverable> getCommitableSerializer() {
-		final OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileSnapshotSerializer
-			outputStreamBasedPendingFileSnapshotSerializer =
-			(OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileSnapshotSerializer) pendingFileSnapshotSerializer;
-		return outputStreamBasedPendingFileSnapshotSerializer.getCommitSerializer();
+		final OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileRecoverableSerializer
+			outputStreamBasedPendingFileRecoverableSerializer =
+			(OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileRecoverableSerializer) pendingFileRecoverableSerializer;
+		return outputStreamBasedPendingFileRecoverableSerializer.getCommitSerializer();
 	}
 
 	private Map<Long, List<RecoverableWriter.CommitRecoverable>> getCommittablesPerCheckpoint(BucketState<BucketID> bucketState) {
 		final Map<Long, List<RecoverableWriter.CommitRecoverable>> committablesPerCheckpoint = new HashMap<>();
-		for (Entry<Long, List<PartFileWriter.PendingFileSnapshot>> pendingFilesForCheckpoint : bucketState.getPendingFileSnapshots().entrySet()) {
-			final List<PartFileWriter.PendingFileSnapshot> pendingFileSnapshotList = pendingFilesForCheckpoint.getValue();
-			final List<RecoverableWriter.CommitRecoverable> commitRecoverableList = new ArrayList<>(pendingFileSnapshotList.size());
+		for (Entry<Long, List<PartFileWriter.PendingFileRecoverable>> pendingFilesForCheckpoint : bucketState.getPendingFileRecoverables().entrySet()) {
+			final List<PartFileWriter.PendingFileRecoverable> pendingFileRecoverableList = pendingFilesForCheckpoint.getValue();
+			final List<RecoverableWriter.CommitRecoverable> commitRecoverableList = new ArrayList<>(pendingFileRecoverableList.size());
 			committablesPerCheckpoint.put(pendingFilesForCheckpoint.getKey(), commitRecoverableList);
-			for (PartFileWriter.PendingFileSnapshot pendingFileSnapshot : pendingFileSnapshotList) {
-				OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileSnapshot outputStreamBasedPendingFileSnapshot =
-					(OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileSnapshot) pendingFileSnapshot;
-				commitRecoverableList.add(outputStreamBasedPendingFileSnapshot.getCommitRecoverable());
+			for (PartFileWriter.PendingFileRecoverable pendingFileRecoverable : pendingFileRecoverableList) {
+				OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileRecoverable outputStreamBasedPendingFileRecoverable =
+					(OutputStreamBasedPartFileWriter.OutputStreamBasedPendingFileRecoverable) pendingFileRecoverable;
+				commitRecoverableList.add(outputStreamBasedPendingFileRecoverable.getCommitRecoverable());
 			}
 		}
 		return committablesPerCheckpoint;

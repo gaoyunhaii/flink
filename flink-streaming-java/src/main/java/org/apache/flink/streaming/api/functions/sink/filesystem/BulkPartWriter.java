@@ -52,12 +52,12 @@ final class BulkPartWriter<IN, BucketID> extends OutputStreamBasedPartFileWriter
 	}
 
 	@Override
-	public InProgressFileSnapshot persist() {
+	public InProgressFileRecoverable persist() {
 		throw new UnsupportedOperationException("Bulk Part Writers do not support \"pause and resume\" operations.");
 	}
 
 	@Override
-	public PendingFileSnapshot closeForCommit() throws IOException {
+	public PendingFileRecoverable closeForCommit() throws IOException {
 		writer.flush();
 		writer.finish();
 		return super.closeForCommit();

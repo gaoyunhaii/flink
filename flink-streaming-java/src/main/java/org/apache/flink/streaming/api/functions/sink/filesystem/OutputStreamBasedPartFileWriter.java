@@ -40,13 +40,13 @@ public abstract class OutputStreamBasedPartFileWriter<IN, BucketID> implements P
 	}
 
 	@Override
-	public InProgressFileSnapshot persist() throws IOException {
-		return new OutputStreamBasedInProgressSnapshot(currentPartStream.persist());
+	public InProgressFileRecoverable persist() throws IOException {
+		return new OutputStreamBasedInProgressFileRecoverable(currentPartStream.persist());
 	}
 
 	@Override
-	public PendingFileSnapshot closeForCommit() throws IOException {
-		return new OutputStreamBasedPendingFileSnapshot(currentPartStream.closeForCommit().getRecoverable());
+	public PendingFileRecoverable closeForCommit() throws IOException {
+		return new OutputStreamBasedPendingFileRecoverable(currentPartStream.closeForCommit().getRecoverable());
 	}
 
 	@Override
@@ -94,42 +94,49 @@ public abstract class OutputStreamBasedPartFileWriter<IN, BucketID> implements P
 		}
 
 		@Override
-		public PartFileWriter<IN, BucketID> resumeFrom(final BucketID bucketID, final InProgressFileSnapshot inProgressFileSnapshot, final long creationTime) throws IOException {
-			final OutputStreamBasedInProgressSnapshot outputStreamBasedInProgressSnapshot = (OutputStreamBasedInProgressSnapshot) inProgressFileSnapshot;
+		public PartFileWriter<IN, BucketID> resumeFrom(final BucketID bucketID, final InProgressFileRecoverable inProgressFileRecoverable, final long creationTime) throws IOException {
+			final OutputStreamBasedInProgressFileRecoverable outputStreamBasedInProgressRecoverable = (OutputStreamBasedInProgressFileRecoverable) inProgressFileRecoverable;
 			return resumeFrom(
 				bucketID,
-				recoverableWriter.recover(outputStreamBasedInProgressSnapshot.getResumeRecoverable()),
-				outputStreamBasedInProgressSnapshot.getResumeRecoverable(),
+				recoverableWriter.recover(outputStreamBasedInProgressRecoverable.getResumeRecoverable()),
+				outputStreamBasedInProgressRecoverable.getResumeRecoverable(),
 				creationTime);
 		}
 
 		@Override
-		public void commitPendingFile(final PendingFileSnapshot pendingFileSnapshot) throws IOException {
-			final RecoverableWriter.CommitRecoverable commitRecoverable =
-				((OutputStreamBasedPendingFileSnapshot) pendingFileSnapshot).getCommitRecoverable();
-			recoverableWriter.recoverForCommit(commitRecoverable);
+		public PendingFile recoverPendingFile(final PendingFileRecoverable pendingFileRecoverable) throws IOException {
+			final RecoverableWriter.CommitRecoverable commitRecoverable;
+
+			if (pendingFileRecoverable instanceof OutputStreamBasedPendingFileRecoverable) {
+				commitRecoverable = ((OutputStreamBasedPendingFileRecoverable) pendingFileRecoverable).getCommitRecoverable();
+			} else if (pendingFileRecoverable instanceof OutputStreamBasedInProgressFileRecoverable) {
+				commitRecoverable = ((OutputStreamBasedInProgressFileRecoverable) pendingFileRecoverable).getResumeRecoverable();
+			} else {
+				throw new IllegalArgumentException("can not recover from the pendingFileRecoverable");
+			}
+			return new OutputStreamBasedPendingFile(recoverableWriter.recoverForCommit(commitRecoverable));
 		}
 
 		@Override
-		public boolean requiresCleanupOfInProgressFileSnapshot() {
+		public boolean requiresCleanupOfInProgressFileRecoverableState() {
 			return recoverableWriter.requiresCleanupOfRecoverableState();
 		}
 
 		@Override
-		public boolean cleanupInProgressFileSnapshot(InProgressFileSnapshot inProgressFileSnapshot) throws IOException {
+		public boolean cleanupInProgressFileRecoverable(InProgressFileRecoverable inProgressFileRecoverable) throws IOException {
 			final RecoverableWriter.ResumeRecoverable resumeRecoverable =
-				((OutputStreamBasedInProgressSnapshot) inProgressFileSnapshot).getResumeRecoverable();
+				((OutputStreamBasedInProgressFileRecoverable) inProgressFileRecoverable).getResumeRecoverable();
 			return recoverableWriter.cleanupRecoverableState(resumeRecoverable);
 		}
 
 		@Override
-		public SimpleVersionedSerializer<PendingFileSnapshot> getPendingFileSnapshotSerializer() {
-			return new OutputStreamBasedPendingFileSnapshotSerializer(recoverableWriter.getCommitRecoverableSerializer());
+		public SimpleVersionedSerializer<PendingFileRecoverable> getPendingFileRecoverableSerializer() {
+			return new OutputStreamBasedPendingFileRecoverableSerializer(recoverableWriter.getCommitRecoverableSerializer());
 		}
 
 		@Override
-		public SimpleVersionedSerializer<InProgressFileSnapshot> getInProgressFileSnapshotSerializer() {
-			return new OutputStreamBasedInProgressFileSnapshotSerializer(recoverableWriter.getResumeRecoverableSerializer());
+		public SimpleVersionedSerializer<InProgressFileRecoverable> getInProgressFileRecoverableSerializer() {
+			return new OutputStreamBasedInProgressFileRecoverableSerializer(recoverableWriter.getResumeRecoverableSerializer());
 		}
 
 		@Override
@@ -150,11 +157,11 @@ public abstract class OutputStreamBasedPartFileWriter<IN, BucketID> implements P
 			final long creationTime) throws IOException;
 	}
 
-	static final class OutputStreamBasedPendingFileSnapshot implements PendingFileSnapshot {
+	static final class OutputStreamBasedPendingFileRecoverable implements PendingFileRecoverable {
 
 		private final RecoverableWriter.CommitRecoverable commitRecoverable;
 
-		public OutputStreamBasedPendingFileSnapshot(final RecoverableWriter.CommitRecoverable commitRecoverable) {
+		public OutputStreamBasedPendingFileRecoverable(final RecoverableWriter.CommitRecoverable commitRecoverable) {
 			this.commitRecoverable = commitRecoverable;
 		}
 
@@ -163,11 +170,11 @@ public abstract class OutputStreamBasedPartFileWriter<IN, BucketID> implements P
 		}
 	}
 
-	static final class OutputStreamBasedInProgressSnapshot implements InProgressFileSnapshot {
+	static final class OutputStreamBasedInProgressFileRecoverable implements InProgressFileRecoverable {
 
 		private final RecoverableWriter.ResumeRecoverable resumeRecoverable;
 
-		public OutputStreamBasedInProgressSnapshot(final RecoverableWriter.ResumeRecoverable resumeRecoverable) {
+		public OutputStreamBasedInProgressFileRecoverable(final RecoverableWriter.ResumeRecoverable resumeRecoverable) {
 			this.resumeRecoverable = resumeRecoverable;
 		}
 
@@ -176,13 +183,37 @@ public abstract class OutputStreamBasedPartFileWriter<IN, BucketID> implements P
 		}
 	}
 
-	static class OutputStreamBasedInProgressFileSnapshotSerializer implements SimpleVersionedSerializer<InProgressFileSnapshot> {
+	static final class OutputStreamBasedPendingFile implements PendingFile {
+
+		private final RecoverableFsDataOutputStream.Committer committer;
+
+		public OutputStreamBasedPendingFile(final RecoverableFsDataOutputStream.Committer committer) {
+			this.committer = committer;
+		}
+
+		@Override
+		public void commit() throws IOException {
+			committer.commit();
+		}
+
+		@Override
+		public void commitAfterRecovery() throws IOException {
+			committer.commitAfterRecovery();
+		}
+
+		@Override
+		public PendingFileRecoverable getRecoverable() {
+			return new OutputStreamBasedPendingFileRecoverable(committer.getRecoverable());
+		}
+	}
+
+	static class OutputStreamBasedInProgressFileRecoverableSerializer implements SimpleVersionedSerializer<InProgressFileRecoverable> {
 
 		private static final int MAGIC_NUMBER = 0xb3a4073d;
 
 		private final SimpleVersionedSerializer<RecoverableWriter.ResumeRecoverable> resumeSerializer;
 
-		public OutputStreamBasedInProgressFileSnapshotSerializer(SimpleVersionedSerializer<RecoverableWriter.ResumeRecoverable> resumeSerializer) {
+		public OutputStreamBasedInProgressFileRecoverableSerializer(SimpleVersionedSerializer<RecoverableWriter.ResumeRecoverable> resumeSerializer) {
 			this.resumeSerializer = resumeSerializer;
 		}
 
@@ -192,16 +223,16 @@ public abstract class OutputStreamBasedPartFileWriter<IN, BucketID> implements P
 		}
 
 		@Override
-		public byte[] serialize(InProgressFileSnapshot inProgressSnapshot) throws IOException {
-			OutputStreamBasedInProgressSnapshot outputStreamBasedInProgressSnapshot = (OutputStreamBasedInProgressSnapshot) inProgressSnapshot;
+		public byte[] serialize(InProgressFileRecoverable inProgressRecoverable) throws IOException {
+			OutputStreamBasedInProgressFileRecoverable outputStreamBasedInProgressRecoverable = (OutputStreamBasedInProgressFileRecoverable) inProgressRecoverable;
 			DataOutputSerializer dataOutputSerializer = new DataOutputSerializer(256);
 			dataOutputSerializer.writeInt(MAGIC_NUMBER);
-			serializeV1(outputStreamBasedInProgressSnapshot, dataOutputSerializer);
+			serializeV1(outputStreamBasedInProgressRecoverable, dataOutputSerializer);
 			return dataOutputSerializer.getCopyOfBuffer();
 		}
 
 		@Override
-		public InProgressFileSnapshot deserialize(int version, byte[] serialized) throws IOException {
+		public InProgressFileRecoverable deserialize(int version, byte[] serialized) throws IOException {
 			switch (version) {
 				case 1:
 					DataInputView dataInputView = new DataInputDeserializer(serialized);
@@ -216,12 +247,12 @@ public abstract class OutputStreamBasedPartFileWriter<IN, BucketID> implements P
 			return resumeSerializer;
 		}
 
-		private void serializeV1(final OutputStreamBasedInProgressSnapshot outputStreamBasedInProgressSnapshot, final DataOutputView dataOutputView) throws IOException {
-			SimpleVersionedSerialization.writeVersionAndSerialize(resumeSerializer, outputStreamBasedInProgressSnapshot.getResumeRecoverable(), dataOutputView);
+		private void serializeV1(final OutputStreamBasedInProgressFileRecoverable outputStreamBasedInProgressRecoverable, final DataOutputView dataOutputView) throws IOException {
+			SimpleVersionedSerialization.writeVersionAndSerialize(resumeSerializer, outputStreamBasedInProgressRecoverable.getResumeRecoverable(), dataOutputView);
 		}
 
-		private OutputStreamBasedInProgressSnapshot deserializeV1(final DataInputView dataInputView) throws IOException {
-			return new OutputStreamBasedInProgressSnapshot(SimpleVersionedSerialization.readVersionAndDeSerialize(resumeSerializer, dataInputView));
+		private OutputStreamBasedInProgressFileRecoverable deserializeV1(final DataInputView dataInputView) throws IOException {
+			return new OutputStreamBasedInProgressFileRecoverable(SimpleVersionedSerialization.readVersionAndDeSerialize(resumeSerializer, dataInputView));
 		}
 
 		private static void validateMagicNumber(final DataInputView dataInputView) throws IOException {
@@ -232,13 +263,13 @@ public abstract class OutputStreamBasedPartFileWriter<IN, BucketID> implements P
 		}
 	}
 
-	static class OutputStreamBasedPendingFileSnapshotSerializer implements SimpleVersionedSerializer<PendingFileSnapshot> {
+	static class OutputStreamBasedPendingFileRecoverableSerializer implements SimpleVersionedSerializer<PendingFileRecoverable> {
 
 		private static final int MAGIC_NUMBER = 0x2c853c89;
 
 		private final SimpleVersionedSerializer<RecoverableWriter.CommitRecoverable> commitSerializer;
 
-		public OutputStreamBasedPendingFileSnapshotSerializer(final SimpleVersionedSerializer<RecoverableWriter.CommitRecoverable> commitSerializer) {
+		public OutputStreamBasedPendingFileRecoverableSerializer(final SimpleVersionedSerializer<RecoverableWriter.CommitRecoverable> commitSerializer) {
 			this.commitSerializer = commitSerializer;
 		}
 
@@ -248,16 +279,16 @@ public abstract class OutputStreamBasedPartFileWriter<IN, BucketID> implements P
 		}
 
 		@Override
-		public byte[] serialize(PendingFileSnapshot pendingFileSnapshot) throws IOException {
-			OutputStreamBasedPendingFileSnapshot outputStreamBasedPendingFileSnapshot = (OutputStreamBasedPendingFileSnapshot) pendingFileSnapshot;
+		public byte[] serialize(PendingFileRecoverable pendingFileRecoverable) throws IOException {
+			OutputStreamBasedPendingFileRecoverable outputStreamBasedPendingFileRecoverable = (OutputStreamBasedPendingFileRecoverable) pendingFileRecoverable;
 			DataOutputSerializer dataOutputSerializer = new DataOutputSerializer(256);
 			dataOutputSerializer.writeInt(MAGIC_NUMBER);
-			serializeV1(outputStreamBasedPendingFileSnapshot, dataOutputSerializer);
+			serializeV1(outputStreamBasedPendingFileRecoverable, dataOutputSerializer);
 			return dataOutputSerializer.getCopyOfBuffer();
 		}
 
 		@Override
-		public PendingFileSnapshot deserialize(int version, byte[] serialized) throws IOException {
+		public PendingFileRecoverable deserialize(int version, byte[] serialized) throws IOException {
 			switch (version) {
 				case 1:
 					DataInputDeserializer in = new DataInputDeserializer(serialized);
@@ -273,12 +304,12 @@ public abstract class OutputStreamBasedPartFileWriter<IN, BucketID> implements P
 			return this.commitSerializer;
 		}
 
-		private void serializeV1(final OutputStreamBasedPendingFileSnapshot outputStreamBasedPendingFileSnapshot, final DataOutputView dataOutputView) throws IOException {
-			SimpleVersionedSerialization.writeVersionAndSerialize(commitSerializer, outputStreamBasedPendingFileSnapshot.getCommitRecoverable(), dataOutputView);
+		private void serializeV1(final OutputStreamBasedPendingFileRecoverable outputStreamBasedPendingFileRecoverable, final DataOutputView dataOutputView) throws IOException {
+			SimpleVersionedSerialization.writeVersionAndSerialize(commitSerializer, outputStreamBasedPendingFileRecoverable.getCommitRecoverable(), dataOutputView);
 		}
 
-		private OutputStreamBasedPendingFileSnapshot deserializeV1(final DataInputView dataInputView) throws IOException {
-			return new OutputStreamBasedPendingFileSnapshot(SimpleVersionedSerialization.readVersionAndDeSerialize(commitSerializer, dataInputView));
+		private OutputStreamBasedPendingFileRecoverable deserializeV1(final DataInputView dataInputView) throws IOException {
+			return new OutputStreamBasedPendingFileRecoverable(SimpleVersionedSerialization.readVersionAndDeSerialize(commitSerializer, dataInputView));
 		}
 
 		private static void validateMagicNumber(final DataInputView dataInputView) throws IOException {

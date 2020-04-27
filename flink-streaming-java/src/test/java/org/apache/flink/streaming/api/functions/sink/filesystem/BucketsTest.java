@@ -89,7 +89,7 @@ public class BucketsTest {
 						bucket.getBucketPath().equals(new Path(testTmpPath, bucketId)) &&
 						bucket.getInProgressPart() == null &&
 						bucket.getPendingPartsForCurrentCheckpoint().isEmpty() &&
-						bucket.getPendingFileSnapshotsPerCheckpoint().size() == 1;
+						bucket.getPendingFileRecoverablesPerCheckpoint().size() == 1;
 			}
 
 			@Override
@@ -140,7 +140,7 @@ public class BucketsTest {
 		Assert.assertEquals(2L, bucketsTwo.getMaxPartCounter());
 
 		// make sure we have one in-progress file here and a pending
-		Assert.assertEquals(1L, bucketsTwo.getActiveBuckets().get("test1").getPendingFileSnapshotsPerCheckpoint().size());
+		Assert.assertEquals(1L, bucketsTwo.getActiveBuckets().get("test1").getPendingFileRecoverablesPerCheckpoint().size());
 		Assert.assertNotNull(bucketsTwo.getActiveBuckets().get("test1").getInProgressPart());
 
 		final ListState<byte[]> mergedBucketStateContainer = new MockListState<>();
@@ -173,7 +173,7 @@ public class BucketsTest {
 		Assert.assertEquals(1L, bucket.getPendingPartsForCurrentCheckpoint().size());
 
 		// we commit the pending for previous checkpoints
-		Assert.assertTrue(bucket.getPendingFileSnapshotsPerCheckpoint().isEmpty());
+		Assert.assertTrue(bucket.getPendingFileRecoverablesPerCheckpoint().isEmpty());
 	}
 
 	@Test
@@ -206,7 +206,7 @@ public class BucketsTest {
 
 		Assert.assertNull(bucket.getInProgressPart());
 		Assert.assertEquals(1L, bucket.getPendingPartsForCurrentCheckpoint().size());
-		Assert.assertTrue(bucket.getPendingFileSnapshotsPerCheckpoint().isEmpty());
+		Assert.assertTrue(bucket.getPendingFileRecoverablesPerCheckpoint().isEmpty());
 	}
 
 	@Test

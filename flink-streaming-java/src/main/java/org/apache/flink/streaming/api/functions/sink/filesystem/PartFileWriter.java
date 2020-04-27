@@ -42,14 +42,14 @@ interface PartFileWriter<IN, BucketID> extends PartFileInfo<BucketID> {
 	 * @return the state of the current part file.
 	 * @throws IOException
 	 */
-	InProgressFileSnapshot persist() throws IOException;
+	InProgressFileRecoverable persist() throws IOException;
 
 
 	/**
 	 * @return The state of the pending part file. {@link Bucket} uses this to commit the pending file.
 	 * @throws IOException
 	 */
-	PendingFileSnapshot closeForCommit() throws IOException;
+	PendingFileRecoverable closeForCommit() throws IOException;
 
 	/**
 	 * TODO:: why there is a dispose method for the writer?
@@ -76,7 +76,7 @@ interface PartFileWriter<IN, BucketID> extends PartFileInfo<BucketID> {
 			final long creationTime) throws IOException;
 
 		/**
-		 * Used to resume a {@link PartFileWriter} from a {@link InProgressFileSnapshot}.
+		 * Used to resume a {@link PartFileWriter} from a {@link InProgressFileRecoverable}.
 		 * @param bucketID the id of the bucket this writer is writing to.
 		 * @param inProgressFileSnapshot the state of the part file.
 		 * @param creationTime the creation time of the file.
@@ -84,71 +84,105 @@ interface PartFileWriter<IN, BucketID> extends PartFileInfo<BucketID> {
 		 */
 		PartFileWriter<IN, BucketID> resumeFrom(
 			final BucketID bucketID,
-			final InProgressFileSnapshot inProgressFileSnapshot,
+			final InProgressFileRecoverable inProgressFileSnapshot,
 			final long creationTime) throws IOException;
 
 		/**
-		 * Used to commit the pending file.
-		 * @param pendingFileSnapshot the file needed to be committed
+		 * Recovers a pending file for finalizing and committing.
+		 * @param pendingFileRecoverable The handle with the recovery information.
+		 * @return A pending file
 		 */
-		void commitPendingFile(final PendingFileSnapshot pendingFileSnapshot) throws IOException;
+		PendingFile recoverPendingFile(final PendingFileRecoverable pendingFileRecoverable) throws IOException;
 
 		/**
 		 * Marks if requiring to do any additional cleanup/freeing of resources occupied
-		 * as part of a {@link InProgressFileSnapshot}.
+		 * as part of a {@link InProgressFileRecoverable}.
 		 *
-		 * <p>In case cleanup is required, then {@link #cleanupInProgressFileSnapshot(InProgressFileSnapshot)} should
+		 * <p>In case cleanup is required, then {@link #cleanupInProgressFileRecoverable(InProgressFileRecoverable)} should
 		 * be called.
 		 *
 		 * @return {@code true} if cleanup is required, {@code false} otherwise.
 		 */
-		boolean requiresCleanupOfInProgressFileSnapshot();
+		boolean requiresCleanupOfInProgressFileRecoverableState();
 
 		/**
 		 * Frees up any resources that were previously occupied in order to be able to
 		 * recover from a (potential) failure.
 		 *
-		 * <p><b>NOTE:</b> This operation should not throw an exception if the {@link InProgressFileSnapshot} has already
+		 * <p><b>NOTE:</b> This operation should not throw an exception if the {@link InProgressFileRecoverable} has already
 		 * been cleaned up and the resources have been freed. But the contract is that it will throw
 		 * an {@link UnsupportedOperationException} if it is called for a {@link PartFileFactory}
-		 * whose {@link #requiresCleanupOfInProgressFileSnapshot()} returns {@code false}.
+		 * whose {@link #requiresCleanupOfInProgressFileRecoverableState()} returns {@code false}.
 		 *
-		 * @param inProgressFileSnapshot the {@link InProgressFileSnapshot} whose state we want to clean-up.
+		 * @param inProgressFileRecoverable the {@link InProgressFileRecoverable} whose state we want to clean-up.
 		 * @return {@code true} if the resources were successfully freed, {@code false} otherwise
 		 * (e.g. the file to be deleted was not there for any reason - already deleted or never created).
 		 */
-		boolean cleanupInProgressFileSnapshot(final InProgressFileSnapshot inProgressFileSnapshot) throws IOException;
+		boolean cleanupInProgressFileRecoverable(final InProgressFileRecoverable inProgressFileRecoverable) throws IOException;
 
 
 		/**
-		 * @return the serializer for the {@link PendingFileSnapshot}.
+		 * @return the serializer for the {@link PendingFileRecoverable}.
 		 */
-		SimpleVersionedSerializer<? extends PendingFileSnapshot> getPendingFileSnapshotSerializer();
+		SimpleVersionedSerializer<? extends PendingFileRecoverable> getPendingFileRecoverableSerializer();
 
 		/**
-		 * @return the serializer for the {@link InProgressFileSnapshot}.
+		 * @return the serializer for the {@link InProgressFileRecoverable}.
 		 */
-		SimpleVersionedSerializer<? extends InProgressFileSnapshot> getInProgressFileSnapshotSerializer();
+		SimpleVersionedSerializer<? extends InProgressFileRecoverable> getInProgressFileRecoverableSerializer();
 
 		/**
 		 * Checks whether the {@link PartFileWriter} supports resuming (appending to) files after
-		 * recovery (via the {@link #resumeFrom(Object, InProgressFileSnapshot, long)} method).
+		 * recovery (via the {@link #resumeFrom(Object, InProgressFileRecoverable, long)} method).
 		 *
-		 * <p>If true, then this writer supports the {@link #resumeFrom(Object, InProgressFileSnapshot, long)} method.
+		 * <p>If true, then this writer supports the {@link #resumeFrom(Object, InProgressFileRecoverable, long)} method.
 		 * If false, then that method may not be supported and file can only be recovered via
-		 * {@link #commitPendingFile(PendingFileSnapshot)}.
+		 * {@link #recoverPendingFile(PendingFileRecoverable)}.
 		 * TODO:: why we needs this? if the
 		 */
 		boolean supportsResume();
 	}
 
-	/**
-	 * This represents the state of the in-progress file and we could use it to recover the writer of the in-progress file.
+	 /**
+	 * A handle can be used to recover in-progress file..
 	 */
-	interface InProgressFileSnapshot extends PendingFileSnapshot {}
+	interface InProgressFileRecoverable extends PendingFileRecoverable {}
+
+
+	/**
+	 * The handle can be used to recover pending file.
+	 */
+	interface PendingFileRecoverable {}
 
 	/**
 	 * This represents the file that can not write any data to.
 	 */
-	interface PendingFileSnapshot {}
+	interface PendingFile {
+		/**
+		 * Commits the pending file, making it visible. The file will contain the exact data
+		 * as when the pending file was created.
+		 *
+		 * @throws IOException Thrown if committing fails.
+		 */
+		void commit() throws IOException;
+
+		/**
+		 * Commits the pending file, making it visible. The file will contain the exact data
+		 * as when the pending file was created.
+		 *
+		 * <p>This method tolerates situations where the file was already committed and
+		 * will not raise an exception in that case. This is important for idempotent
+		 * commit retries as they need to happen after recovery.
+		 *
+		 * @throws IOException Thrown if committing fails.
+		 */
+		void commitAfterRecovery() throws IOException;
+
+		/**
+		 * Gets a recoverable object to recover the pending file The recovered pending file
+		 * will commit the file with the exact same data as this pending file would commit
+		 * it.
+		 */
+		PendingFileRecoverable getRecoverable();
+	}
 }
