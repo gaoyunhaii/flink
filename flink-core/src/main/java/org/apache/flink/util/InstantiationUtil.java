@@ -581,6 +581,7 @@ public final class InstantiationUtil {
 	}
 
 	public static byte[] serializeObject(Object o) throws IOException {
+		LoggerFactory.getLogger(InstantiationUtil.class).info("{} {}", o, o == null ? "null" : o.getClass());
 		try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
 				ObjectOutputStream oos = new ObjectOutputStream(baos)) {
 			oos.writeObject(o);
