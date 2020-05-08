@@ -979,17 +979,17 @@ public class TypeExtractor {
 		final int typeArgumentsLength = definingType.getActualTypeArguments().length;
 		final TypeInformation<?>[] subTypesInfo = new TypeInformation<?>[typeArgumentsLength];
 		for (int i = 0; i < typeArgumentsLength; i++) {
-			final Type acutalTypeArgument = definingType.getActualTypeArguments()[i];
+			final Type actualTypeArgument = definingType.getActualTypeArguments()[i];
 			// sub type could not be determined with materializing
 			// try to derive the type info of the TypeVariable from the immediate base child input as a last attempt
-			if (acutalTypeArgument instanceof TypeVariable<?>) {
-				subTypesInfo[i] = typeVariableBindings.get(acutalTypeArgument);
+			if (actualTypeArgument instanceof TypeVariable<?>) {
+				subTypesInfo[i] = typeVariableBindings.get(actualTypeArgument);
 
 				// variable could not be determined
 				if (subTypesInfo[i] == null && !lenient) {
 					throw new InvalidTypesException("Type of TypeVariable '"
-						+ ((TypeVariable<?>) acutalTypeArgument).getName() + "' in '"
-						+ ((TypeVariable<?>) acutalTypeArgument).getGenericDeclaration()
+						+ ((TypeVariable<?>) actualTypeArgument).getName() + "' in '"
+						+ ((TypeVariable<?>) actualTypeArgument).getGenericDeclaration()
 						+ "' could not be determined. This is most likely a type erasure problem. "
 						+ "The type extraction currently supports types with generic variables only in cases where "
 						+ "all variables in the return type can be deduced from the input type(s). "
@@ -998,7 +998,7 @@ public class TypeExtractor {
 			} else {
 				// create the type information of the subtype or null/exception
 				try {
-					subTypesInfo[i] = createTypeInfo(acutalTypeArgument, typeVariableBindings, extractingClasses);
+					subTypesInfo[i] = createTypeInfo(actualTypeArgument, typeVariableBindings, extractingClasses);
 				} catch (InvalidTypesException e) {
 					if (lenient) {
 						subTypesInfo[i] = null;
@@ -1734,7 +1734,7 @@ public class TypeExtractor {
 	/**
 	 * Resolve all {@link TypeVariable}s of the type from the type hierarchy.
 	 * @param type the type needed to be resolved
-	 * @param typeHierarchy the set of types which the {@link TypeVariable} could be resovled from.
+	 * @param typeHierarchy the set of types which the {@link TypeVariable} could be resolved from.
 	 * @param resolveGenericArray whether to resolve the {@code GenericArrayType} or not. This is for compatible.
 	 *                               (Some code path resolves the component type of a GenericArrayType. Some code path
 	 *                               does not resolve the component type of a GenericArray. A example case is
@@ -1764,7 +1764,7 @@ public class TypeExtractor {
 
 	/**
 	 * Resolve all {@link TypeVariable}s of a {@link ParameterizedType}.
-	 * @param parameterizedType the {@link ParameterizedType} needed to be resovled.
+	 * @param parameterizedType the {@link ParameterizedType} needed to be resolved.
 	 * @param typeHierarchy the set of types which the {@link TypeVariable}s could be resolved from.
 	 * @param resolveGenericArray whether to resolve the {@code GenericArrayType} or not. This is for compatible.
 	 * @return resolved {@link ParameterizedType}
@@ -1968,9 +1968,11 @@ public class TypeExtractor {
 		if (factory != null) {
 			final Type factoryDefiningType = factoryHierarchy.size() < 1 ? inType :
 				resolveTypeFromTypeHierarchy(factoryHierarchy.get(factoryHierarchy.size() - 1), factoryHierarchy, true);
-			return bindTypeVariableFromGenericParameters(factoryDefiningType, inTypeInfo);
+			if (factoryDefiningType instanceof ParameterizedType) {
+				return bindTypeVariableFromGenericParameters((ParameterizedType) factoryDefiningType, inTypeInfo);
+			}
 		} else if (inType instanceof GenericArrayType) {
-			return bindTypeVariableFromGenericArray(inType, inTypeInfo);
+			return bindTypeVariableFromGenericArray((GenericArrayType) inType, inTypeInfo);
 		} else if (inTypeInfo instanceof TupleTypeInfo && isClassType(inType) && Tuple.class.isAssignableFrom(typeToClass(inType))) {
 			final List<ParameterizedType> typeHierarchy = new ArrayList<>();
 			Type curType = inType;
@@ -1985,9 +1987,11 @@ public class TypeExtractor {
 				typeHierarchy.add((ParameterizedType) curType);
 			}
 			final Type tupleBaseClass = resolveTypeFromTypeHierarchy(curType, typeHierarchy, true);
-			return bindTypeVariableFromGenericParameters(tupleBaseClass, inTypeInfo);
-		} else if (inTypeInfo instanceof PojoTypeInfo && isClassType(inType)) {
-			return bindTypeVariableFromFields(inType, inTypeInfo);
+			if (tupleBaseClass instanceof ParameterizedType) {
+				return bindTypeVariableFromGenericParameters((ParameterizedType) tupleBaseClass, inTypeInfo);
+			}
+		} else if (inTypeInfo instanceof PojoTypeInfo && inType instanceof ParameterizedType) {
+			return bindTypeVariableFromFields((ParameterizedType) inType, inTypeInfo);
 		} else if (inType instanceof TypeVariable) {
 			final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings = new HashMap<>();
 
@@ -1998,8 +2002,7 @@ public class TypeExtractor {
 	}
 
 	/**
-	 * Bind the {@link TypeVariable} with {@link TypeInformation} from mapping relations between the generic paramters
-	 * and {@link TypeInformation}.
+	 * Bind the {@link TypeVariable} with {@link TypeInformation} from the generic type.
 	 *
 	 * @param type the type that has {@link TypeVariable}
 	 * @param typeInformation the {@link TypeInformation} that stores the mapping relations between the generic parameters
@@ -2007,32 +2010,36 @@ public class TypeExtractor {
 	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
 	 */
 	private static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariableFromGenericParameters(
-		final Type type,
+		final ParameterizedType type,
 		final TypeInformation<?> typeInformation) {
 
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings = new HashMap<>();
-		if (type instanceof ParameterizedType) {
-			final Type[] typeParams = typeToClass(type).getTypeParameters();
-			final Type[] actualParams = ((ParameterizedType) type).getActualTypeArguments();
-			for (int i = 0; i < actualParams.length; i++) {
-				final Map<String, TypeInformation<?>> componentInfo = typeInformation.getGenericParameters();
-				final String typeParamName = typeParams[i].toString();
-				if (!componentInfo.containsKey(typeParamName) || componentInfo.get(typeParamName) == null) {
-					throw new InvalidTypesException("TypeInformation '" + typeInformation.getClass().getSimpleName() +
-						"' does not supply a mapping of TypeVariable '" + typeParamName + "' to corresponding TypeInformation. " +
-						"Input type inference can only produce a result with this information. " +
-						"Please implement method 'TypeInformation.getGenericParameters()' for this.");
-				}
-				final Map<TypeVariable<?>, TypeInformation<?>> sub =
-					bindTypeVariablesWithTypeInformationFromInput(actualParams[i], componentInfo.get(typeParamName));
-				typeVariableBindings.putAll(sub);
+		final Type[] typeParams = typeToClass(type).getTypeParameters();
+		final Type[] actualParams = type.getActualTypeArguments();
+		for (int i = 0; i < actualParams.length; i++) {
+			final Map<String, TypeInformation<?>> componentInfo = typeInformation.getGenericParameters();
+			final String typeParamName = typeParams[i].toString();
+			if (!componentInfo.containsKey(typeParamName) || componentInfo.get(typeParamName) == null) {
+				throw new InvalidTypesException("TypeInformation '" + typeInformation.getClass().getSimpleName() +
+					"' does not supply a mapping of TypeVariable '" + typeParamName + "' to corresponding TypeInformation. " +
+					"Input type inference can only produce a result with this information. " +
+					"Please implement method 'TypeInformation.getGenericParameters()' for this.");
 			}
+			final Map<TypeVariable<?>, TypeInformation<?>> sub =
+				bindTypeVariablesWithTypeInformationFromInput(actualParams[i], componentInfo.get(typeParamName));
+			typeVariableBindings.putAll(sub);
 		}
-		return typeVariableBindings;
+		return typeVariableBindings.isEmpty() ? Collections.emptyMap() : typeVariableBindings;
 	}
 
+	/**
+	 * Bind the {@link TypeVariable} with {@link TypeInformation} from the generic array type.
+	 * @param genericArrayType the generic array type
+	 * @param typeInformation the array type information
+	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
+	 */
 	private static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariableFromGenericArray(
-		final Type type,
+		final GenericArrayType genericArrayType,
 		final TypeInformation<?> typeInformation) {
 
 		TypeInformation<?> componentInfo = null;
@@ -2043,7 +2050,7 @@ public class TypeExtractor {
 		} else if (typeInformation instanceof ObjectArrayTypeInfo) {
 			componentInfo = ((ObjectArrayTypeInfo<?, ?>) typeInformation).getComponentInfo();
 		}
-		return bindTypeVariablesWithTypeInformationFromInput(((GenericArrayType) type).getGenericComponentType(), componentInfo);
+		return bindTypeVariablesWithTypeInformationFromInput(genericArrayType.getGenericComponentType(), componentInfo);
 	}
 
 	/**
@@ -2056,7 +2063,7 @@ public class TypeExtractor {
 	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
 	 */
 	private static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariableFromFields(
-		final Type type,
+		final ParameterizedType type,
 		final TypeInformation<?> typeInformation) {
 
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings = new HashMap<>();
@@ -2072,6 +2079,6 @@ public class TypeExtractor {
 			typeVariableBindings.putAll(sub);
 		}
 
-		return typeVariableBindings;
+		return typeVariableBindings.isEmpty() ? Collections.emptyMap() : typeVariableBindings;
 	}
 }
