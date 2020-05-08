@@ -1990,8 +1990,8 @@ public class TypeExtractor {
 			if (tupleBaseClass instanceof ParameterizedType) {
 				return bindTypeVariableFromGenericParameters((ParameterizedType) tupleBaseClass, inTypeInfo);
 			}
-		} else if (inTypeInfo instanceof PojoTypeInfo && inType instanceof ParameterizedType) {
-			return bindTypeVariableFromFields((ParameterizedType) inType, inTypeInfo);
+		} else if (inTypeInfo instanceof PojoTypeInfo && isClassType(inType)) {
+			return bindTypeVariableFromFields(inType, inTypeInfo);
 		} else if (inType instanceof TypeVariable) {
 			final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings = new HashMap<>();
 
@@ -2063,7 +2063,7 @@ public class TypeExtractor {
 	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
 	 */
 	private static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariableFromFields(
-		final ParameterizedType type,
+		final Type type,
 		final TypeInformation<?> typeInformation) {
 
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings = new HashMap<>();

@@ -24,53 +24,6 @@ import java.util.Map;
 public class TypeExtractorContractTest {
 
 	// --------------------------------------------------------------------------------------------
-	// Test build parameterized type hierarchy.
-	// --------------------------------------------------------------------------------------------
-
-	@Test
-	public void testBuildParameterizedTypeHierarchyForSimpleType() {
-		final List<ParameterizedType> parameterizedTypeHierarchy =
-			TypeExtractor.buildParameterizedTypeHierarchy(MySimpleUDF.class, BaseInterface.class, true);
-		final ParameterizedType normalInterfaceType = parameterizedTypeHierarchy.get(parameterizedTypeHierarchy.size() - 1);
-
-		Assert.assertEquals(4, parameterizedTypeHierarchy.size());
-		Assert.assertEquals(DefaultSimpleUDF.class, parameterizedTypeHierarchy.get(0).getRawType());
-		Assert.assertEquals(AbstractSimpleUDF.class, parameterizedTypeHierarchy.get(1).getRawType());
-		Assert.assertEquals(RichInterface.class, parameterizedTypeHierarchy.get(2).getRawType());
-
-		Assert.assertEquals(NormalInterface.class, normalInterfaceType.getRawType());
-		Assert.assertTrue(normalInterfaceType.getActualTypeArguments()[0] instanceof TypeVariable);
-		Assert.assertTrue(normalInterfaceType.getActualTypeArguments()[1] instanceof TypeVariable);
-	}
-
-	@Test
-	public void testBuildParameterizedTypeHierarchyForCompositeType() {
-		final List<ParameterizedType> typeHierarchy =
-			TypeExtractor.buildParameterizedTypeHierarchy(MyCompositeUDF.class, BaseInterface.class, true);
-		final ParameterizedType normalInterfaceType = typeHierarchy.get(typeHierarchy.size() - 1);
-
-		Assert.assertTrue(normalInterfaceType.getActualTypeArguments()[0] instanceof TypeVariable);
-		Assert.assertTrue(normalInterfaceType.getActualTypeArguments()[1] instanceof TypeVariable);
-	}
-
-	@Test
-	public void testBuildParameterizedTypeHierarchyOnlyFromSuperClass() {
-		final List<ParameterizedType> parameterizedTypeHierarchy =
-			TypeExtractor.buildParameterizedTypeHierarchy(MySimpleUDF.class, Object.class, false);
-
-		Assert.assertEquals(2, parameterizedTypeHierarchy.size());
-		Assert.assertEquals(DefaultSimpleUDF.class, parameterizedTypeHierarchy.get(0).getRawType());
-		Assert.assertEquals(AbstractSimpleUDF.class, parameterizedTypeHierarchy.get(1).getRawType());
-	}
-
-	@Test
-	public void testBuildParameterizedTypeHierarchyWithoutInheritance() {
-		final List<ParameterizedType> parameterizedTypeHierarchy =
-			TypeExtractor.buildParameterizedTypeHierarchy(MySimpleUDF.class, TypeExtractorContractTest.class, true);
-		Assert.assertEquals(Collections.emptyList(), parameterizedTypeHierarchy);
-	}
-
-	// --------------------------------------------------------------------------------------------
 	// Test resolve type
 	// --------------------------------------------------------------------------------------------
 
@@ -375,6 +328,53 @@ public class TypeExtractorContractTest {
 				in2TypeInformation,
 				1);
 		Assert.assertEquals(Collections.emptyMap(), result);
+	}
+
+	// --------------------------------------------------------------------------------------------
+	// Test build parameterized type hierarchy.
+	// --------------------------------------------------------------------------------------------
+
+	@Test
+	public void testBuildParameterizedTypeHierarchyForSimpleType() {
+		final List<ParameterizedType> parameterizedTypeHierarchy =
+			TypeExtractor.buildParameterizedTypeHierarchy(MySimpleUDF.class, BaseInterface.class, true);
+		final ParameterizedType normalInterfaceType = parameterizedTypeHierarchy.get(parameterizedTypeHierarchy.size() - 1);
+
+		Assert.assertEquals(4, parameterizedTypeHierarchy.size());
+		Assert.assertEquals(DefaultSimpleUDF.class, parameterizedTypeHierarchy.get(0).getRawType());
+		Assert.assertEquals(AbstractSimpleUDF.class, parameterizedTypeHierarchy.get(1).getRawType());
+		Assert.assertEquals(RichInterface.class, parameterizedTypeHierarchy.get(2).getRawType());
+
+		Assert.assertEquals(NormalInterface.class, normalInterfaceType.getRawType());
+		Assert.assertTrue(normalInterfaceType.getActualTypeArguments()[0] instanceof TypeVariable);
+		Assert.assertTrue(normalInterfaceType.getActualTypeArguments()[1] instanceof TypeVariable);
+	}
+
+	@Test
+	public void testBuildParameterizedTypeHierarchyForCompositeType() {
+		final List<ParameterizedType> typeHierarchy =
+			TypeExtractor.buildParameterizedTypeHierarchy(MyCompositeUDF.class, BaseInterface.class, true);
+		final ParameterizedType normalInterfaceType = typeHierarchy.get(typeHierarchy.size() - 1);
+
+		Assert.assertTrue(normalInterfaceType.getActualTypeArguments()[0] instanceof TypeVariable);
+		Assert.assertTrue(normalInterfaceType.getActualTypeArguments()[1] instanceof TypeVariable);
+	}
+
+	@Test
+	public void testBuildParameterizedTypeHierarchyOnlyFromSuperClass() {
+		final List<ParameterizedType> parameterizedTypeHierarchy =
+			TypeExtractor.buildParameterizedTypeHierarchy(MySimpleUDF.class, Object.class, false);
+
+		Assert.assertEquals(2, parameterizedTypeHierarchy.size());
+		Assert.assertEquals(DefaultSimpleUDF.class, parameterizedTypeHierarchy.get(0).getRawType());
+		Assert.assertEquals(AbstractSimpleUDF.class, parameterizedTypeHierarchy.get(1).getRawType());
+	}
+
+	@Test
+	public void testBuildParameterizedTypeHierarchyWithoutInheritance() {
+		final List<ParameterizedType> parameterizedTypeHierarchy =
+			TypeExtractor.buildParameterizedTypeHierarchy(MySimpleUDF.class, TypeExtractorContractTest.class, true);
+		Assert.assertEquals(Collections.emptyList(), parameterizedTypeHierarchy);
 	}
 
 	// --------------------------------------------------------------------------------------------
