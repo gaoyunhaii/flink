@@ -360,6 +360,23 @@ public class TypeExtractorContractTest {
 		Assert.assertEquals(expectedResult, result);
 	}
 
+	@Test
+	public void testBindTypeVariableWhenAllTypeVariableHasConcreteClass() {
+
+		final TypeInformation<Integer> in1TypeInformation = TypeInformation.of(new TypeHint<Integer>(){});
+		final TypeInformation<Tuple2<String, Integer>> in2TypeInformation = TypeInformation.of(new TypeHint<Tuple2<String, Integer>>(){});
+
+		final Map<TypeVariable<?>, TypeInformation<?>> result =
+			TypeExtractor.bindTypeVariablesWithTypeInformationFromInputs(
+				MyCompositeUDF.class,
+				BaseInterface.class,
+				in1TypeInformation,
+				0,
+				in2TypeInformation,
+				1);
+		Assert.assertEquals(Collections.emptyMap(), result);
+	}
+
 	// --------------------------------------------------------------------------------------------
 	// Basic interfaces.
 	// --------------------------------------------------------------------------------------------
@@ -379,7 +396,7 @@ public class TypeExtractorContractTest {
 	// Generic parameter does not have composite type.
 	// --------------------------------------------------------------------------------------------
 
-	abstract class AbstractSimpleUDF<X, Y> implements RichInterface<X, Y> {
+	private abstract static class AbstractSimpleUDF<X, Y> implements RichInterface<X, Y> {
 
 		@Override
 		public void open(X x, Y y) {
@@ -393,14 +410,14 @@ public class TypeExtractorContractTest {
 		public abstract void bar();
 	}
 
-	class DefaultSimpleUDF<X> extends AbstractSimpleUDF<X, Tuple2<String, Integer>> {
+	private static class DefaultSimpleUDF<X> extends AbstractSimpleUDF<X, Tuple2<String, Integer>> {
 
 		@Override
 		public void bar() {
 		}
 	}
 
-	private class MySimpleUDF extends DefaultSimpleUDF<Integer> {
+	private static class MySimpleUDF extends DefaultSimpleUDF<Integer> {
 
 	}
 
@@ -412,7 +429,7 @@ public class TypeExtractorContractTest {
 
 	}
 
-	class DefaultCompositeUDF<X, Y, Z> implements CompositeUDF<X, Y, Z> {
+	private static class DefaultCompositeUDF<X, Y, Z> implements CompositeUDF<X, Y, Z> {
 
 		@Override
 		public Tuple2<Y, Z> foo(X x) {
@@ -425,7 +442,7 @@ public class TypeExtractorContractTest {
 		}
 	}
 
-	private class MyCompositeUDF extends DefaultCompositeUDF<Integer, String, Boolean> {
+	private static class MyCompositeUDF extends DefaultCompositeUDF<Integer, String, Boolean> {
 
 	}
 
@@ -437,7 +454,7 @@ public class TypeExtractorContractTest {
 
 	}
 
-	class DefaultGenericArrayUDF<X, Y> implements GenericArrayUDF<X, Y> {
+	private static class DefaultGenericArrayUDF<X, Y> implements GenericArrayUDF<X, Y> {
 
 		@Override
 		public Y[] foo(X x) {
@@ -450,7 +467,7 @@ public class TypeExtractorContractTest {
 		}
 	}
 
-	private class MyGenericArrayUDF extends DefaultGenericArrayUDF<Integer, String> {
+	private static class MyGenericArrayUDF extends DefaultGenericArrayUDF<Integer, String> {
 
 	}
 
@@ -462,7 +479,7 @@ public class TypeExtractorContractTest {
 
 	}
 
-	class DefaultPojoUDF<X, Y, Z> implements PojoUDF<X, Y, Z> {
+	private static class DefaultPojoUDF<X, Y, Z> implements PojoUDF<X, Y, Z> {
 
 		@Override
 		public Pojo<Y, Z> foo(X x) {
@@ -519,7 +536,7 @@ public class TypeExtractorContractTest {
 
 	}
 
-	class DefaultTypeInfoFactoryUDF<X, Y, Z> implements TypeInfoFactoryUDF<X, Y, Z> {
+	private static class DefaultTypeInfoFactoryUDF<X, Y, Z> implements TypeInfoFactoryUDF<X, Y, Z> {
 
 		@Override
 		public Either<Y, Z> foo(X x) {

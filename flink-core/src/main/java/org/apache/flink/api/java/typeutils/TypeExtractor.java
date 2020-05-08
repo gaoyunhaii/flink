@@ -1709,7 +1709,7 @@ public class TypeExtractor {
 
 			return typeHierarchy;
 		}
-		return typeHierarchy.size() == 0 ? Collections.emptyList() : typeHierarchy;
+		return Collections.emptyList();
 	}
 
 	/**
