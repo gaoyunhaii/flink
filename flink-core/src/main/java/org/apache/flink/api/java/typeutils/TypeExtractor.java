@@ -914,7 +914,8 @@ public class TypeExtractor {
 		}
 		// no tuple, no TypeVariable, no generic type
 		else if (t instanceof Class) {
-			return privateGetForClass((Class<OUT>) t, typeVariableBindings, currentExtractingClasses);
+			return (TypeInformation<OUT>)
+				privateGetForClass((Class<?>) t, null, typeVariableBindings, currentExtractingClasses);
 		}
 
 		throw new InvalidTypesException("Type Information could not be created.");
@@ -1114,15 +1115,7 @@ public class TypeExtractor {
 	 * @return TypeInformation that describes the passed Class
 	 */
 	public static <X> TypeInformation<X> getForClass(Class<X> clazz) {
-		return privateGetForClass(clazz, Collections.emptyMap(), Collections.emptyList());
-	}
-
-	private static <X> TypeInformation<X> privateGetForClass(
-		Class<X> clazz,
-		Map<TypeVariable<?>, TypeInformation<?>>  typeVariableBindings,
-		List<Class<?>> extractingClasses) {
-
-		return privateGetForClass(clazz, null, typeVariableBindings, extractingClasses);
+		return createTypeInfo(clazz, Collections.emptyMap(), Collections.emptyList());
 	}
 
 	@SuppressWarnings({ "unchecked", "rawtypes" })
@@ -1483,9 +1476,8 @@ public class TypeExtractor {
 	private static <X> TypeInformation<X> privateGetForObject(X value) {
 		checkNotNull(value);
 
-		final List<Class<?>> currentExtractingClasses = Collections.singletonList(value.getClass());
 		final TypeInformation<X> typeFromFactory =
-			createTypeInfoFromFactory(value.getClass(), Collections.emptyMap(), currentExtractingClasses);
+			createTypeInfoFromFactory(value.getClass(), Collections.emptyMap(), Collections.emptyList());
 		if (typeFromFactory != null) {
 			return typeFromFactory;
 		}
@@ -1501,7 +1493,7 @@ public class TypeExtractor {
 					(Class<X>) value.getClass(),
 					null,
 					Collections.emptyMap(),
-					currentExtractingClasses);
+					Collections.emptyList());
 			}
 
 			TypeInformation<?>[] infos = new TypeInformation[numFields];
@@ -1524,7 +1516,7 @@ public class TypeExtractor {
 				if (row.getField(i) == null) {
 					LOG.warn("Cannot extract type of Row field, because of Row field[" + i + "] is null. " +
 						"Should define RowTypeInfo explicitly.");
-					return privateGetForClass((Class<X>) value.getClass(), Collections.emptyMap(), currentExtractingClasses);
+					return createTypeInfo(value.getClass(), Collections.emptyMap(), Collections.emptyList());
 				}
 			}
 			TypeInformation<?>[] typeArray = new TypeInformation<?>[arity];
@@ -1534,7 +1526,7 @@ public class TypeExtractor {
 			return (TypeInformation<X>) new RowTypeInfo(typeArray);
 		}
 		else {
-			return privateGetForClass((Class<X>) value.getClass(), Collections.emptyMap(), currentExtractingClasses);
+			return createTypeInfo(value.getClass(), Collections.emptyMap(), Collections.emptyList());
 		}
 	}
 
