@@ -854,7 +854,7 @@ public class TypeExtractor {
 		} else if (isClassType(t) && Tuple.class.isAssignableFrom(typeToClass(t))) {
 
 			TypeInformation<OUT> typeInformation =
-				(TypeInformation<OUT>) createTypeInfoFromTuple(t, typeVariableBindings, extractingClasses);
+				(TypeInformation<OUT>) extractTupleTypeInformation(t, typeVariableBindings, extractingClasses);
 
 			if (typeInformation == null) {
 				if (t instanceof ParameterizedType) {
@@ -2045,7 +2045,7 @@ public class TypeExtractor {
 	}
 
 	/**
-	 * Extract the {@link TypeInformation} of the subclass of {@link Tuple}.
+	 * Extract the {@link TypeInformation} for the subclass of {@link Tuple}.
 	 * @param type the type of the subclass {@link Tuple}
 	 * @param typeVariableBindings the mapping relation between type variable and type information
 	 * @param extractingClasses the classes that the type is nested into.
@@ -2054,7 +2054,7 @@ public class TypeExtractor {
 	 * the subclass of {@link Tuple} could not use the {@link TupleTypeInfo}
 	 */
 	@Nullable
-	private static TypeInformation<?> createTypeInfoFromTuple(
+	private static TypeInformation<?> extractTupleTypeInformation(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
 		final List<Class<?>> extractingClasses) {
