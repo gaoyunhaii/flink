@@ -851,48 +851,12 @@ public class TypeExtractor {
 			createTypeInfoFromFactory(t, typeVariableBindings, currentExtractingClasses);
 		if (typeFromFactory != null) {
 			return typeFromFactory;
-		}
-		// check if type is a subclass of tuple
-		else if (isClassType(t) && Tuple.class.isAssignableFrom(typeToClass(t))) {
-			final List<ParameterizedType> typeHierarchy = new ArrayList<>();
+		} else if (isClassType(t) && Tuple.class.isAssignableFrom(typeToClass(t))) {
 
-			Type curT = t;
+			TypeInformation<OUT> typeInformation =
+				(TypeInformation<OUT>) createTypeInfoFromTuple(t, typeVariableBindings, extractingClasses);
 
-			// do not allow usage of Tuple as type
-			if (typeToClass(t).equals(Tuple.class)) {
-				throw new InvalidTypesException(
-						"Usage of class Tuple as a type is not allowed. Use a concrete subclass (e.g. Tuple1, Tuple2, etc.) instead.");
-			}
-
-			// go up the hierarchy until we reach immediate child of Tuple (with or without generics)
-			// collect the types while moving up for a later top-down
-			while (!(isClassType(curT) && typeToClass(curT).getSuperclass().equals(Tuple.class))) {
-				if (curT instanceof ParameterizedType) {
-					typeHierarchy.add((ParameterizedType) curT);
-				}
-				curT = typeToClass(curT).getGenericSuperclass();
-			}
-
-			if (curT == Tuple0.class) {
-				return new TupleTypeInfo(Tuple0.class);
-			}
-
-			// check if immediate child of Tuple has generics
-			if (curT instanceof Class<?>) {
-				throw new InvalidTypesException("Tuple needs to be parameterized by using generics.");
-			}
-
-			if (curT instanceof ParameterizedType) {
-				typeHierarchy.add((ParameterizedType) curT);
-			}
-
-			curT = resolveTypeFromTypeHierarchy(curT, typeHierarchy, true);
-
-			// create the type information for the subtypes
-			final TypeInformation<?>[] subTypesInfo =
-				createSubTypesInfo(t, (ParameterizedType) curT, typeVariableBindings, extractingClasses, false);
-			// type needs to be treated a pojo due to additional fields
-			if (subTypesInfo == null) {
+			if (typeInformation == null) {
 				if (t instanceof ParameterizedType) {
 					return (TypeInformation<OUT>) analyzePojo(typeToClass(t), (ParameterizedType) t, typeVariableBindings, extractingClasses);
 				}
@@ -900,9 +864,7 @@ public class TypeExtractor {
 					return (TypeInformation<OUT>) analyzePojo(typeToClass(t), null, typeVariableBindings, extractingClasses);
 				}
 			}
-			// return tuple info
-			return new TupleTypeInfo(typeToClass(t), subTypesInfo);
-
+			return typeInformation;
 		}
 		// type depends on another type
 		// e.g. class MyMapper<E> extends MapFunction<String, E>
@@ -2080,5 +2042,66 @@ public class TypeExtractor {
 		}
 
 		return typeVariableBindings.isEmpty() ? Collections.emptyMap() : typeVariableBindings;
+	}
+
+	/**
+	 * Extract the {@link TypeInformation} of the subclass of {@link Tuple}.
+	 * @param type the type of the subclass {@link Tuple}
+	 * @param typeVariableBindings the mapping relation between type variable and type information
+	 * @param extractingClasses the classes that the type is nested into.
+	 * @return the type information of the type or {@code null} if the type information of the generic parameter of
+	 * the type could not be extracted or throw {@code InvalidTypesException} if
+	 * the subclass of {@link Tuple} could not use the {@link TupleTypeInfo}
+	 */
+	@Nullable
+	private static TypeInformation<?> createTypeInfoFromTuple(
+		final Type type,
+		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
+		final List<Class<?>> extractingClasses) {
+
+		final List<ParameterizedType> typeHierarchy = new ArrayList<>();
+
+		Type curT = type;
+
+		// do not allow usage of Tuple as type
+		if (typeToClass(type).equals(Tuple.class)) {
+			throw new InvalidTypesException(
+				"Usage of class Tuple as a type is not allowed. Use a concrete subclass (e.g. Tuple1, Tuple2, etc.) instead.");
+		}
+
+		// go up the hierarchy until we reach immediate child of Tuple (with or without generics)
+		// collect the types while moving up for a later top-down
+		while (!(isClassType(curT) && typeToClass(curT).getSuperclass().equals(Tuple.class))) {
+			if (curT instanceof ParameterizedType) {
+				typeHierarchy.add((ParameterizedType) curT);
+			}
+			curT = typeToClass(curT).getGenericSuperclass();
+		}
+
+		if (curT == Tuple0.class) {
+			return new TupleTypeInfo(Tuple0.class);
+		}
+
+		// check if immediate child of Tuple has generics
+		if (curT instanceof Class<?>) {
+			throw new InvalidTypesException("Tuple needs to be parameterized by using generics.");
+		}
+
+		if (curT instanceof ParameterizedType) {
+			typeHierarchy.add((ParameterizedType) curT);
+		}
+
+		curT = resolveTypeFromTypeHierarchy(curT, typeHierarchy, true);
+
+		// create the type information for the subtypes
+		final TypeInformation<?>[] subTypesInfo =
+			createSubTypesInfo(type, (ParameterizedType) curT, typeVariableBindings, extractingClasses, false);
+
+		if (subTypesInfo == null) {
+			return null;
+		}
+		// return tuple info
+		return new TupleTypeInfo(typeToClass(type), subTypesInfo);
+
 	}
 }
