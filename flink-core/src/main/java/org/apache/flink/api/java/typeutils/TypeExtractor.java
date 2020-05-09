@@ -846,6 +846,7 @@ public class TypeExtractor {
 			currentExtractingClasses = extractingClasses;
 		}
 
+		TypeInformation<OUT> typeInformation = null;
 		// check if type information can be created using a type factory
 		final TypeInformation<OUT> typeFromFactory =
 			createTypeInfoFromFactory(t, typeVariableBindings, currentExtractingClasses);
@@ -853,7 +854,7 @@ public class TypeExtractor {
 			return typeFromFactory;
 		} else if (isClassType(t) && Tuple.class.isAssignableFrom(typeToClass(t))) {
 
-			TypeInformation<OUT> typeInformation =
+			typeInformation =
 				(TypeInformation<OUT>) extractTupleTypeInformation(t, typeVariableBindings, extractingClasses);
 
 			if (typeInformation == null) {
@@ -879,36 +880,9 @@ public class TypeExtractor {
 					+ "all variables in the return type can be deduced from the input type(s). "
 					+ "Otherwise the type has to be specified explicitly using type information.");
 			}
-		}
-		// arrays with generics
-		else if (t instanceof GenericArrayType) {
-			GenericArrayType genericArray = (GenericArrayType) t;
-
-			Type componentType = genericArray.getGenericComponentType();
-
-			// due to a Java 6 bug, it is possible that the JVM classifies e.g. String[] or int[] as GenericArrayType instead of Class
-			if (componentType instanceof Class) {
-				Class<?> componentClass = (Class<?>) componentType;
-
-				Class<OUT> classArray =
-					(Class<OUT>) (java.lang.reflect.Array.newInstance(componentClass, 0).getClass());
-
-				return getForClass(classArray);
-			} else {
-				TypeInformation<?> componentInfo = createTypeInfo(
-					genericArray.getGenericComponentType(),
-					typeVariableBindings,
-					extractingClasses);
-
-				Class<?> componentClass = componentInfo.getTypeClass();
-				Class<OUT> classArray =
-					(Class<OUT>) (java.lang.reflect.Array.newInstance(componentClass, 0).getClass());
-
-				return ObjectArrayTypeInfo.getInfoFor(classArray, componentInfo);
-			}
-		}
-		// objects with generics are treated as Class first
-		else if (t instanceof ParameterizedType) {
+		} else if ((typeInformation = (TypeInformation<OUT>) extractArrayTypeInformation(t, typeVariableBindings, extractingClasses)) != null) {
+			return typeInformation;
+		} else if (t instanceof ParameterizedType) {
 			return (TypeInformation<OUT>)
 				privateGetForClass(typeToClass(t), (ParameterizedType) t, typeVariableBindings, currentExtractingClasses);
 		}
@@ -1146,32 +1120,6 @@ public class TypeExtractor {
 		// recursive types are handled as generic type info
 		if (countTypeInHierarchy(extractingClasses, clazz) > 1) {
 			return new GenericTypeInfo<>(clazz);
-		}
-
-		// check for arrays
-		if (clazz.isArray()) {
-
-			// primitive arrays: int[], byte[], ...
-			PrimitiveArrayTypeInfo<OUT> primitiveArrayInfo = PrimitiveArrayTypeInfo.getInfoFor(clazz);
-			if (primitiveArrayInfo != null) {
-				return primitiveArrayInfo;
-			}
-
-			// basic type arrays: String[], Integer[], Double[]
-			BasicArrayTypeInfo<OUT, ?> basicArrayInfo = BasicArrayTypeInfo.getInfoFor(clazz);
-			if (basicArrayInfo != null) {
-				return basicArrayInfo;
-			}
-
-			// object arrays
-			else {
-				TypeInformation<?> componentTypeInfo = createTypeInfo(
-					clazz.getComponentType(),
-					typeVariableBindings,
-					extractingClasses);
-
-				return ObjectArrayTypeInfo.getInfoFor(clazz, componentTypeInfo);
-			}
 		}
 
 		// check for writable types
@@ -2094,6 +2042,64 @@ public class TypeExtractor {
 		}
 		// return tuple info
 		return new TupleTypeInfo(typeToClass(type), subTypesInfo);
+	}
 
+	/**
+	 * Extract {@link TypeInformation} for the array type.
+	 * @param type the type needed to extract {@link TypeInformation}
+	 * @param typeVariableBindings the mapping relation between type variable and type information
+	 * @param extractingClasses the classes that the type is nested into.
+	 * @return the type information of the type or null if the type is not a array.
+	 */
+	@Nullable
+	private static TypeInformation<?> extractArrayTypeInformation(
+		final Type type,
+		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
+		final List<Class<?>> extractingClasses) {
+
+		final Class<?> classArray;
+
+		if (type instanceof GenericArrayType) {
+			final GenericArrayType genericArray = (GenericArrayType) type;
+
+			final Type componentType = ((GenericArrayType) type).getGenericComponentType();
+			if (componentType instanceof Class) {
+				final Class<?> componentClass = (Class<?>) componentType;
+
+				classArray = (java.lang.reflect.Array.newInstance(componentClass, 0).getClass());
+			} else {
+				final TypeInformation<?> componentInfo = createTypeInfo(
+					genericArray.getGenericComponentType(),
+					typeVariableBindings,
+					extractingClasses);
+
+				return ObjectArrayTypeInfo.getInfoFor(
+					java.lang.reflect.Array.newInstance(componentInfo.getTypeClass(), 0).getClass(),
+					componentInfo);
+			}
+		} else if (type instanceof Class<?> && ((Class<?>) type).isArray()) {
+			classArray = (Class<?>) type;
+		} else {
+			return null;
+		}
+
+		// primitive arrays: int[], byte[], ...
+		final PrimitiveArrayTypeInfo<?> primitiveArrayInfo = PrimitiveArrayTypeInfo.getInfoFor(classArray);
+		if (primitiveArrayInfo != null) {
+			return primitiveArrayInfo;
+		}
+
+		// basic type arrays: String[], Integer[], Double[]
+		final BasicArrayTypeInfo<?, ?> basicArrayInfo = BasicArrayTypeInfo.getInfoFor(classArray);
+		if (basicArrayInfo != null) {
+			return basicArrayInfo;
+		} else {
+			final TypeInformation<?> componentTypeInfo = createTypeInfo(
+				classArray.getComponentType(),
+				typeVariableBindings,
+				extractingClasses);
+
+			return ObjectArrayTypeInfo.getInfoFor(classArray, componentTypeInfo);
+		}
 	}
 }
