@@ -848,26 +848,7 @@ public class TypeExtractor {
 
 		TypeInformation<OUT> typeInformation;
 
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationFromFactory(t, typeVariableBindings, currentExtractingClasses)) != null) {
-			return typeInformation;
-		} else if (isClassType(t) && Tuple.class.isAssignableFrom(typeToClass(t))) {
-
-			typeInformation =
-				(TypeInformation<OUT>) extractTupleTypeInformation(t, typeVariableBindings, extractingClasses);
-
-			if (typeInformation == null) {
-				if (t instanceof ParameterizedType) {
-					return (TypeInformation<OUT>) analyzePojo(typeToClass(t), (ParameterizedType) t, typeVariableBindings, extractingClasses);
-				}
-				else {
-					return (TypeInformation<OUT>) analyzePojo(typeToClass(t), null, typeVariableBindings, extractingClasses);
-				}
-			}
-			return typeInformation;
-		}
-		// type depends on another type
-		// e.g. class MyMapper<E> extends MapFunction<String, E>
-		else if (t instanceof TypeVariable) {
+		if (t instanceof TypeVariable) {
 			final TypeInformation<OUT> typeInfo = (TypeInformation<OUT>) typeVariableBindings.get(t);
 			if (typeInfo != null) {
 				return typeInfo;
@@ -878,16 +859,16 @@ public class TypeExtractor {
 					+ "all variables in the return type can be deduced from the input type(s). "
 					+ "Otherwise the type has to be specified explicitly using type information.");
 			}
-		} else if ((typeInformation = (TypeInformation<OUT>) extractArrayTypeInformation(t, typeVariableBindings, extractingClasses)) != null) {
+		} else if ((typeInformation = (TypeInformation<OUT>) extractArrayTypeInformation(t, typeVariableBindings, currentExtractingClasses)) != null) {
 			return typeInformation;
 		} else if (t instanceof ParameterizedType) {
 			return (TypeInformation<OUT>)
-				privateGetForClass(typeToClass(t), (ParameterizedType) t, typeVariableBindings, currentExtractingClasses);
+				privateGetForClass(t, typeVariableBindings, currentExtractingClasses);
 		}
 		// no tuple, no TypeVariable, no generic type
 		else if (t instanceof Class) {
 			return (TypeInformation<OUT>)
-				privateGetForClass((Class<?>) t, null, typeVariableBindings, currentExtractingClasses);
+				privateGetForClass(t, typeVariableBindings, currentExtractingClasses);
 		}
 
 		throw new InvalidTypesException("Type Information could not be created.");
@@ -938,17 +919,22 @@ public class TypeExtractor {
 
 	@SuppressWarnings({ "unchecked", "rawtypes" })
 	private static <OUT> TypeInformation<OUT> privateGetForClass(
-		Class<OUT> clazz,
-		ParameterizedType parameterizedType,
+		Type type,
 		Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
 		List<Class<?>> extractingClasses) {
-		checkNotNull(clazz);
 
-		// check if type information can be produced using a factory
-		final TypeInformation<OUT> typeFromFactory =
-			(TypeInformation<OUT>) extractTypeInformationFromFactory(clazz, typeVariableBindings, extractingClasses);
-		if (typeFromFactory != null) {
-			return typeFromFactory;
+		//TODO:: how to deal with array
+		Class<OUT> clazz = (Class<OUT>) typeToClass(type);
+
+		TypeInformation<OUT> typeInformation;
+
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationFromFactory(type, typeVariableBindings, extractingClasses)) != null) {
+			return typeInformation;
+		}
+
+		typeInformation = (TypeInformation<OUT>) extractTupleTypeInformation(type, typeVariableBindings, extractingClasses);
+		if (typeInformation != null) {
+			return typeInformation;
 		}
 
 		// Object is handled as generic type info
@@ -989,14 +975,6 @@ public class TypeExtractor {
 			return (TypeInformation<OUT>) ValueTypeInfo.getValueTypeInfo(valueClass);
 		}
 
-		// check for subclasses of Tuple
-		if (Tuple.class.isAssignableFrom(clazz)) {
-			if (clazz == Tuple0.class) {
-				return new TupleTypeInfo(Tuple0.class);
-			}
-			throw new InvalidTypesException("Type information extraction for tuples (except Tuple0) cannot be done based on the class.");
-		}
-
 		// check for Enums
 		if (Enum.class.isAssignableFrom(clazz)) {
 			return new EnumTypeInfo(clazz);
@@ -1013,7 +991,7 @@ public class TypeExtractor {
 		}
 
 		try {
-			TypeInformation<OUT> pojoType = analyzePojo(clazz, parameterizedType, typeVariableBindings, extractingClasses);
+			TypeInformation<OUT> pojoType = analyzePojo(type, typeVariableBindings, extractingClasses);
 			if (pojoType != null) {
 				return pojoType;
 			}
@@ -1098,10 +1076,22 @@ public class TypeExtractor {
 	/* make this method public only for AvroTypeInfo */
 	@SuppressWarnings("unchecked")
 	public static <OUT> TypeInformation<OUT> analyzePojo(
-		Class<OUT> clazz,
-		ParameterizedType parameterizedType,
-		Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
-		List<Class<?>> extractingClasses) {
+		final Type type,
+		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
+		final List<Class<?>> extractingClasses) {
+
+		final Class<OUT> clazz;
+		final ParameterizedType parameterizedType;
+
+		if (type instanceof Class<?>) {
+			clazz = (Class<OUT>) type;
+			parameterizedType = null;
+		} else if (type instanceof ParameterizedType) {
+			clazz = (Class<OUT>) typeToClass(type);
+			parameterizedType = (ParameterizedType) type;
+		} else {
+			return null;
+		}
 
 		final List<ParameterizedType> typeHierarchy;
 		if (!Modifier.isPublic(clazz.getModifiers())) {
@@ -1282,8 +1272,7 @@ public class TypeExtractor {
 				// not a tuple since it has more fields.
 				// we immediately call analyze Pojo here, because there is currently no other type that can handle such a class.
 				return analyzePojo(
-					(Class<X>) value.getClass(),
-					null,
+					value.getClass(),
 					Collections.emptyMap(),
 					Collections.emptyList());
 			}
@@ -1447,13 +1436,14 @@ public class TypeExtractor {
 
 		if (baseClass.isAssignableFrom(subClass)) {
 			final Type type = subClass.getGenericSuperclass();
-			final List<ParameterizedType> subTypeHierarchy = buildParameterizedTypeHierarchy(typeToClass(type), baseClass, traverseInterface);
-			if (type instanceof ParameterizedType) {
-				typeHierarchy.add((ParameterizedType) type);
+			if (type != null) {
+				final List<ParameterizedType> subTypeHierarchy = buildParameterizedTypeHierarchy(typeToClass(type), baseClass, traverseInterface);
+				if (type instanceof ParameterizedType) {
+					typeHierarchy.add((ParameterizedType) type);
+				}
+				typeHierarchy.addAll(subTypeHierarchy);
+				return typeHierarchy;
 			}
-			typeHierarchy.addAll(subTypeHierarchy);
-
-			return typeHierarchy;
 		}
 		return Collections.emptyList();
 	}
@@ -1829,8 +1819,8 @@ public class TypeExtractor {
 	}
 
 	/**
-	 * Extract the {@link TypeInformation} for the subclass of {@link Tuple}.
-	 * @param type the type of the subclass {@link Tuple}
+	 * Extract the {@link TypeInformation} for the {@link Tuple}.
+	 * @param type the type needed to extract {@link TypeInformation}
 	 * @param typeVariableBindings the mapping relation between type variable and type information
 	 * @param extractingClasses the classes that the type is nested into.
 	 * @return the type information of the type or {@code null} if the type information of the generic parameter of
@@ -1842,6 +1832,10 @@ public class TypeExtractor {
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
 		final List<Class<?>> extractingClasses) {
+
+		if (!(isClassType(type) && Tuple.class.isAssignableFrom(typeToClass(type)))) {
+			return null;
+		}
 
 		final List<ParameterizedType> typeHierarchy = new ArrayList<>();
 
