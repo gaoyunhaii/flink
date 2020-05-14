@@ -66,7 +66,9 @@ public interface BucketWriter<IN, BucketID> {
 	 * @return A pending file
 	 * @throws IOException Thrown if recovering a pending file fails.
 	 */
-	PendingFile recoverPendingFile(final InProgressFileWriter.PendingFileRecoverable pendingFileRecoverable) throws IOException;
+	PendingFile recoverPendingFile(
+		final int maxParallelism,
+		final InProgressFileWriter.PendingFileRecoverable pendingFileRecoverable) throws IOException;
 
 	/**
 	 * Frees up any resources that were previously occupied in order to be able to

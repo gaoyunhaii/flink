@@ -164,7 +164,7 @@ public class StreamingFileSink<IN>
 		}
 
 		@Internal
-		public abstract Buckets<IN, BucketID> createBuckets(final int subtaskIndex) throws IOException;
+		public abstract Buckets<IN, BucketID> createBuckets(final int maxParallelism, final int subtaskIndex) throws IOException;
 	}
 
 	/**
@@ -260,7 +260,7 @@ public class StreamingFileSink<IN>
 
 		@Internal
 		@Override
-		public Buckets<IN, BucketID> createBuckets(int subtaskIndex) throws IOException {
+		public Buckets<IN, BucketID> createBuckets(int maxParallism, int subtaskIndex) throws IOException {
 			return new Buckets<>(
 					basePath,
 					bucketAssigner,
@@ -268,6 +268,7 @@ public class StreamingFileSink<IN>
 					new RowWiseBucketWriter<>(FileSystem.get(basePath.toUri()).createRecoverableWriter(), encoder),
 					rollingPolicy,
 					bucketLifeCycleListener,
+					maxParallism,
 					subtaskIndex,
 					outputFileConfig);
 		}
@@ -380,7 +381,7 @@ public class StreamingFileSink<IN>
 
 		@Internal
 		@Override
-		public Buckets<IN, BucketID> createBuckets(int subtaskIndex) throws IOException {
+		public Buckets<IN, BucketID> createBuckets(int maxParallelism, int subtaskIndex) throws IOException {
 			return new Buckets<>(
 					basePath,
 					bucketAssigner,
@@ -388,6 +389,7 @@ public class StreamingFileSink<IN>
 					new BulkBucketWriter<>(FileSystem.get(basePath.toUri()).createRecoverableWriter(), writerFactory),
 					rollingPolicy,
 					bucketLifeCycleListener,
+					maxParallelism,
 					subtaskIndex,
 					outputFileConfig);
 		}
@@ -411,7 +413,9 @@ public class StreamingFileSink<IN>
 	@Override
 	public void initializeState(FunctionInitializationContext context) throws Exception {
 		this.helper = new StreamingFileSinkHelper<>(
-				bucketsBuilder.createBuckets(getRuntimeContext().getIndexOfThisSubtask()),
+				bucketsBuilder.createBuckets(
+					getRuntimeContext().getMaxNumberOfParallelSubtasks(),
+					getRuntimeContext().getIndexOfThisSubtask()),
 				context.isRestored(),
 				context.getOperatorStateStore(),
 				((StreamingRuntimeContext) getRuntimeContext()).getProcessingTimeService(),

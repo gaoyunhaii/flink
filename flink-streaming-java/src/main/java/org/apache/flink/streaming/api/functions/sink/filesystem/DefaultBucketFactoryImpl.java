@@ -33,6 +33,7 @@ class DefaultBucketFactoryImpl<IN, BucketID> implements BucketFactory<IN, Bucket
 
 	@Override
 	public Bucket<IN, BucketID> getNewBucket(
+			final int maxParallelism,
 			final int subtaskIndex,
 			final BucketID bucketId,
 			final Path bucketPath,
@@ -42,6 +43,7 @@ class DefaultBucketFactoryImpl<IN, BucketID> implements BucketFactory<IN, Bucket
 			final OutputFileConfig outputFileConfig) {
 
 		return Bucket.getNew(
+				maxParallelism,
 				subtaskIndex,
 				bucketId,
 				bucketPath,
@@ -53,6 +55,7 @@ class DefaultBucketFactoryImpl<IN, BucketID> implements BucketFactory<IN, Bucket
 
 	@Override
 	public Bucket<IN, BucketID> restoreBucket(
+			final int maxParallelism,
 			final int subtaskIndex,
 			final long initialPartCounter,
 			final BucketWriter<IN, BucketID> bucketWriter,
@@ -61,6 +64,7 @@ class DefaultBucketFactoryImpl<IN, BucketID> implements BucketFactory<IN, Bucket
 			final OutputFileConfig outputFileConfig) throws IOException {
 
 		return Bucket.restore(
+				maxParallelism,
 				subtaskIndex,
 				initialPartCounter,
 				bucketWriter,

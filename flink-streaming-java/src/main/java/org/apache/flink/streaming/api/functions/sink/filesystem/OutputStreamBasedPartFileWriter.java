@@ -94,7 +94,9 @@ public abstract class OutputStreamBasedPartFileWriter<IN, BucketID> extends Abst
 		}
 
 		@Override
-		public PendingFile recoverPendingFile(final PendingFileRecoverable pendingFileRecoverable) throws IOException {
+		public PendingFile recoverPendingFile(
+			final int maxParallelism,
+			final PendingFileRecoverable pendingFileRecoverable) throws IOException {
 			final RecoverableWriter.CommitRecoverable commitRecoverable;
 
 			if (pendingFileRecoverable instanceof OutputStreamBasedPendingFileRecoverable) {

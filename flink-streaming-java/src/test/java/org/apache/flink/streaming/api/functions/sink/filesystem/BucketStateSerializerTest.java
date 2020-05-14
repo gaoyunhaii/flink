@@ -23,6 +23,7 @@ import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.core.io.SimpleVersionedSerialization;
 import org.apache.flink.core.io.SimpleVersionedSerializer;
+import org.apache.flink.runtime.state.KeyGroupRangeAssignment;
 import org.apache.flink.streaming.api.functions.sink.filesystem.bucketassigners.SimpleVersionedStringSerializer;
 import org.apache.flink.streaming.api.functions.sink.filesystem.rollingpolicies.DefaultRollingPolicy;
 import org.apache.flink.util.FileUtils;
@@ -312,6 +313,7 @@ public class BucketStateSerializerTest {
 
 	private static Bucket<String, String> createNewBucket(final Path bucketPath) throws IOException {
 		return Bucket.getNew(
+			KeyGroupRangeAssignment.UPPER_BOUND_MAX_PARALLELISM,
 			0,
 			BUCKET_ID,
 			bucketPath,
@@ -323,6 +325,7 @@ public class BucketStateSerializerTest {
 
 	private static Bucket<String, String> restoreBucket(final int initialPartCounter, final BucketState<String> bucketState) throws IOException {
 		return Bucket.restore(
+			KeyGroupRangeAssignment.UPPER_BOUND_MAX_PARALLELISM,
 			0,
 			initialPartCounter,
 			createBucketWriter(),

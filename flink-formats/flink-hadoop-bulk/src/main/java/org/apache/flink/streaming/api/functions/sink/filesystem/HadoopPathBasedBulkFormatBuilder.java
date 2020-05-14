@@ -136,7 +136,7 @@ public class HadoopPathBasedBulkFormatBuilder<IN, BucketID, T extends HadoopPath
 	}
 
 	@Override
-	public Buckets<IN, BucketID> createBuckets(int subtaskIndex) throws IOException {
+	public Buckets<IN, BucketID> createBuckets(int maxParallelism, int subtaskIndex) throws IOException {
 		return new Buckets<>(
 			basePath,
 			bucketAssigner,
@@ -147,6 +147,7 @@ public class HadoopPathBasedBulkFormatBuilder<IN, BucketID, T extends HadoopPath
 				fileCommitterFactory),
 			rollingPolicy,
 			bucketLifeCycleListener,
+			maxParallelism,
 			subtaskIndex,
 			outputFileConfig);
 	}

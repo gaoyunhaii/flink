@@ -31,6 +31,7 @@ import java.io.Serializable;
 interface BucketFactory<IN, BucketID> extends Serializable {
 
 	Bucket<IN, BucketID> getNewBucket(
+			final int maxParallelism,
 			final int subtaskIndex,
 			final BucketID bucketId,
 			final Path bucketPath,
@@ -40,6 +41,7 @@ interface BucketFactory<IN, BucketID> extends Serializable {
 			final OutputFileConfig outputFileConfig) throws IOException;
 
 	Bucket<IN, BucketID> restoreBucket(
+			final int maxParallelism,
 			final int subtaskIndex,
 			final long initialPartCounter,
 			final BucketWriter<IN, BucketID> bucketWriter,

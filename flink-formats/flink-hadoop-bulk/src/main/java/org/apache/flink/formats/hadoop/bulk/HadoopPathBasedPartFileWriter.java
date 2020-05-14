@@ -236,7 +236,7 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 		}
 
 		@Override
-		public PendingFile recoverPendingFile(PendingFileRecoverable pendingFileRecoverable) throws IOException {
+		public PendingFile recoverPendingFile(int maxParallelism, PendingFileRecoverable pendingFileRecoverable) throws IOException {
 			if (!(pendingFileRecoverable instanceof HadoopPathBasedPartFileWriter.HadoopPathBasedPendingFileRecoverable)) {
 				throw new UnsupportedOperationException("Only HadoopPathBasedPendingFileRecoverable is supported.");
 			}

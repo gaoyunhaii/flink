@@ -54,6 +54,8 @@ public class Bucket<IN, BucketID> {
 
 	private final Path bucketPath;
 
+	private final int maxParallelism;
+
 	private final int subtaskIndex;
 
 	private final BucketWriter<IN, BucketID> bucketWriter;
@@ -77,6 +79,7 @@ public class Bucket<IN, BucketID> {
 	 * Constructor to create a new empty bucket.
 	 */
 	private Bucket(
+			final int maxParallelism,
 			final int subtaskIndex,
 			final BucketID bucketId,
 			final Path bucketPath,
@@ -84,6 +87,7 @@ public class Bucket<IN, BucketID> {
 			final BucketWriter<IN, BucketID> bucketWriter,
 			final RollingPolicy<IN, BucketID> rollingPolicy,
 			final OutputFileConfig outputFileConfig) {
+		this.maxParallelism = maxParallelism;
 		this.subtaskIndex = subtaskIndex;
 		this.bucketId = checkNotNull(bucketId);
 		this.bucketPath = checkNotNull(bucketPath);
@@ -102,6 +106,7 @@ public class Bucket<IN, BucketID> {
 	 * Constructor to restore a bucket from checkpointed state.
 	 */
 	private Bucket(
+			final int maxParallelism,
 			final int subtaskIndex,
 			final long initialPartCounter,
 			final BucketWriter<IN, BucketID> partFileFactory,
@@ -110,6 +115,7 @@ public class Bucket<IN, BucketID> {
 			final OutputFileConfig outputFileConfig) throws IOException {
 
 		this(
+				maxParallelism,
 				subtaskIndex,
 				bucketState.getBucketId(),
 				bucketState.getBucketPath(),
@@ -136,7 +142,7 @@ public class Bucket<IN, BucketID> {
 		} else {
 			// if the writer does not support resume, then we close the
 			// in-progress part and commit it, as done in the case of pending files.
-			bucketWriter.recoverPendingFile(inProgressFileRecoverable).commitAfterRecovery();
+			bucketWriter.recoverPendingFile(maxParallelism, inProgressFileRecoverable).commitAfterRecovery();
 		}
 	}
 
@@ -145,7 +151,7 @@ public class Bucket<IN, BucketID> {
 		// we commit pending files for checkpoints that precess the last successful one, from which we are recovering
 		for (List<InProgressFileWriter.PendingFileRecoverable> pendingFileRecoverables: state.getPendingFileRecoverablesPerCheckpoint().values()) {
 			for (InProgressFileWriter.PendingFileRecoverable pendingFileRecoverable: pendingFileRecoverables) {
-				bucketWriter.recoverPendingFile(pendingFileRecoverable).commitAfterRecovery();
+				bucketWriter.recoverPendingFile(maxParallelism, pendingFileRecoverable).commitAfterRecovery();
 			}
 		}
 	}
@@ -276,7 +282,7 @@ public class Bucket<IN, BucketID> {
 			Map.Entry<Long, List<InProgressFileWriter.PendingFileRecoverable>> entry = it.next();
 
 			for (InProgressFileWriter.PendingFileRecoverable pendingFileRecoverable : entry.getValue()) {
-				bucketWriter.recoverPendingFile(pendingFileRecoverable).commit();
+				bucketWriter.recoverPendingFile(maxParallelism, pendingFileRecoverable).commit();
 			}
 			it.remove();
 		}
@@ -338,6 +344,7 @@ public class Bucket<IN, BucketID> {
 	/**
 	 * Creates a new empty {@code Bucket}.
 	 * @param subtaskIndex the index of the subtask creating the bucket.
+	 * @param maxParallelism the maximum parallelism of the subtask creating the bucket.
 	 * @param bucketId the identifier of the bucket, as returned by the {@link BucketAssigner}.
 	 * @param bucketPath the path to where the part files for the bucket will be written to.
 	 * @param initialPartCounter the initial counter for the part files of the bucket.
@@ -348,6 +355,7 @@ public class Bucket<IN, BucketID> {
 	 * @return The new Bucket.
 	 */
 	static <IN, BucketID> Bucket<IN, BucketID> getNew(
+			final int maxParallelism,
 			final int subtaskIndex,
 			final BucketID bucketId,
 			final Path bucketPath,
@@ -355,11 +363,12 @@ public class Bucket<IN, BucketID> {
 			final BucketWriter<IN, BucketID> bucketWriter,
 			final RollingPolicy<IN, BucketID> rollingPolicy,
 			final OutputFileConfig outputFileConfig) {
-		return new Bucket<>(subtaskIndex, bucketId, bucketPath, initialPartCounter, bucketWriter, rollingPolicy, outputFileConfig);
+		return new Bucket<>(maxParallelism, subtaskIndex, bucketId, bucketPath, initialPartCounter, bucketWriter, rollingPolicy, outputFileConfig);
 	}
 
 	/**
 	 * Restores a {@code Bucket} from the state included in the provided {@link BucketState}.
+	 * @param maxParallelism the maximum parallelism of the subtask creating the bucket.
 	 * @param subtaskIndex the index of the subtask creating the bucket.
 	 * @param initialPartCounter the initial counter for the part files of the bucket.
 	 * @param bucketWriter the {@link BucketWriter} used to write part files in the bucket.
@@ -370,12 +379,13 @@ public class Bucket<IN, BucketID> {
 	 * @return The restored Bucket.
 	 */
 	static <IN, BucketID> Bucket<IN, BucketID> restore(
+			final int maxParallelism,
 			final int subtaskIndex,
 			final long initialPartCounter,
 			final BucketWriter<IN, BucketID> bucketWriter,
 			final RollingPolicy<IN, BucketID> rollingPolicy,
 			final BucketState<BucketID> bucketState,
 			final OutputFileConfig outputFileConfig) throws IOException {
-		return new Bucket<>(subtaskIndex, initialPartCounter, bucketWriter, rollingPolicy, bucketState, outputFileConfig);
+		return new Bucket<>(maxParallelism, subtaskIndex, initialPartCounter, bucketWriter, rollingPolicy, bucketState, outputFileConfig);
 	}
 }

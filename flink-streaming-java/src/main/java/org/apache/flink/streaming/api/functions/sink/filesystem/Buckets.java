@@ -68,6 +68,8 @@ public class Buckets<IN, BucketID> {
 
 	// --------------------------- runtime fields -----------------------------
 
+	private final int maxParallelism;
+
 	private final int subtaskIndex;
 
 	private final Buckets.BucketerContext bucketerContext;
@@ -98,6 +100,7 @@ public class Buckets<IN, BucketID> {
 			final BucketWriter<IN, BucketID> bucketWriter,
 			final RollingPolicy<IN, BucketID> rollingPolicy,
 			@Nullable final BucketLifeCycleListener<IN, BucketID> bucketLifeCycleListener,
+			final int maxParallelism,
 			final int subtaskIndex,
 			final OutputFileConfig outputFileConfig) {
 
@@ -107,6 +110,7 @@ public class Buckets<IN, BucketID> {
 		this.bucketWriter = Preconditions.checkNotNull(bucketWriter);
 		this.rollingPolicy = Preconditions.checkNotNull(rollingPolicy);
 		this.bucketLifeCycleListener = bucketLifeCycleListener;
+		this.maxParallelism = maxParallelism;
 		this.subtaskIndex = subtaskIndex;
 
 		this.outputFileConfig = Preconditions.checkNotNull(outputFileConfig);
@@ -172,6 +176,7 @@ public class Buckets<IN, BucketID> {
 
 		final Bucket<IN, BucketID> restoredBucket = bucketFactory
 				.restoreBucket(
+						maxParallelism,
 						subtaskIndex,
 						maxPartCounter,
 						bucketWriter,
@@ -294,6 +299,7 @@ public class Buckets<IN, BucketID> {
 		if (bucket == null) {
 			final Path bucketPath = assembleBucketPath(bucketId);
 			bucket = bucketFactory.getNewBucket(
+					maxParallelism,
 					subtaskIndex,
 					bucketId,
 					bucketPath,

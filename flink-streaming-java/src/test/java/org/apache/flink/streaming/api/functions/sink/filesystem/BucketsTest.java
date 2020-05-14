@@ -24,6 +24,7 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.core.io.SimpleVersionedSerializer;
+import org.apache.flink.runtime.state.KeyGroupRangeAssignment;
 import org.apache.flink.streaming.api.functions.sink.filesystem.TestUtils.MockListState;
 import org.apache.flink.streaming.api.functions.sink.filesystem.bucketassigners.SimpleVersionedStringSerializer;
 import org.apache.flink.streaming.api.functions.sink.filesystem.rollingpolicies.DefaultRollingPolicy;
@@ -325,6 +326,7 @@ public class BucketsTest {
 				new RowWiseBucketWriter<>(FileSystem.get(path.toUri()).createRecoverableWriter(), new SimpleStringEncoder<>()),
 				DefaultRollingPolicy.builder().build(),
 				null,
+				KeyGroupRangeAssignment.UPPER_BOUND_MAX_PARALLELISM,
 				2,
 				OutputFileConfig.builder().build()
 		);
@@ -462,6 +464,7 @@ public class BucketsTest {
 				new RowWiseBucketWriter<>(FileSystem.get(basePath.toUri()).createRecoverableWriter(), new SimpleStringEncoder<>()),
 				rollingPolicy,
 				bucketLifeCycleListener,
+				KeyGroupRangeAssignment.UPPER_BOUND_MAX_PARALLELISM,
 				subtaskIdx,
 				outputFileConfig
 		);

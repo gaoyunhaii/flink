@@ -26,6 +26,7 @@ import org.apache.flink.core.fs.RecoverableFsDataOutputStream;
 import org.apache.flink.core.fs.RecoverableWriter;
 import org.apache.flink.core.fs.local.LocalFileSystem;
 import org.apache.flink.core.fs.local.LocalRecoverableWriter;
+import org.apache.flink.runtime.state.KeyGroupRangeAssignment;
 import org.apache.flink.streaming.api.functions.sink.filesystem.rollingpolicies.DefaultRollingPolicy;
 import org.apache.flink.streaming.api.functions.sink.filesystem.utils.NoOpCommitter;
 import org.apache.flink.streaming.api.functions.sink.filesystem.utils.NoOpRecoverable;
@@ -360,6 +361,7 @@ public class BucketTest {
 			final OutputFileConfig outputFileConfig) throws IOException {
 
 		return Bucket.getNew(
+				KeyGroupRangeAssignment.UPPER_BOUND_MAX_PARALLELISM,
 				subtaskIdx,
 				bucketId,
 				bucketPath,
@@ -377,6 +379,7 @@ public class BucketTest {
 			final OutputFileConfig outputFileConfig) throws Exception {
 
 		return Bucket.restore(
+				KeyGroupRangeAssignment.UPPER_BOUND_MAX_PARALLELISM,
 				subtaskIndex,
 				initialPartCounter,
 				new RowWiseBucketWriter<>(writer, ENCODER),
@@ -408,6 +411,7 @@ public class BucketTest {
 					new HashMap<>());
 
 		return Bucket.restore(
+			KeyGroupRangeAssignment.UPPER_BOUND_MAX_PARALLELISM,
 			0,
 			1L,
 			new RowWiseBucketWriter<>(writer, ENCODER),
@@ -428,6 +432,7 @@ public class BucketTest {
 					null,
 					completePartsPerCheckpoint);
 		return Bucket.restore(
+			KeyGroupRangeAssignment.UPPER_BOUND_MAX_PARALLELISM,
 			0,
 			1L,
 			new RowWiseBucketWriter<>(writer, ENCODER),
