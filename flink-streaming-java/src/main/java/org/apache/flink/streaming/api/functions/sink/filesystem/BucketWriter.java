@@ -39,6 +39,9 @@ public interface BucketWriter<IN, BucketID> {
 	 */
 	InProgressFileWriter<IN, BucketID> openNewInProgressFile(
 			final BucketID bucketID,
+			final int maxParallelism,
+			final int subtaskIndex,
+			final long partCount,
 			final Path path,
 			final long creationTime) throws IOException;
 
@@ -52,6 +55,7 @@ public interface BucketWriter<IN, BucketID> {
 	 */
 	InProgressFileWriter<IN, BucketID> resumeInProgressFileFrom(
 			final BucketID bucketID,
+			final int maxParallelism,
 			final InProgressFileWriter.InProgressFileRecoverable inProgressFileSnapshot,
 			final long creationTime) throws IOException;
 

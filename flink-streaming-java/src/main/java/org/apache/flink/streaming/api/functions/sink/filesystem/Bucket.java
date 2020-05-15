@@ -138,7 +138,7 @@ public class Bucket<IN, BucketID> {
 
 		if (bucketWriter.getProperties().supportsResume()) {
 			inProgressPart = bucketWriter.resumeInProgressFileFrom(
-					bucketId, inProgressFileRecoverable, state.getInProgressFileCreationTime());
+					bucketId, maxParallelism, inProgressFileRecoverable, state.getInProgressFileCreationTime());
 		} else {
 			// if the writer does not support resume, then we close the
 			// in-progress part and commit it, as done in the case of pending files.
@@ -212,7 +212,13 @@ public class Bucket<IN, BucketID> {
 		closePartFile();
 
 		final Path partFilePath = assembleNewPartPath();
-		inProgressPart = bucketWriter.openNewInProgressFile(bucketId, partFilePath, currentTime);
+		inProgressPart = bucketWriter.openNewInProgressFile(
+			bucketId,
+			maxParallelism,
+			subtaskIndex,
+			partCounter,
+			partFilePath,
+			currentTime);
 
 		if (LOG.isDebugEnabled()) {
 			LOG.debug("Subtask {} opening new part file \"{}\" for bucket id={}.",

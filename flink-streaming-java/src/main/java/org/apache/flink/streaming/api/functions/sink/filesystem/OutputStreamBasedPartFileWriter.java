@@ -79,12 +79,24 @@ public abstract class OutputStreamBasedPartFileWriter<IN, BucketID> extends Abst
 		}
 
 		@Override
-		public InProgressFileWriter<IN, BucketID> openNewInProgressFile(final BucketID bucketID, final Path path, final long creationTime) throws IOException {
+		public InProgressFileWriter<IN, BucketID> openNewInProgressFile(
+			final BucketID bucketID,
+			final int maxParallelism,
+			final int subtaskIndex,
+			final long partCount,
+			final Path path,
+			final long creationTime) throws IOException {
+
 			return openNew(bucketID, recoverableWriter.open(path), path, creationTime);
 		}
 
 		@Override
-		public InProgressFileWriter<IN, BucketID> resumeInProgressFileFrom(final BucketID bucketID, final InProgressFileRecoverable inProgressFileRecoverable, final long creationTime) throws IOException {
+		public InProgressFileWriter<IN, BucketID> resumeInProgressFileFrom(
+			final BucketID bucketID,
+			final int maxParallelism,
+			final InProgressFileRecoverable inProgressFileRecoverable,
+			final long creationTime) throws IOException {
+
 			final OutputStreamBasedInProgressFileRecoverable outputStreamBasedInProgressRecoverable = (OutputStreamBasedInProgressFileRecoverable) inProgressFileRecoverable;
 			return resumeFrom(
 				bucketID,

@@ -224,6 +224,9 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 		@Override
 		public HadoopPathBasedPartFileWriter<IN, BucketID> openNewInProgressFile(
 			BucketID bucketID,
+			int maxParallelism,
+			int subtaskIndex,
+			long partCount,
 			org.apache.flink.core.fs.Path flinkPath,
 			long creationTime) throws IOException {
 
@@ -256,6 +259,7 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 		@Override
 		public InProgressFileWriter<IN, BucketID> resumeInProgressFileFrom(
 			BucketID bucketID,
+			int maxParallelism,
 			InProgressFileRecoverable inProgressFileSnapshot,
 			long creationTime) {
 
