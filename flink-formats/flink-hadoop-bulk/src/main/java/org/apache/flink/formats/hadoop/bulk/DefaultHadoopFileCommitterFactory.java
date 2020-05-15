@@ -31,7 +31,12 @@ public class DefaultHadoopFileCommitterFactory implements HadoopFileCommitterFac
 	private static final long serialVersionUID = 1L;
 
 	@Override
-	public HadoopFileCommitter create(Configuration configuration, Path targetFilePath) {
+	public HadoopFileCommitter create(
+		Configuration configuration,
+		Path targetFilePath,
+		int maxParallelism,
+		int subtaskIndex,
+		long partCount) {
 		return new HadoopRenameFileCommitter(configuration, targetFilePath);
 	}
 }

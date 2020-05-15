@@ -43,16 +43,24 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 
 	private final HadoopFileCommitter fileCommitter;
 
+	private final int subtaskIndex;
+
+	private final long partCount;
+
 	public HadoopPathBasedPartFileWriter(
 		final BucketID bucketID,
 		HadoopPathBasedBulkWriter<IN> writer,
 		HadoopFileCommitter fileCommitter,
+		int subtaskIndex,
+		long partCount,
 		long createTime) {
 
 		super(bucketID, createTime);
 
 		this.writer = writer;
 		this.fileCommitter = fileCommitter;
+		this.subtaskIndex = subtaskIndex;
+		this.partCount = partCount;
 	}
 
 	@Override
@@ -71,7 +79,7 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 		writer.flush();
 		writer.finish();
 		fileCommitter.preCommit();
-		return new HadoopPathBasedPendingFile(fileCommitter).getRecoverable();
+		return new HadoopPathBasedPendingFile(fileCommitter, subtaskIndex, partCount).getRecoverable();
 	}
 
 	@Override
@@ -87,8 +95,14 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 	static class HadoopPathBasedPendingFile implements BucketWriter.PendingFile {
 		private final HadoopFileCommitter fileCommitter;
 
-		public HadoopPathBasedPendingFile(HadoopFileCommitter fileCommitter) {
+		private final int subtaskIndex;
+
+		private final long partCount;
+
+		public HadoopPathBasedPendingFile(HadoopFileCommitter fileCommitter, int subtaskIndex, long partCount) {
 			this.fileCommitter = fileCommitter;
+			this.subtaskIndex = subtaskIndex;
+			this.partCount = partCount;
 		}
 
 		@Override
@@ -103,7 +117,9 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 
 		public PendingFileRecoverable getRecoverable() {
 			return new HadoopPathBasedPendingFileRecoverable(
-				fileCommitter.getTargetFilePath());
+				fileCommitter.getTargetFilePath(),
+				subtaskIndex,
+				partCount);
 		}
 	}
 
@@ -111,12 +127,26 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 	static class HadoopPathBasedPendingFileRecoverable implements PendingFileRecoverable {
 		private final Path path;
 
-		public HadoopPathBasedPendingFileRecoverable(Path path) {
+		private final int subtaskIndex;
+
+		private final long partCount;
+
+		public HadoopPathBasedPendingFileRecoverable(Path path, int subtaskIndex, long partCount) {
 			this.path = path;
+			this.subtaskIndex = subtaskIndex;
+			this.partCount = partCount;
 		}
 
 		public Path getPath() {
 			return path;
+		}
+
+		public int getSubtaskIndex() {
+			return subtaskIndex;
+		}
+
+		public long getPartCount() {
+			return partCount;
 		}
 	}
 
@@ -142,14 +172,19 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 				throw new UnsupportedOperationException("Only HadoopPathBasedPendingFileRecoverable is supported.");
 			}
 
-			Path path = ((HadoopPathBasedPendingFileRecoverable) pendingFileRecoverable).getPath();
+			HadoopPathBasedPendingFileRecoverable hadoopRecoverable =
+				(HadoopPathBasedPendingFileRecoverable) pendingFileRecoverable;
+
+			Path path = hadoopRecoverable.getPath();
 			byte[] pathBytes = path.toUri().toString().getBytes(CHARSET);
 
-			byte[] targetBytes = new byte[8 + pathBytes.length];
+			byte[] targetBytes = new byte[8 + pathBytes.length + 4 + 8];
 			ByteBuffer bb = ByteBuffer.wrap(targetBytes).order(ByteOrder.LITTLE_ENDIAN);
 			bb.putInt(MAGIC_NUMBER);
 			bb.putInt(pathBytes.length);
 			bb.put(pathBytes);
+			bb.putInt(hadoopRecoverable.getSubtaskIndex());
+			bb.putLong(hadoopRecoverable.getPartCount());
 
 			return targetBytes;
 		}
@@ -174,8 +209,10 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 			byte[] pathBytes = new byte[bb.getInt()];
 			bb.get(pathBytes);
 			String targetPath = new String(pathBytes, CHARSET);
+			int subtaskIndex = bb.getInt();
+			long partCount = bb.getLong();
 
-			return new HadoopPathBasedPendingFileRecoverable(new Path(targetPath));
+			return new HadoopPathBasedPendingFileRecoverable(new Path(targetPath), subtaskIndex, partCount);
 		}
 	}
 
@@ -231,21 +268,46 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 			long creationTime) throws IOException {
 
 			Path path = new Path(flinkPath.toUri());
-			HadoopFileCommitter fileCommitter = fileCommitterFactory.create(configuration, path);
+			HadoopFileCommitter fileCommitter = fileCommitterFactory.create(
+				configuration,
+				path,
+				maxParallelism,
+				subtaskIndex,
+				partCount);
 
 			Path inProgressFilePath = fileCommitter.getInProgressFilePath();
 			HadoopPathBasedBulkWriter<IN> writer = bulkWriterFactory.create(path, inProgressFilePath);
-			return new HadoopPathBasedPartFileWriter<>(bucketID, writer, fileCommitter, creationTime);
+			return new HadoopPathBasedPartFileWriter<>(
+				bucketID,
+				writer,
+				fileCommitter,
+				subtaskIndex,
+				partCount,
+				creationTime);
 		}
 
 		@Override
-		public PendingFile recoverPendingFile(int maxParallelism, PendingFileRecoverable pendingFileRecoverable) throws IOException {
+		public PendingFile recoverPendingFile(
+			int maxParallelism,
+			PendingFileRecoverable pendingFileRecoverable) throws IOException {
+
 			if (!(pendingFileRecoverable instanceof HadoopPathBasedPartFileWriter.HadoopPathBasedPendingFileRecoverable)) {
 				throw new UnsupportedOperationException("Only HadoopPathBasedPendingFileRecoverable is supported.");
 			}
 
-			Path path = ((HadoopPathBasedPendingFileRecoverable) pendingFileRecoverable).getPath();
-			return new HadoopPathBasedPendingFile(fileCommitterFactory.create(configuration, path));
+			HadoopPathBasedPendingFileRecoverable hadoopRecoverable =
+				(HadoopPathBasedPendingFileRecoverable) pendingFileRecoverable;
+			HadoopFileCommitter committer = fileCommitterFactory.create(
+				configuration,
+				hadoopRecoverable.getPath(),
+				maxParallelism,
+				hadoopRecoverable.getSubtaskIndex(),
+				hadoopRecoverable.getPartCount());
+
+			return new HadoopPathBasedPendingFile(
+				committer,
+				hadoopRecoverable.getSubtaskIndex(),
+				hadoopRecoverable.getPartCount());
 		}
 
 		@Override

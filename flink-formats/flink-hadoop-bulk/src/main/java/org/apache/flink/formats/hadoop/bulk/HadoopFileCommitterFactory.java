@@ -40,6 +40,11 @@ public interface HadoopFileCommitterFactory extends Serializable {
 	 * @param targetFilePath The target path to commit.
 	 * @return The corresponding Hadoop file committer.
 	 */
-	HadoopFileCommitter create(Configuration configuration, Path targetFilePath) throws IOException;
+	HadoopFileCommitter create(
+		Configuration configuration,
+		Path targetFilePath,
+		int maxParallelism,
+		int subtaskIndex,
+		long partCount) throws IOException;
 
 }

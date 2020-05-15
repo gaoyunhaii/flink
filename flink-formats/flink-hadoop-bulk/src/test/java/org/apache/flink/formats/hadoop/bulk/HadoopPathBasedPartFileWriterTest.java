@@ -63,7 +63,7 @@ public class HadoopPathBasedPartFileWriterTest extends AbstractTestBase {
 	@Test
 	public void testPendingFileRecoverableSerializer() throws IOException {
 		HadoopPathBasedPendingFileRecoverable recoverable = new HadoopPathBasedPendingFileRecoverable(
-			new Path("hdfs://fake/path"));
+			new Path("hdfs://fake/path"), 0, 0);
 		HadoopPathBasedPendingFileRecoverableSerializer serializer =
 			new HadoopPathBasedPendingFileRecoverableSerializer();
 
