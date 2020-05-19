@@ -103,16 +103,25 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 
 		public PendingFileRecoverable getRecoverable() {
 			return new HadoopPathBasedPendingFileRecoverable(
+				HadoopPathBasedPendingFileRecoverableSerializer.CURRENT_VERSION,
 				fileCommitter.getTargetFilePath());
 		}
 	}
 
 	@VisibleForTesting
 	static class HadoopPathBasedPendingFileRecoverable implements PendingFileRecoverable {
+
+		private final int version;
+
 		private final Path path;
 
-		public HadoopPathBasedPendingFileRecoverable(Path path) {
+		public HadoopPathBasedPendingFileRecoverable(int version, Path path) {
+			this.version = version;
 			this.path = path;
+		}
+
+		public int getVersion() {
+			return version;
 		}
 
 		public Path getPath() {
@@ -124,6 +133,8 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 	static class HadoopPathBasedPendingFileRecoverableSerializer
 		implements SimpleVersionedSerializer<PendingFileRecoverable> {
 
+		static final int CURRENT_VERSION = 2;
+
 		static final HadoopPathBasedPendingFileRecoverableSerializer INSTANCE =
 			new HadoopPathBasedPendingFileRecoverableSerializer();
 
@@ -133,7 +144,7 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 
 		@Override
 		public int getVersion() {
-			return 1;
+			return CURRENT_VERSION;
 		}
 
 		@Override
@@ -158,13 +169,14 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 		public HadoopPathBasedPendingFileRecoverable deserialize(int version, byte[] serialized) throws IOException {
 			switch (version) {
 				case 1:
-					return deserializeV1(serialized);
+				case 2:
+					return deserializeV1(version, serialized);
 				default:
 					throw new IOException("Unrecognized version or corrupt state: " + version);
 			}
 		}
 
-		private HadoopPathBasedPendingFileRecoverable deserializeV1(byte[] serialized) throws IOException {
+		private HadoopPathBasedPendingFileRecoverable deserializeV1(int version, byte[] serialized) throws IOException {
 			final ByteBuffer bb = ByteBuffer.wrap(serialized).order(ByteOrder.LITTLE_ENDIAN);
 
 			if (bb.getInt() != MAGIC_NUMBER) {
@@ -175,7 +187,7 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 			bb.get(pathBytes);
 			String targetPath = new String(pathBytes, CHARSET);
 
-			return new HadoopPathBasedPendingFileRecoverable(new Path(targetPath));
+			return new HadoopPathBasedPendingFileRecoverable(version, new Path(targetPath));
 		}
 	}
 
@@ -228,7 +240,10 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 			long creationTime) throws IOException {
 
 			Path path = new Path(flinkPath.toUri());
-			HadoopFileCommitter fileCommitter = fileCommitterFactory.create(configuration, path);
+			HadoopFileCommitter fileCommitter = fileCommitterFactory.create(
+				HadoopPathBasedPendingFileRecoverableSerializer.CURRENT_VERSION,
+				configuration,
+				path);
 
 			Path inProgressFilePath = fileCommitter.getInProgressFilePath();
 			HadoopPathBasedBulkWriter<IN> writer = bulkWriterFactory.create(path, inProgressFilePath);
@@ -242,7 +257,10 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 			}
 
 			Path path = ((HadoopPathBasedPendingFileRecoverable) pendingFileRecoverable).getPath();
-			return new HadoopPathBasedPendingFile(fileCommitterFactory.create(configuration, path));
+			return new HadoopPathBasedPendingFile(fileCommitterFactory.create(
+				((HadoopPathBasedPendingFileRecoverable) pendingFileRecoverable).getVersion(),
+				configuration,
+				path));
 		}
 
 		@Override
