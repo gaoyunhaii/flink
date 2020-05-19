@@ -26,10 +26,10 @@ import java.io.IOException;
 /**
  *
  */
-public class HadoopRenameFileCommitterTest extends AbstractHadoopFileCommitterTest {
+public class Hadoop2FileCommitterTest extends AbstractHadoopFileCommitterTest {
 
 	@Override
-	protected Configuration createConfiguration() {
+	protected Configuration createConfiguration() throws IOException {
 		return new Configuration();
 	}
 
@@ -39,12 +39,12 @@ public class HadoopRenameFileCommitterTest extends AbstractHadoopFileCommitterTe
 	}
 
 	@Override
-	protected int getVersion() {
-		return 1;
+	protected int getVersion() throws IOException {
+		return 2;
 	}
 
 	@Override
-	protected void cleanup(Configuration configuration, Path basePath, int version) {
+	protected void cleanup(Configuration configuration, Path basePath, int version) throws IOException {
 		// Do nothing.
 	}
 }

@@ -19,9 +19,22 @@
 package org.apache.flink.formats.hadoop.bulk;
 
 import org.apache.flink.formats.hadoop.bulk.committer.HadoopRenameFileCommitter;
+import org.apache.flink.formats.hadoop.bulk.committer.OutputCommitterBasedFileCommitter;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.MRJobConfig;
+import org.apache.hadoop.mapreduce.OutputCommitter;
+import org.apache.hadoop.mapreduce.OutputFormat;
+import org.apache.hadoop.mapreduce.TaskAttemptContext;
+import org.apache.hadoop.mapreduce.TaskAttemptID;
+import org.apache.hadoop.mapreduce.TaskType;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
+import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl;
+
+import java.io.IOException;
 
 /**
  * The default hadoop file committer factory which always use {@link HadoopRenameFileCommitter}.
@@ -30,12 +43,54 @@ public class DefaultHadoopFileCommitterFactory implements HadoopFileCommitterFac
 
 	private static final long serialVersionUID = 1L;
 
+	private final OutputFormatEnhancer outputFormatEnhancer = new OutputFormatEnhancer();
+
 	@Override
-	public HadoopFileCommitter create(int version, Configuration configuration, Path targetFilePath) {
+	public HadoopFileCommitter create(int version, Configuration configuration, Path targetFilePath) throws IOException {
 		if (version == 1) {
 			return new HadoopRenameFileCommitter(configuration, targetFilePath);
 		} else {
-			return new HadoopRenameFileCommitter(configuration, targetFilePath);
+			// 1. Set the corresponding configurations
+			configuration = new Configuration(configuration);
+
+			configuration.set(MRJobConfig.APPLICATION_ATTEMPT_ID, String.valueOf(0));
+			configuration.set(FileOutputFormat.OUTDIR, targetFilePath.getParent().toUri().toString());
+			configuration.set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false");
+			configuration.set("targetFilePath", targetFilePath.toUri().toString());
+
+			Job job = Job.getInstance(configuration);
+			TaskAttemptID id = new TaskAttemptID(
+				targetFilePath.getName(),
+				0,
+				TaskType.REDUCE,
+				0,
+				0);
+			TaskAttemptContext context = new TaskAttemptContextImpl(job.getConfiguration(), id);
+
+			// 3. create the output committer
+			try {
+				OutputFormat<?, ?> outputFormat = TextOutputFormat.class.newInstance();
+				OutputCommitter outputCommitter = outputFormat.getOutputCommitter(context);
+				outputCommitter = outputFormatEnhancer.verifyAndEnhanceOutputCommitter(
+					outputCommitter,
+					targetFilePath,
+					context);
+
+				outputCommitter.setupJob(job);
+				outputCommitter.setupTask(context);
+
+				// 4. Acquire the attempt path.
+				Path taskWorkerPath = outputFormatEnhancer.getTaskAttemptPath(outputCommitter, targetFilePath);
+				return new OutputCommitterBasedFileCommitter(
+					targetFilePath,
+					new Path(taskWorkerPath, targetFilePath.getName()),
+					job,
+					context,
+					outputCommitter);
+
+			} catch (Exception e) {
+				throw new RuntimeException(e);
+			}
 		}
 	}
 }

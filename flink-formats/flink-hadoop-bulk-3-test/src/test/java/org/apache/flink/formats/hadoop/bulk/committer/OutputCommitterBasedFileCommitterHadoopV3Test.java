@@ -18,33 +18,28 @@
 
 package org.apache.flink.formats.hadoop.bulk.committer;
 
+import org.apache.flink.formats.hadoop.bulk.AbstractHadoopFileCommitterTest;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 
+import java.io.File;
 import java.io.IOException;
 
 /**
  *
  */
-public class HadoopRenameFileCommitterTest extends AbstractHadoopFileCommitterTest {
+public class OutputCommitterBasedFileCommitterHadoopV3Test extends AbstractHadoopFileCommitterTest {
 
 	@Override
-	protected Configuration createConfiguration() {
-		return new Configuration();
+	protected Configuration getConfiguration() {
+		Configuration configuration = new Configuration();
+		configuration.set("mapreduce.fileoutputcommitter.algorithm.version", "1");
+		return configuration;
 	}
 
 	@Override
 	protected Path getBasePath() throws IOException {
-		return new Path(TEMPORARY_FOLDER.newFolder().toURI());
-	}
-
-	@Override
-	protected int getVersion() {
-		return 1;
-	}
-
-	@Override
-	protected void cleanup(Configuration configuration, Path basePath, int version) {
-		// Do nothing.
+		File file = TEMPORARY_FOLDER.newFolder();
+		return new Path(String.format("file://%s", file.getAbsolutePath()));
 	}
 }
