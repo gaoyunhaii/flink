@@ -29,12 +29,9 @@ import org.apache.flink.api.java.typeutils.TypeExtractor;
 
 import org.apache.avro.specific.SpecificRecordBase;
 
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.TypeVariable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Special type information to generate a special AvroTypeInfo for Avro POJOs (implementing SpecificRecordBase, the typed Avro POJOs)

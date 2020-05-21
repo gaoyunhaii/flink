@@ -846,31 +846,10 @@ public class TypeExtractor {
 			currentExtractingClasses = extractingClasses;
 		}
 
-		TypeInformation<OUT> typeInformation;
-
-		if (t instanceof TypeVariable) {
-			final TypeInformation<OUT> typeInfo = (TypeInformation<OUT>) typeVariableBindings.get(t);
-			if (typeInfo != null) {
-				return typeInfo;
-			} else {
-				throw new InvalidTypesException("Type of TypeVariable '" + ((TypeVariable<?>) t).getName() + "' in '"
-					+ ((TypeVariable<?>) t).getGenericDeclaration() + "' could not be determined. This is most likely a type erasure problem. "
-					+ "The type extraction currently supports types with generic variables only in cases where "
-					+ "all variables in the return type can be deduced from the input type(s). "
-					+ "Otherwise the type has to be specified explicitly using type information.");
-			}
-		} else if ((typeInformation = (TypeInformation<OUT>) extractArrayTypeInformation(t, typeVariableBindings, currentExtractingClasses)) != null) {
-			return typeInformation;
-		} else if (t instanceof ParameterizedType) {
+		if (t instanceof ParameterizedType || t instanceof Class || t instanceof GenericArrayType || t instanceof TypeVariable) {
 			return (TypeInformation<OUT>)
 				privateGetForClass(t, typeVariableBindings, currentExtractingClasses);
 		}
-		// no tuple, no TypeVariable, no generic type
-		else if (t instanceof Class) {
-			return (TypeInformation<OUT>)
-				privateGetForClass(t, typeVariableBindings, currentExtractingClasses);
-		}
-
 		throw new InvalidTypesException("Type Information could not be created.");
 	}
 
@@ -923,10 +902,19 @@ public class TypeExtractor {
 		Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
 		List<Class<?>> extractingClasses) {
 
-		//TODO:: how to deal with array
-		Class<OUT> clazz = (Class<OUT>) typeToClass(type);
-
 		TypeInformation<OUT> typeInformation;
+
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForTypeVariable(type, typeVariableBindings)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = (TypeInformation<OUT>) extractGenericArrayTypeInformation(type, typeVariableBindings, extractingClasses)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = (TypeInformation<OUT>) extractArrayTypeInformation(type, typeVariableBindings, extractingClasses)) != null) {
+			return typeInformation;
+		}
 
 		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationFromFactory(type, typeVariableBindings, extractingClasses)) != null) {
 			return typeInformation;
@@ -936,6 +924,8 @@ public class TypeExtractor {
 		if (typeInformation != null) {
 			return typeInformation;
 		}
+
+		Class<OUT> clazz = (Class<OUT>) typeToClass(type);
 
 		// Object is handled as generic type info
 		if (clazz.equals(Object.class)) {
@@ -1004,6 +994,33 @@ public class TypeExtractor {
 
 		// return a generic type
 		return new GenericTypeInfo<>(clazz);
+	}
+
+	/**
+	 * Try to extract the {@link TypeInformation} from the mapping relation between {@link TypeVariable} and {@link TypeInformation}.
+	 * @param type the type needed to extract {@link TypeInformation}
+	 * @param typeVariableBindings contains mapping relation between the type variable and type information
+	 * @return the {@link TypeInformation} of the given type if the mapping contains the type or null if the type is not {@link TypeVariable}
+	 * @throws InvalidTypesException if the type variable can not find the type information of the given type variable from the mapping.
+	 */
+	@Nullable
+	private static TypeInformation<?> extractTypeInformationForTypeVariable(
+		final Type type, final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings) {
+
+		if (type instanceof TypeVariable) {
+			final TypeInformation<?> typeInfo = typeVariableBindings.get(type);
+			if (typeInfo != null) {
+				return typeInfo;
+			} else {
+				throw new InvalidTypesException("Type of TypeVariable '" + ((TypeVariable<?>) type).getName() + "' in '"
+					+ ((TypeVariable<?>) type).getGenericDeclaration() + "' could not be determined. This is most likely a type erasure problem. "
+					+ "The type extraction currently supports types with generic variables only in cases where "
+					+ "all variables in the return type can be deduced from the input type(s). "
+					+ "Otherwise the type has to be specified explicitly using type information.");
+			}
+		} else {
+			return null;
+		}
 	}
 
 	/**
@@ -1883,14 +1900,14 @@ public class TypeExtractor {
 	}
 
 	/**
-	 * Extract {@link TypeInformation} for the array type.
+	 * Try to extract {@link TypeInformation} of {@link GenericArrayType}.
 	 * @param type the type needed to extract {@link TypeInformation}
 	 * @param typeVariableBindings the mapping relation between type variable and type information
 	 * @param extractingClasses the classes that the type is nested into.
-	 * @return the type information of the type or null if the type is not a array.
+	 * @return the {@link TypeInformation} of the given type or {@code null} if the type is not a {@link GenericArrayType}
 	 */
 	@Nullable
-	private static TypeInformation<?> extractArrayTypeInformation(
+	private static TypeInformation<?> extractGenericArrayTypeInformation(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
 		final List<Class<?>> extractingClasses) {
@@ -1905,6 +1922,7 @@ public class TypeExtractor {
 				final Class<?> componentClass = (Class<?>) componentType;
 
 				classArray = (java.lang.reflect.Array.newInstance(componentClass, 0).getClass());
+				return createTypeInfo(classArray, typeVariableBindings, extractingClasses);
 			} else {
 				final TypeInformation<?> componentInfo = createTypeInfo(
 					genericArray.getGenericComponentType(),
@@ -1915,31 +1933,49 @@ public class TypeExtractor {
 					java.lang.reflect.Array.newInstance(componentInfo.getTypeClass(), 0).getClass(),
 					componentInfo);
 			}
-		} else if (type instanceof Class<?> && ((Class<?>) type).isArray()) {
-			classArray = (Class<?>) type;
-		} else {
-			return null;
 		}
-
-		// primitive arrays: int[], byte[], ...
-		final PrimitiveArrayTypeInfo<?> primitiveArrayInfo = PrimitiveArrayTypeInfo.getInfoFor(classArray);
-		if (primitiveArrayInfo != null) {
-			return primitiveArrayInfo;
-		}
-
-		// basic type arrays: String[], Integer[], Double[]
-		final BasicArrayTypeInfo<?, ?> basicArrayInfo = BasicArrayTypeInfo.getInfoFor(classArray);
-		if (basicArrayInfo != null) {
-			return basicArrayInfo;
-		} else {
-			final TypeInformation<?> componentTypeInfo = createTypeInfo(
-				classArray.getComponentType(),
-				typeVariableBindings,
-				extractingClasses);
-
-			return ObjectArrayTypeInfo.getInfoFor(classArray, componentTypeInfo);
-		}
+		return null;
 	}
+
+	/**
+	 * Try to extract {@link TypeInformation} of the array class.
+	 * @param type the type needed to extract {@link TypeInformation}
+	 * @param typeVariableBindings the mapping relation between type variable and type information
+	 * @param extractingClasses the type information of the type or null if the type is not a array.
+	 * @return the {@link TypeInformation} of the given type if it is a array class or
+	 * {@code null} if the type is not the array class.
+	 */
+	@Nullable
+	private static TypeInformation<?> extractArrayTypeInformation(
+		final Type type,
+		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
+		final List<Class<?>> extractingClasses) {
+
+		if (type instanceof Class && ((Class) type).isArray()) {
+			final Class<?> classArray = (Class<?>) type;
+			// primitive arrays: int[], byte[], ...
+			final PrimitiveArrayTypeInfo<?> primitiveArrayInfo = PrimitiveArrayTypeInfo.getInfoFor(classArray);
+			if (primitiveArrayInfo != null) {
+				return primitiveArrayInfo;
+			}
+
+			// basic type arrays: String[], Integer[], Double[]
+			final BasicArrayTypeInfo<?, ?> basicArrayInfo = BasicArrayTypeInfo.getInfoFor(classArray);
+			if (basicArrayInfo != null) {
+				return basicArrayInfo;
+			} else {
+				final TypeInformation<?> componentTypeInfo = createTypeInfo(
+					classArray.getComponentType(),
+					typeVariableBindings,
+					extractingClasses);
+
+				return ObjectArrayTypeInfo.getInfoFor(classArray, componentTypeInfo);
+			}
+		}
+		return null;
+	}
+
+
 
 
 	/**
