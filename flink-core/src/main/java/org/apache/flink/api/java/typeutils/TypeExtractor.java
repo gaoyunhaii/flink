@@ -834,22 +834,76 @@ public class TypeExtractor {
 
 	@SuppressWarnings({ "unchecked", "rawtypes" })
 	private static <OUT> TypeInformation<OUT> createTypeInfo(
-		final Type t,
+		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
 		final List<Class<?>> extractingClasses) {
 
 		final List<Class<?>> currentExtractingClasses;
-		if (isClassType(t)) {
+		if (isClassType(type)) {
 			currentExtractingClasses = new ArrayList(extractingClasses);
-			currentExtractingClasses.add(typeToClass(t));
+			currentExtractingClasses.add(typeToClass(type));
 		} else {
 			currentExtractingClasses = extractingClasses;
 		}
 
-		if (t instanceof ParameterizedType || t instanceof Class || t instanceof GenericArrayType || t instanceof TypeVariable) {
-			return (TypeInformation<OUT>)
-				privateGetForClass(t, typeVariableBindings, currentExtractingClasses);
+		TypeInformation<OUT> typeInformation;
+
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForTypeVariable(type, typeVariableBindings)) != null) {
+			return typeInformation;
 		}
+
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForGenericArray(type, typeVariableBindings, currentExtractingClasses)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForClassArray(type, typeVariableBindings, currentExtractingClasses)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForTypeFactory(type, typeVariableBindings, currentExtractingClasses)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForTuple(type, typeVariableBindings, currentExtractingClasses)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForRecursiveType(type, currentExtractingClasses)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForHadoopWritable(type)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForBasicType(type)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForSQLTimeType(type)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForValue(type)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForEnum(type)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForAvro(type)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = analyzePojo(type, typeVariableBindings, currentExtractingClasses)) != null) {
+			return typeInformation;
+		}
+
+		if (isClassType(type)) {
+			return new GenericTypeInfo<>((Class<OUT>) typeToClass(type));
+		}
+
 		throw new InvalidTypesException("Type Information could not be created.");
 	}
 
@@ -894,82 +948,6 @@ public class TypeExtractor {
 	 */
 	public static <X> TypeInformation<X> getForClass(Class<X> clazz) {
 		return createTypeInfo(clazz, Collections.emptyMap(), Collections.emptyList());
-	}
-
-	@SuppressWarnings({ "unchecked", "rawtypes" })
-	private static <OUT> TypeInformation<OUT> privateGetForClass(
-		Type type,
-		Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
-		List<Class<?>> extractingClasses) {
-
-		TypeInformation<OUT> typeInformation;
-
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForTypeVariable(type, typeVariableBindings)) != null) {
-			return typeInformation;
-		}
-
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForGenericArray(type, typeVariableBindings, extractingClasses)) != null) {
-			return typeInformation;
-		}
-
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForClassArray(type, typeVariableBindings, extractingClasses)) != null) {
-			return typeInformation;
-		}
-
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForTypeFactory(type, typeVariableBindings, extractingClasses)) != null) {
-			return typeInformation;
-		}
-
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForTuple(type, typeVariableBindings, extractingClasses)) != null) {
-			return typeInformation;
-		}
-
-		Class<OUT> clazz = (Class<OUT>) typeToClass(type);
-
-		// recursive types are handled as generic type info
-		if (countTypeInHierarchy(extractingClasses, clazz) > 1) {
-			return new GenericTypeInfo<>(clazz);
-		}
-
-		// check for writable types
-		if (isHadoopWritable(clazz)) {
-			return createHadoopWritableTypeInfo(clazz);
-		}
-
-		// check for basic types
-		TypeInformation<OUT> basicTypeInfo = BasicTypeInfo.getInfoFor(clazz);
-		if (basicTypeInfo != null) {
-			return basicTypeInfo;
-		}
-
-		// check for SQL time types
-		TypeInformation<OUT> timeTypeInfo = SqlTimeTypeInfo.getInfoFor(clazz);
-		if (timeTypeInfo != null) {
-			return timeTypeInfo;
-		}
-
-		// check for subclasses of Value
-		if (Value.class.isAssignableFrom(clazz)) {
-			Class<? extends Value> valueClass = clazz.asSubclass(Value.class);
-			return (TypeInformation<OUT>) ValueTypeInfo.getValueTypeInfo(valueClass);
-		}
-
-		// check for Enums
-		if (Enum.class.isAssignableFrom(clazz)) {
-			return new EnumTypeInfo(clazz);
-		}
-
-		// special case for POJOs generated by Avro.
-		if (hasSuperclass(clazz, AVRO_SPECIFIC_RECORD_BASE_CLASS)) {
-			return AvroUtils.getAvroUtils().createAvroTypeInfo(clazz);
-		}
-
-		if ((typeInformation = analyzePojo(type, typeVariableBindings, extractingClasses)) != null) {
-			return typeInformation;
-		}
-
-		// return a generic type
-		return new GenericTypeInfo<>(clazz);
 	}
 
 	/**
@@ -1315,66 +1293,6 @@ public class TypeExtractor {
 		}
 		else {
 			return createTypeInfo(value.getClass(), Collections.emptyMap(), Collections.emptyList());
-		}
-	}
-
-	// ------------------------------------------------------------------------
-	//  Utilities to handle Hadoop's 'Writable' type via reflection
-	// ------------------------------------------------------------------------
-
-	// visible for testing
-	static boolean isHadoopWritable(Class<?> typeClass) {
-		// check if this is directly the writable interface
-		if (typeClass.getName().equals(HADOOP_WRITABLE_CLASS)) {
-			return false;
-		}
-
-		final HashSet<Class<?>> alreadySeen = new HashSet<>();
-		alreadySeen.add(typeClass);
-		return hasHadoopWritableInterface(typeClass, alreadySeen);
-	}
-
-	private static boolean hasHadoopWritableInterface(Class<?> clazz,  HashSet<Class<?>> alreadySeen) {
-		Class<?>[] interfaces = clazz.getInterfaces();
-		for (Class<?> c : interfaces) {
-			if (c.getName().equals(HADOOP_WRITABLE_CLASS)) {
-				return true;
-			}
-			else if (alreadySeen.add(c) && hasHadoopWritableInterface(c, alreadySeen)) {
-				return true;
-			}
-		}
-
-		Class<?> superclass = clazz.getSuperclass();
-		return superclass != null && alreadySeen.add(superclass) && hasHadoopWritableInterface(superclass, alreadySeen);
-	}
-
-	// visible for testing
-	public static <T> TypeInformation<T> createHadoopWritableTypeInfo(Class<T> clazz) {
-		checkNotNull(clazz);
-
-		Class<?> typeInfoClass;
-		try {
-			typeInfoClass =
-				Class.forName(HADOOP_WRITABLE_TYPEINFO_CLASS, false, Thread.currentThread().getContextClassLoader());
-		}
-		catch (ClassNotFoundException e) {
-			throw new RuntimeException("Could not load the TypeInformation for the class '"
-					+ HADOOP_WRITABLE_CLASS + "'. You may be missing the 'flink-hadoop-compatibility' dependency.");
-		}
-
-		try {
-			Constructor<?> constr = typeInfoClass.getConstructor(Class.class);
-
-			@SuppressWarnings("unchecked")
-			TypeInformation<T> typeInfo = (TypeInformation<T>) constr.newInstance(clazz);
-			return typeInfo;
-		}
-		catch (NoSuchMethodException | IllegalAccessException | InstantiationException e) {
-			throw new RuntimeException("Incompatible versions of the Hadoop Compatibility classes found.");
-		}
-		catch (InvocationTargetException e) {
-			throw new RuntimeException("Cannot create Hadoop WritableTypeInfo.", e.getTargetException());
 		}
 	}
 
@@ -1785,6 +1703,7 @@ public class TypeExtractor {
 		final GenericArrayType genericArrayType,
 		final TypeInformation<?> typeInformation) {
 
+		//TODO:: should not depend on the specific TypeInformation
 		TypeInformation<?> componentInfo = null;
 		if (typeInformation instanceof BasicArrayTypeInfo) {
 			componentInfo = ((BasicArrayTypeInfo<?, ?>) typeInformation).getComponentInfo();
@@ -1823,6 +1742,162 @@ public class TypeExtractor {
 		}
 
 		return typeVariableBindings.isEmpty() ? Collections.emptyMap() : typeVariableBindings;
+	}
+
+	// ------------------------------------------------------------------------
+	//  Extract TypeInformation for Recursive type
+	// ------------------------------------------------------------------------
+
+	private static TypeInformation<?> extractTypeInformationForRecursiveType(final Type type, final List<Class<?>> extractingClasses) {
+
+		if (isClassType(type)) {
+			// recursive types are handled as generic type info
+			final Class<?> clazz = typeToClass(type);
+			if (countTypeInHierarchy(extractingClasses, clazz) > 1) {
+				return new GenericTypeInfo<>(clazz);
+			}
+		}
+		return null;
+	}
+
+	// ------------------------------------------------------------------------
+	//  Extract TypeInformation for Writable
+	// ------------------------------------------------------------------------
+
+	/**
+	 * Extract {@link TypeInformation} for hadoop 'Writable'.
+	 * @param type the type needed to extract {@link TypeInformation}
+	 * @return the {@link TypeInformation} of the type of {@code null} if the type is not the sub type of 'Writable'.
+	 * @throws RuntimeException if error occurs when loading the 'Writable' through the reflection.
+	 */
+	private static TypeInformation<?> extractTypeInformationForHadoopWritable(final Type type) {
+		if (isClassType(type)) {
+			final Class<?> clazz = typeToClass(type);
+			// check for writable types
+			if (isHadoopWritable(clazz)) {
+				return createHadoopWritableTypeInfo(clazz);
+			}
+		}
+		return null;
+	}
+
+	@VisibleForTesting
+	static boolean isHadoopWritable(Class<?> typeClass) {
+		// check if this is directly the writable interface
+		if (typeClass.getName().equals(HADOOP_WRITABLE_CLASS)) {
+			return false;
+		}
+
+		final HashSet<Class<?>> alreadySeen = new HashSet<>();
+		alreadySeen.add(typeClass);
+		return hasHadoopWritableInterface(typeClass, alreadySeen);
+	}
+
+	private static boolean hasHadoopWritableInterface(Class<?> clazz,  HashSet<Class<?>> alreadySeen) {
+		Class<?>[] interfaces = clazz.getInterfaces();
+		for (Class<?> c : interfaces) {
+			if (c.getName().equals(HADOOP_WRITABLE_CLASS)) {
+				return true;
+			}
+			else if (alreadySeen.add(c) && hasHadoopWritableInterface(c, alreadySeen)) {
+				return true;
+			}
+		}
+
+		Class<?> superclass = clazz.getSuperclass();
+		return superclass != null && alreadySeen.add(superclass) && hasHadoopWritableInterface(superclass, alreadySeen);
+	}
+
+	@VisibleForTesting
+	public static <T> TypeInformation<T> createHadoopWritableTypeInfo(Class<T> clazz) {
+		checkNotNull(clazz);
+
+		Class<?> typeInfoClass;
+		try {
+			typeInfoClass =
+				Class.forName(HADOOP_WRITABLE_TYPEINFO_CLASS, false, Thread.currentThread().getContextClassLoader());
+		}
+		catch (ClassNotFoundException e) {
+			throw new RuntimeException("Could not load the TypeInformation for the class '"
+				+ HADOOP_WRITABLE_CLASS + "'. You may be missing the 'flink-hadoop-compatibility' dependency.");
+		}
+
+		try {
+			Constructor<?> constr = typeInfoClass.getConstructor(Class.class);
+
+			@SuppressWarnings("unchecked")
+			TypeInformation<T> typeInfo = (TypeInformation<T>) constr.newInstance(clazz);
+			return typeInfo;
+		}
+		catch (NoSuchMethodException | IllegalAccessException | InstantiationException e) {
+			throw new RuntimeException("Incompatible versions of the Hadoop Compatibility classes found.");
+		}
+		catch (InvocationTargetException e) {
+			throw new RuntimeException("Cannot create Hadoop WritableTypeInfo.", e.getTargetException());
+		}
+	}
+
+	// ------------------------------------------------------------------------
+	//  Extract TypeInformation for Avro
+	// ------------------------------------------------------------------------
+
+	private static TypeInformation<?> extractTypeInformationForAvro(final Type type) {
+		if (isClassType(type)) {
+			final Class<?> clazz = typeToClass(type);
+			if (hasSuperclass(clazz, AVRO_SPECIFIC_RECORD_BASE_CLASS)) {
+				return AvroUtils.getAvroUtils().createAvroTypeInfo(clazz);
+			}
+		}
+		return null;
+	}
+
+	// ------------------------------------------------------------------------
+	//  Extract TypeInformation for Basic type
+	// ------------------------------------------------------------------------
+
+	private static TypeInformation<?> extractTypeInformationForBasicType(final Type type) {
+		if (isClassType(type)) {
+			return BasicTypeInfo.getInfoFor(typeToClass(type));
+		}
+		return null;
+	}
+
+	// ------------------------------------------------------------------------
+	//  Extract TypeInformation for Basic type
+	// ------------------------------------------------------------------------
+
+	private static TypeInformation<?> extractTypeInformationForSQLTimeType(final Type type) {
+		if (isClassType(type)) {
+			return SqlTimeTypeInfo.getInfoFor(typeToClass(type));
+		}
+		return null;
+	}
+
+	// ------------------------------------------------------------------------
+	//  Extract TypeInformation for Enum
+	// ------------------------------------------------------------------------
+	@SuppressWarnings("unchecked")
+	private static TypeInformation<?> extractTypeInformationForEnum(final Type type) {
+		if (isClassType(type)) {
+			if (Enum.class.isAssignableFrom(typeToClass(type))) {
+				return new EnumTypeInfo(typeToClass(type));
+			}
+		}
+		return null;
+	}
+
+	// ------------------------------------------------------------------------
+	//  Extract TypeInformation for Value type.
+	// ------------------------------------------------------------------------
+
+	private static TypeInformation<?> extractTypeInformationForValue(final Type type) {
+		if (isClassType(type)) {
+			if (Value.class.isAssignableFrom(typeToClass(type))) {
+				Class<? extends Value> valueClass = typeToClass(type).asSubclass(Value.class);
+				return ValueTypeInfo.getValueTypeInfo(valueClass);
+			}
+		}
+		return null;
 	}
 
 	/**
