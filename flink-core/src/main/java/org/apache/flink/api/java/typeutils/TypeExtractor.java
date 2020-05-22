@@ -908,34 +908,23 @@ public class TypeExtractor {
 			return typeInformation;
 		}
 
-		if ((typeInformation = (TypeInformation<OUT>) extractGenericArrayTypeInformation(type, typeVariableBindings, extractingClasses)) != null) {
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForGenericArray(type, typeVariableBindings, extractingClasses)) != null) {
 			return typeInformation;
 		}
 
-		if ((typeInformation = (TypeInformation<OUT>) extractArrayTypeInformation(type, typeVariableBindings, extractingClasses)) != null) {
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForClassArray(type, typeVariableBindings, extractingClasses)) != null) {
 			return typeInformation;
 		}
 
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationFromFactory(type, typeVariableBindings, extractingClasses)) != null) {
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForTypeFactory(type, typeVariableBindings, extractingClasses)) != null) {
 			return typeInformation;
 		}
 
-		typeInformation = (TypeInformation<OUT>) extractTupleTypeInformation(type, typeVariableBindings, extractingClasses);
-		if (typeInformation != null) {
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForTuple(type, typeVariableBindings, extractingClasses)) != null) {
 			return typeInformation;
 		}
 
 		Class<OUT> clazz = (Class<OUT>) typeToClass(type);
-
-		// Object is handled as generic type info
-		if (clazz.equals(Object.class)) {
-			return new GenericTypeInfo<>(clazz);
-		}
-
-		// Class is handled as generic type info
-		if (clazz.equals(Class.class)) {
-			return new GenericTypeInfo<>(clazz);
-		}
 
 		// recursive types are handled as generic type info
 		if (countTypeInHierarchy(extractingClasses, clazz) > 1) {
@@ -975,21 +964,8 @@ public class TypeExtractor {
 			return AvroUtils.getAvroUtils().createAvroTypeInfo(clazz);
 		}
 
-		if (Modifier.isInterface(clazz.getModifiers())) {
-			// Interface has no members and is therefore not handled as POJO
-			return new GenericTypeInfo<>(clazz);
-		}
-
-		try {
-			TypeInformation<OUT> pojoType = analyzePojo(type, typeVariableBindings, extractingClasses);
-			if (pojoType != null) {
-				return pojoType;
-			}
-		} catch (InvalidTypesException e) {
-			if (LOG.isDebugEnabled()) {
-				LOG.debug("Unable to handle type " + clazz + " as POJO. Message: " + e.getMessage(), e);
-			}
-			// ignore and create generic type info
+		if ((typeInformation = analyzePojo(type, typeVariableBindings, extractingClasses)) != null) {
+			return typeInformation;
 		}
 
 		// return a generic type
@@ -997,11 +973,14 @@ public class TypeExtractor {
 	}
 
 	/**
-	 * Try to extract the {@link TypeInformation} from the mapping relation between {@link TypeVariable} and {@link TypeInformation}.
+	 * Extract the {@link TypeInformation} for the {@link TypeVariable}. This method find the {@link TypeInformation} of
+	 * the type in the the given mapping relation between {@link TypeVariable} and {@link TypeInformation}
+	 * if the given type is {@link TypeVariable}.
 	 * @param type the type needed to extract {@link TypeInformation}
-	 * @param typeVariableBindings contains mapping relation between the type variable and type information
-	 * @return the {@link TypeInformation} of the given type if the mapping contains the type or null if the type is not {@link TypeVariable}
-	 * @throws InvalidTypesException if the type variable can not find the type information of the given type variable from the mapping.
+	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}.
+	 * @return the {@link TypeInformation} of the given type if the mapping contains the type or{@code null} if the
+	 * type is not {@link TypeVariable}
+	 * @throws InvalidTypesException if the {@link TypeVariable} can not be found in the given mapping relation.
 	 */
 	@Nullable
 	private static TypeInformation<?> extractTypeInformationForTypeVariable(
@@ -1115,6 +1094,7 @@ public class TypeExtractor {
 			LOG.info("Class " + clazz.getName() + " is not public so it cannot be used as a POJO type " +
 				"and must be processed as GenericType. Please read the Flink documentation " +
 				"on \"Data Types & Serialization\" for details of the effect on performance.");
+			// TODO:: maybe we should return null
 			return new GenericTypeInfo<>(clazz);
 		}
 
@@ -1125,11 +1105,20 @@ public class TypeExtractor {
 			typeHierarchy = buildParameterizedTypeHierarchy(clazz, Object.class);
 		}
 
-		List<Field> fields = getAllDeclaredFields(clazz, false);
+		final List<Field> fields;
+		try {
+			fields = getAllDeclaredFields(clazz, false);
+		} catch (InvalidTypesException e) {
+			if (LOG.isDebugEnabled()) {
+				LOG.debug("Unable to handle type {} " + clazz + " as POJO. Message: " + e.getMessage(), e);
+			}
+			return null;
+		}
 		if (fields.size() == 0) {
 			LOG.info("No fields were detected for " + clazz + " so it cannot be used as a POJO type " +
 				"and must be processed as GenericType. Please read the Flink documentation " +
 				"on \"Data Types & Serialization\" for details of the effect on performance.");
+			// TODO:: maybe we should always return null
 			return new GenericTypeInfo<>(clazz);
 		}
 
@@ -1149,6 +1138,7 @@ public class TypeExtractor {
 				TypeInformation<?> ti = createTypeInfo(resolveFieldType, typeVariableBindings, extractingClasses);
 				pojoFields.add(new PojoField(field, ti));
 			} catch (InvalidTypesException e) {
+				// TODO:: This exception handle leads to inconsistent behaviour when Tuple & TypeFactory fail.
 				Class<?> genericClass = Object.class;
 				if (isClassType(fieldType)) {
 					genericClass = typeToClass(fieldType);
@@ -1276,7 +1266,7 @@ public class TypeExtractor {
 		checkNotNull(value);
 
 		final TypeInformation<X> typeFromFactory =
-			(TypeInformation<X>) extractTypeInformationFromFactory(value.getClass(), Collections.emptyMap(), Collections.emptyList());
+			(TypeInformation<X>) extractTypeInformationForTypeFactory(value.getClass(), Collections.emptyMap(), Collections.emptyList());
 		if (typeFromFactory != null) {
 			return typeFromFactory;
 		}
@@ -1838,14 +1828,14 @@ public class TypeExtractor {
 	/**
 	 * Extract the {@link TypeInformation} for the {@link Tuple}.
 	 * @param type the type needed to extract {@link TypeInformation}
-	 * @param typeVariableBindings the mapping relation between type variable and type information
+	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}
 	 * @param extractingClasses the classes that the type is nested into.
-	 * @return the type information of the type or {@code null} if the type information of the generic parameter of
-	 * the type could not be extracted or throw {@code InvalidTypesException} if
-	 * the subclass of {@link Tuple} could not use the {@link TupleTypeInfo}
+	 * @return the {@link TypeInformation} of the type or {@code null} if the type information of the generic parameter of
+	 * the {@link Tuple} could not be extracted
+	 * @throws InvalidTypesException if the type is sub type of {@link Type} but not a generic class or if the type is {@link Type}.
 	 */
 	@Nullable
-	private static TypeInformation<?> extractTupleTypeInformation(
+	private static TypeInformation<?> extractTypeInformationForTuple(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
 		final List<Class<?>> extractingClasses) {
@@ -1900,14 +1890,14 @@ public class TypeExtractor {
 	}
 
 	/**
-	 * Try to extract {@link TypeInformation} of {@link GenericArrayType}.
+	 * Extract {@link TypeInformation} for {@link GenericArrayType}.
 	 * @param type the type needed to extract {@link TypeInformation}
-	 * @param typeVariableBindings the mapping relation between type variable and type information
+	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}.
 	 * @param extractingClasses the classes that the type is nested into.
 	 * @return the {@link TypeInformation} of the given type or {@code null} if the type is not a {@link GenericArrayType}
 	 */
 	@Nullable
-	private static TypeInformation<?> extractGenericArrayTypeInformation(
+	private static TypeInformation<?> extractTypeInformationForGenericArray(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
 		final List<Class<?>> extractingClasses) {
@@ -1938,15 +1928,14 @@ public class TypeExtractor {
 	}
 
 	/**
-	 * Try to extract {@link TypeInformation} of the array class.
+	 * Extract {@link TypeInformation} for the class array.
 	 * @param type the type needed to extract {@link TypeInformation}
-	 * @param typeVariableBindings the mapping relation between type variable and type information
+	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}.
 	 * @param extractingClasses the type information of the type or null if the type is not a array.
-	 * @return the {@link TypeInformation} of the given type if it is a array class or
-	 * {@code null} if the type is not the array class.
+	 * @return the {@link TypeInformation} of the given type if it is a array class or {@code null} if the type is not the array class.
 	 */
 	@Nullable
-	private static TypeInformation<?> extractArrayTypeInformation(
+	private static TypeInformation<?> extractTypeInformationForClassArray(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
 		final List<Class<?>> extractingClasses) {
@@ -1975,19 +1964,16 @@ public class TypeExtractor {
 		return null;
 	}
 
-
-
-
 	/**
-	 * Extracting {@link TypeInformation} for a type that has {@link TypeInfo} annotation.
+	 * Extract {@link TypeInformation} for the type that has {@link TypeInfo} annotation.
 	 * @param type  the type needed to extract {@link TypeInformation}
-	 * @param typeVariableBindings typeVariableBindings the mapping relation between type variable and type information
+	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}.
 	 * @param extractingClasses the classes that the type is nested into.
-	 * @return the type information of the type or null if the type does not have the annotation.
-	 * throw {@link InvalidTypesException} if factory does not create a valid {@link TypeInformation}
+	 * @return the {@link TypeInformation} of the given type or {@code null} if the type does not have the annotation
+	 * @throws InvalidTypesException if the factory does not create a valid {@link TypeInformation} or if creating generic type failed
 	 */
 	@Nullable
-	private static TypeInformation<?> extractTypeInformationFromFactory(
+	private static TypeInformation<?> extractTypeInformationForTypeFactory(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
 		final List<Class<?>> extractingClasses) {
@@ -2022,6 +2008,7 @@ public class TypeExtractor {
 
 		final TypeInformation<?> createdTypeInfo = factory.createTypeInfo(type, genericParams);
 		if (createdTypeInfo == null) {
+			//TODO:: has a test??
 			throw new InvalidTypesException("TypeInfoFactory returned invalid TypeInformation 'null'");
 		}
 		return createdTypeInfo;
