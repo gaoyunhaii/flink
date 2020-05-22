@@ -46,7 +46,6 @@ import org.apache.flink.api.common.typeinfo.TypeInfoFactory;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple;
-import org.apache.flink.api.java.tuple.Tuple0;
 import org.apache.flink.api.java.typeutils.TypeExtractionUtils.LambdaExecutable;
 import org.apache.flink.types.Row;
 import org.apache.flink.types.Value;
@@ -75,6 +74,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.apache.flink.api.java.typeutils.PojoTypeInfo.extractTypeInformationFroPOJOType;
+import static org.apache.flink.api.java.typeutils.TupleTypeInfo.extractTypeInformationForTuple;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.checkAndExtractLambda;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.hasSuperclass;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
@@ -922,7 +922,7 @@ public class TypeExtractor {
 		return count;
 	}
 
-	private static int countFieldsInClass(Class<?> clazz) {
+	static int countFieldsInClass(Class<?> clazz) {
 		int fieldCount = 0;
 		for (Field field : clazz.getFields()) { // get all fields
 			if (!Modifier.isStatic(field.getModifiers()) &&
@@ -1711,70 +1711,6 @@ public class TypeExtractor {
 	}
 
 	/**
-	 * Extract the {@link TypeInformation} for the {@link Tuple}.
-	 * @param type the type needed to extract {@link TypeInformation}
-	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}
-	 * @param extractingClasses the classes that the type is nested into.
-	 * @return the {@link TypeInformation} of the type or {@code null} if the type information of the generic parameter of
-	 * the {@link Tuple} could not be extracted
-	 * @throws InvalidTypesException if the type is sub type of {@link Type} but not a generic class or if the type is {@link Type}.
-	 */
-	@Nullable
-	private static TypeInformation<?> extractTypeInformationForTuple(
-		final Type type,
-		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
-		final List<Class<?>> extractingClasses) {
-
-		if (!(isClassType(type) && Tuple.class.isAssignableFrom(typeToClass(type)))) {
-			return null;
-		}
-
-		final List<ParameterizedType> typeHierarchy = new ArrayList<>();
-
-		Type curT = type;
-
-		// do not allow usage of Tuple as type
-		if (typeToClass(type).equals(Tuple.class)) {
-			throw new InvalidTypesException(
-				"Usage of class Tuple as a type is not allowed. Use a concrete subclass (e.g. Tuple1, Tuple2, etc.) instead.");
-		}
-
-		// go up the hierarchy until we reach immediate child of Tuple (with or without generics)
-		// collect the types while moving up for a later top-down
-		while (!(isClassType(curT) && typeToClass(curT).getSuperclass().equals(Tuple.class))) {
-			if (curT instanceof ParameterizedType) {
-				typeHierarchy.add((ParameterizedType) curT);
-			}
-			curT = typeToClass(curT).getGenericSuperclass();
-		}
-
-		if (curT == Tuple0.class) {
-			return new TupleTypeInfo(Tuple0.class);
-		}
-
-		// check if immediate child of Tuple has generics
-		if (curT instanceof Class<?>) {
-			throw new InvalidTypesException("Tuple needs to be parameterized by using generics.");
-		}
-
-		if (curT instanceof ParameterizedType) {
-			typeHierarchy.add((ParameterizedType) curT);
-		}
-
-		curT = resolveTypeFromTypeHierarchy(curT, typeHierarchy, true);
-
-		// create the type information for the subtypes
-		final TypeInformation<?>[] subTypesInfo =
-			createSubTypesInfo(type, (ParameterizedType) curT, typeVariableBindings, extractingClasses, false);
-
-		if (subTypesInfo == null) {
-			return null;
-		}
-		// return tuple info
-		return new TupleTypeInfo(typeToClass(type), subTypesInfo);
-	}
-
-	/**
 	 * Extract {@link TypeInformation} for {@link GenericArrayType}.
 	 * @param type the type needed to extract {@link TypeInformation}
 	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}.
@@ -1965,31 +1901,14 @@ public class TypeExtractor {
 		final TypeInformation<?>[] subTypesInfo = new TypeInformation<?>[typeArgumentsLength];
 		for (int i = 0; i < typeArgumentsLength; i++) {
 			final Type actualTypeArgument = definingType.getActualTypeArguments()[i];
-			// sub type could not be determined with materializing
-			// try to derive the type info of the TypeVariable from the immediate base child input as a last attempt
-			if (actualTypeArgument instanceof TypeVariable<?>) {
-				subTypesInfo[i] = typeVariableBindings.get(actualTypeArgument);
 
-				// variable could not be determined
-				if (subTypesInfo[i] == null && !lenient) {
-					throw new InvalidTypesException("Type of TypeVariable '"
-						+ ((TypeVariable<?>) actualTypeArgument).getName() + "' in '"
-						+ ((TypeVariable<?>) actualTypeArgument).getGenericDeclaration()
-						+ "' could not be determined. This is most likely a type erasure problem. "
-						+ "The type extraction currently supports types with generic variables only in cases where "
-						+ "all variables in the return type can be deduced from the input type(s). "
-						+ "Otherwise the type has to be specified explicitly using type information.");
-				}
-			} else {
-				// create the type information of the subtype or null/exception
-				try {
-					subTypesInfo[i] = createTypeInfo(actualTypeArgument, typeVariableBindings, extractingClasses);
-				} catch (InvalidTypesException e) {
-					if (lenient) {
-						subTypesInfo[i] = null;
-					} else {
-						throw e;
-					}
+			try {
+				subTypesInfo[i] = createTypeInfo(actualTypeArgument, typeVariableBindings, extractingClasses);
+			} catch (InvalidTypesException e) {
+				if (lenient) {
+					subTypesInfo[i] = null;
+				} else {
+					throw e;
 				}
 			}
 		}

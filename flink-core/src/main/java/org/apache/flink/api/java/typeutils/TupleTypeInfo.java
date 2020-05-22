@@ -18,29 +18,39 @@
 
 package org.apache.flink.api.java.typeutils;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-
-import java.util.HashMap;
-import java.util.Map;
-import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.annotation.Public;
+import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.functions.InvalidTypesException;
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeutils.TypeComparator;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
+import org.apache.flink.api.java.tuple.Tuple;
+import org.apache.flink.api.java.tuple.Tuple0;
 import org.apache.flink.api.java.typeutils.runtime.Tuple0Serializer;
 import org.apache.flink.api.java.typeutils.runtime.TupleComparator;
 import org.apache.flink.api.java.typeutils.runtime.TupleSerializer;
 import org.apache.flink.types.Value;
+import org.apache.flink.util.Preconditions;
 
-//CHECKSTYLE.OFF: AvoidStarImport - Needed for TupleGenerator
-import org.apache.flink.api.java.tuple.*;
-//CHECKSTYLE.ON: AvoidStarImport
+import javax.annotation.Nullable;
 
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
+import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
+import static org.apache.flink.api.java.typeutils.TypeExtractor.countFieldsInClass;
+import static org.apache.flink.api.java.typeutils.TypeExtractor.createTypeInfo;
+import static org.apache.flink.api.java.typeutils.TypeExtractor.resolveTypeFromTypeHierarchy;
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkState;
 
@@ -51,7 +61,7 @@ import static org.apache.flink.util.Preconditions.checkState;
  */
 @Public
 public final class TupleTypeInfo<T extends Tuple> extends TupleTypeInfoBase<T> {
-	
+
 	private static final long serialVersionUID = 1L;
 
 	protected final String[] fieldNames;
@@ -106,10 +116,10 @@ public final class TupleTypeInfo<T extends Tuple> extends TupleTypeInfoBase<T> {
 		for (int i = 0; i < types.length; i++) {
 			fieldSerializers[i] = types[i].createSerializer(executionConfig);
 		}
-		
+
 		Class<T> tupleClass = getTypeClass();
-		
-		return new TupleSerializer<T>(tupleClass, fieldSerializers);
+
+		return new TupleSerializer<>(tupleClass, fieldSerializers);
 	}
 
 	@Override
@@ -119,8 +129,8 @@ public final class TupleTypeInfo<T extends Tuple> extends TupleTypeInfoBase<T> {
 
 	private class TupleTypeComparatorBuilder implements TypeComparatorBuilder<T> {
 
-		private final ArrayList<TypeComparator> fieldComparators = new ArrayList<TypeComparator>();
-		private final ArrayList<Integer> logicalKeyFields = new ArrayList<Integer>();
+		private final ArrayList<TypeComparator> fieldComparators = new ArrayList<>();
+		private final ArrayList<Integer> logicalKeyFields = new ArrayList<>();
 
 		@Override
 		public void initializeTypeComparatorBuilder(int size) {
@@ -164,9 +174,9 @@ public final class TupleTypeInfo<T extends Tuple> extends TupleTypeInfoBase<T> {
 				fieldSerializers[i] = types[i].createSerializer(config);
 			}
 
-			return new TupleComparator<T>(
+			return new TupleComparator<>(
 				listToPrimitives(logicalKeyFields),
-				fieldComparators.toArray(new TypeComparator[fieldComparators.size()]),
+				fieldComparators.toArray(new TypeComparator[0]),
 				fieldSerializers
 			);
 		}
@@ -182,7 +192,7 @@ public final class TupleTypeInfo<T extends Tuple> extends TupleTypeInfoBase<T> {
 	}
 
 	// --------------------------------------------------------------------------------------------
-	
+
 	@Override
 	public boolean equals(Object obj) {
 		if (obj instanceof TupleTypeInfo) {
@@ -200,12 +210,12 @@ public final class TupleTypeInfo<T extends Tuple> extends TupleTypeInfoBase<T> {
 	public boolean canEqual(Object obj) {
 		return obj instanceof TupleTypeInfo;
 	}
-	
+
 	@Override
 	public int hashCode() {
 		return 31 * super.hashCode() + Arrays.hashCode(fieldNames);
 	}
-	
+
 	@Override
 	public String toString() {
 		return "Java " + super.toString();
@@ -218,14 +228,14 @@ public final class TupleTypeInfo<T extends Tuple> extends TupleTypeInfoBase<T> {
 		if (basicTypes == null || basicTypes.length == 0) {
 			throw new IllegalArgumentException();
 		}
-		
+
 		TypeInformation<?>[] infos = new TypeInformation<?>[basicTypes.length];
 		for (int i = 0; i < infos.length; i++) {
 			Class<?> type = basicTypes[i];
 			if (type == null) {
 				throw new IllegalArgumentException("Type at position " + i + " is null.");
 			}
-			
+
 			TypeInformation<?> info = BasicTypeInfo.getInfoFor(type);
 			if (info == null) {
 				throw new IllegalArgumentException("Type at position " + i + " is not a basic type.");
@@ -233,9 +243,7 @@ public final class TupleTypeInfo<T extends Tuple> extends TupleTypeInfoBase<T> {
 			infos[i] = info;
 		}
 
-		@SuppressWarnings("unchecked")
-		TupleTypeInfo<X> tupleInfo = (TupleTypeInfo<X>) new TupleTypeInfo<Tuple>(infos);
-		return tupleInfo;
+		return new TupleTypeInfo<>(infos);
 	}
 
 	@SuppressWarnings("unchecked")
@@ -266,15 +274,112 @@ public final class TupleTypeInfo<T extends Tuple> extends TupleTypeInfoBase<T> {
 			infos[i] = info;
 		}
 
-
 		return (TupleTypeInfo<X>) new TupleTypeInfo<>(infos);
 	}
-	
+
 	private static int[] listToPrimitives(ArrayList<Integer> ints) {
 		int[] result = new int[ints.size()];
 		for (int i = 0; i < result.length; i++) {
 			result[i] = ints.get(i);
 		}
 		return result;
+	}
+
+	/**
+	 * Extract the {@link TypeInformation} for the {@link Tuple}.
+	 * @param type the type needed to extract {@link TypeInformation}
+	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}
+	 * @param extractingClasses the classes that the type is nested into.
+	 * @return the {@link TypeInformation} of the type or {@code null} if the type information of the generic parameter of
+	 * the {@link Tuple} could not be extracted
+	 * @throws InvalidTypesException if the type is sub type of {@link Tuple} but not a generic class or if the type equals {@link Tuple}.
+	 */
+	@Nullable
+	@SuppressWarnings("unchecked")
+	static TypeInformation<?> extractTypeInformationForTuple(
+		final Type type,
+		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
+		final List<Class<?>> extractingClasses) {
+
+		if (!(isClassType(type) && Tuple.class.isAssignableFrom(typeToClass(type)))) {
+			return null;
+		}
+
+		final List<ParameterizedType> typeHierarchy = new ArrayList<>();
+
+		Type curT = type;
+
+		// do not allow usage of Tuple as type
+		if (typeToClass(type).equals(Tuple.class)) {
+			throw new InvalidTypesException(
+				"Usage of class Tuple as a type is not allowed. Use a concrete subclass (e.g. Tuple1, Tuple2, etc.) instead.");
+		}
+
+		// go up the hierarchy until we reach immediate child of Tuple (with or without generics)
+		// collect the types while moving up for a later top-down
+		while (!(isClassType(curT) && typeToClass(curT).getSuperclass().equals(Tuple.class))) {
+			if (curT instanceof ParameterizedType) {
+				typeHierarchy.add((ParameterizedType) curT);
+			}
+			curT = typeToClass(curT).getGenericSuperclass();
+		}
+
+		if (curT == Tuple0.class) {
+			return new TupleTypeInfo(Tuple0.class);
+		}
+
+		// check if immediate child of Tuple has generics
+		if (curT instanceof Class<?>) {
+			throw new InvalidTypesException("Tuple needs to be parameterized by using generics.");
+		}
+
+		if (curT instanceof ParameterizedType) {
+			typeHierarchy.add((ParameterizedType) curT);
+		}
+
+		curT = resolveTypeFromTypeHierarchy(curT, typeHierarchy, true);
+
+		// create the type information for the subtypes
+		final TypeInformation<?>[] subTypesInfo =
+			createSubTypesInfo(type, (ParameterizedType) curT, typeVariableBindings, extractingClasses);
+
+		if (subTypesInfo == null) {
+			return null;
+		}
+		// return tuple info
+		return new TupleTypeInfo(typeToClass(type), subTypesInfo);
+	}
+
+	/**
+	 * Creates the TypeInformation for all generic type of {@link Tuple}.
+	 *
+	 * @param originalType most concrete subclass
+	 * @param definingType type that defines the number of subtypes (e.g. Tuple2 -> 2 subtypes)
+	 * @param typeVariableBindings the mapping relation between the type variable and the typeinformation
+	 * @param extractingClasses the classes that the type is nested into.
+	 * @return array containing TypeInformation of sub types or null if definingType contains
+	 *     more subtypes (fields) that defined
+	 */
+	private static TypeInformation<?>[] createSubTypesInfo(
+		final Type originalType,
+		final ParameterizedType definingType,
+		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
+		final List<Class<?>> extractingClasses) {
+
+		Preconditions.checkArgument(isClassType(originalType), "originalType has an unexpected type");
+
+		final int typeArgumentsLength = definingType.getActualTypeArguments().length;
+		// check the origin type contains additional fields.
+		final int fieldCount = countFieldsInClass(typeToClass(originalType));
+		if (fieldCount > typeArgumentsLength) {
+			return null;
+		}
+
+		final TypeInformation<?>[] subTypesInfo = new TypeInformation<?>[typeArgumentsLength];
+
+		for (int i = 0; i < typeArgumentsLength; i++) {
+			subTypesInfo[i] = createTypeInfo(definingType.getActualTypeArguments()[i], typeVariableBindings, extractingClasses);
+		}
+		return subTypesInfo;
 	}
 }

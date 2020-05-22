@@ -422,7 +422,7 @@ public class PojoTypeInfo<T> extends CompositeType<T> {
 	}
 
 	/**
-	 * Java Doc. //TODO::
+	 * This descriptor contains the name of the field.
 	 */
 	public static class NamedFlatFieldDescriptor extends FlatFieldDescriptor {
 
