@@ -64,7 +64,7 @@ public class AvroTypeInfo<T extends SpecificRecordBase> extends PojoTypeInfo<T> 
 	@SuppressWarnings("unchecked")
 	@Internal
 	private static <T extends SpecificRecordBase> List<PojoField> generateFieldsFromAvroSchema(Class<T> typeClass) {
-			final TypeInformation ti = TypeExtractor.analyzePojo(typeClass, Collections.emptyMap(), Collections.emptyList());
+			final TypeInformation ti = extractTypeInformationFroPOJOType(typeClass, Collections.emptyMap(), Collections.emptyList());
 
 			if ((ti != null) && !(ti instanceof PojoTypeInfo)) {
 				throw new IllegalStateException("Expecting type to be a PojoTypeInfo");
