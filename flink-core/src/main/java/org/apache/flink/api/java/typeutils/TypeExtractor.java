@@ -66,7 +66,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.apache.flink.api.java.typeutils.PojoTypeInfo.extractTypeInformationFroPOJOType;
-import static org.apache.flink.api.java.typeutils.TupleTypeInfo.extractTypeInformationForTuple;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.checkAndExtractLambda;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.getClosestFactory;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
@@ -840,7 +839,7 @@ public class TypeExtractor {
 			return typeInformation;
 		}
 
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForTuple(type, typeVariableBindings, currentExtractingClasses)) != null) {
+		if ((typeInformation = (TypeInformation<OUT>) TupleTypeExtractor.extract(type, typeVariableBindings, currentExtractingClasses)) != null) {
 			return typeInformation;
 		}
 
