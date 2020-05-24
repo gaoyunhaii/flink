@@ -39,14 +39,12 @@ import org.apache.flink.api.common.io.InputFormat;
 import org.apache.flink.api.common.typeinfo.BasicArrayTypeInfo;
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.PrimitiveArrayTypeInfo;
-import org.apache.flink.api.common.typeinfo.SqlTimeTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInfoFactory;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.typeutils.TypeExtractionUtils.LambdaExecutable;
 import org.apache.flink.types.Row;
-import org.apache.flink.types.Value;
 import org.apache.flink.util.Preconditions;
 
 import org.slf4j.Logger;
@@ -834,23 +832,7 @@ public class TypeExtractor {
 
 		TypeInformation<OUT> typeInformation;
 
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForTypeVariable(type, typeVariableBindings)) != null) {
-			return typeInformation;
-		}
-
-		if ((typeInformation = (TypeInformation<OUT>) ArrayTypeExtractor.extract(type, typeVariableBindings, currentExtractingClasses)) != null) {
-			return typeInformation;
-		}
-
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForTypeFactory(type, typeVariableBindings, currentExtractingClasses)) != null) {
-			return typeInformation;
-		}
-
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForTuple(type, typeVariableBindings, currentExtractingClasses)) != null) {
-			return typeInformation;
-		}
-
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForRecursiveType(type, currentExtractingClasses)) != null) {
+		if ((typeInformation = (TypeInformation<OUT>) AvroTypeExtractor.extract(type)) != null) {
 			return typeInformation;
 		}
 
@@ -858,32 +840,12 @@ public class TypeExtractor {
 			return typeInformation;
 		}
 
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForBasicType(type)) != null) {
+		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForTuple(type, typeVariableBindings, currentExtractingClasses)) != null) {
 			return typeInformation;
 		}
 
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForSQLTimeType(type)) != null) {
+		if ((typeInformation = (TypeInformation<OUT>) DefaultExtractor.extract(type, typeVariableBindings, currentExtractingClasses)) != null) {
 			return typeInformation;
-		}
-
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForValue(type)) != null) {
-			return typeInformation;
-		}
-
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForEnum(type)) != null) {
-			return typeInformation;
-		}
-
-		if ((typeInformation = (TypeInformation<OUT>) AvroTypeExtractor.extract(type)) != null) {
-			return typeInformation;
-		}
-
-		if ((typeInformation = extractTypeInformationFroPOJOType(type, typeVariableBindings, currentExtractingClasses)) != null) {
-			return typeInformation;
-		}
-
-		if (isClassType(type)) {
-			return new GenericTypeInfo<>((Class<OUT>) typeToClass(type));
 		}
 
 		throw new InvalidTypesException("Type Information could not be created.");
@@ -892,19 +854,6 @@ public class TypeExtractor {
 	// --------------------------------------------------------------------------------------------
 	//  Utility methods
 	// --------------------------------------------------------------------------------------------
-
-	/**
-	 * @return number of items with equal type or same raw type
-	 */
-	private static int countTypeInHierarchy(List<Class<?>> typeHierarchy, Type type) {
-		int count = 0;
-		for (Type t : typeHierarchy) {
-			if (t == type || (isClassType(type) && t == typeToClass(type)) || (isClassType(t) && typeToClass(t) == type)) {
-				count++;
-			}
-		}
-		return count;
-	}
 
 	static int countFieldsInClass(Class<?> clazz) {
 		int fieldCount = 0;
@@ -930,36 +879,6 @@ public class TypeExtractor {
 	 */
 	public static <X> TypeInformation<X> getForClass(Class<X> clazz) {
 		return createTypeInfo(clazz, Collections.emptyMap(), Collections.emptyList());
-	}
-
-	/**
-	 * Extract the {@link TypeInformation} for the {@link TypeVariable}. This method find the {@link TypeInformation} of
-	 * the type in the the given mapping relation between {@link TypeVariable} and {@link TypeInformation}
-	 * if the given type is {@link TypeVariable}.
-	 * @param type the type needed to extract {@link TypeInformation}
-	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}.
-	 * @return the {@link TypeInformation} of the given type if the mapping contains the type or{@code null} if the
-	 * type is not {@link TypeVariable}
-	 * @throws InvalidTypesException if the {@link TypeVariable} can not be found in the given mapping relation.
-	 */
-	@Nullable
-	private static TypeInformation<?> extractTypeInformationForTypeVariable(
-		final Type type, final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings) {
-
-		if (type instanceof TypeVariable) {
-			final TypeInformation<?> typeInfo = typeVariableBindings.get(type);
-			if (typeInfo != null) {
-				return typeInfo;
-			} else {
-				throw new InvalidTypesException("Type of TypeVariable '" + ((TypeVariable<?>) type).getName() + "' in '"
-					+ ((TypeVariable<?>) type).getGenericDeclaration() + "' could not be determined. This is most likely a type erasure problem. "
-					+ "The type extraction currently supports types with generic variables only in cases where "
-					+ "all variables in the return type can be deduced from the input type(s). "
-					+ "Otherwise the type has to be specified explicitly using type information.");
-			}
-		} else {
-			return null;
-		}
 	}
 
 	/**
@@ -1536,70 +1455,5 @@ public class TypeExtractor {
 		}
 
 		return typeVariableBindings.isEmpty() ? Collections.emptyMap() : typeVariableBindings;
-	}
-
-	// ------------------------------------------------------------------------
-	//  Extract TypeInformation for Recursive type
-	// ------------------------------------------------------------------------
-
-	private static TypeInformation<?> extractTypeInformationForRecursiveType(final Type type, final List<Class<?>> extractingClasses) {
-
-		if (isClassType(type)) {
-			// recursive types are handled as generic type info
-			final Class<?> clazz = typeToClass(type);
-			if (countTypeInHierarchy(extractingClasses, clazz) > 1) {
-				return new GenericTypeInfo<>(clazz);
-			}
-		}
-		return null;
-	}
-
-	// ------------------------------------------------------------------------
-	//  Extract TypeInformation for Basic type
-	// ------------------------------------------------------------------------
-
-	private static TypeInformation<?> extractTypeInformationForBasicType(final Type type) {
-		if (isClassType(type)) {
-			return BasicTypeInfo.getInfoFor(typeToClass(type));
-		}
-		return null;
-	}
-
-	// ------------------------------------------------------------------------
-	//  Extract TypeInformation for Basic type
-	// ------------------------------------------------------------------------
-
-	private static TypeInformation<?> extractTypeInformationForSQLTimeType(final Type type) {
-		if (isClassType(type)) {
-			return SqlTimeTypeInfo.getInfoFor(typeToClass(type));
-		}
-		return null;
-	}
-
-	// ------------------------------------------------------------------------
-	//  Extract TypeInformation for Enum
-	// ------------------------------------------------------------------------
-	@SuppressWarnings("unchecked")
-	private static TypeInformation<?> extractTypeInformationForEnum(final Type type) {
-		if (isClassType(type)) {
-			if (Enum.class.isAssignableFrom(typeToClass(type))) {
-				return new EnumTypeInfo(typeToClass(type));
-			}
-		}
-		return null;
-	}
-
-	// ------------------------------------------------------------------------
-	//  Extract TypeInformation for Value type.
-	// ------------------------------------------------------------------------
-
-	private static TypeInformation<?> extractTypeInformationForValue(final Type type) {
-		if (isClassType(type)) {
-			if (Value.class.isAssignableFrom(typeToClass(type))) {
-				Class<? extends Value> valueClass = typeToClass(type).asSubclass(Value.class);
-				return ValueTypeInfo.getValueTypeInfo(valueClass);
-			}
-		}
-		return null;
 	}
 }
