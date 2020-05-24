@@ -45,31 +45,31 @@ public class WritableExtractionTest {
 	@Test
 	public void testDetectWritable() {
 		// writable interface itself must not be writable
-		assertFalse(TypeExtractor.isHadoopWritable(Writable.class));
+		assertFalse(HadoopWritableExtractor.isHadoopWritable(Writable.class));
 
 		// various forms of extension
-		assertTrue(TypeExtractor.isHadoopWritable(DirectWritable.class));
-		assertTrue(TypeExtractor.isHadoopWritable(ViaInterfaceExtension.class));
-		assertTrue(TypeExtractor.isHadoopWritable(ViaAbstractClassExtension.class));
+		assertTrue(HadoopWritableExtractor.isHadoopWritable(DirectWritable.class));
+		assertTrue(HadoopWritableExtractor.isHadoopWritable(ViaInterfaceExtension.class));
+		assertTrue(HadoopWritableExtractor.isHadoopWritable(ViaAbstractClassExtension.class));
 
 		// some non-writables
-		assertFalse(TypeExtractor.isHadoopWritable(String.class));
-		assertFalse(TypeExtractor.isHadoopWritable(List.class));
-		assertFalse(TypeExtractor.isHadoopWritable(WritableComparator.class));
+		assertFalse(HadoopWritableExtractor.isHadoopWritable(String.class));
+		assertFalse(HadoopWritableExtractor.isHadoopWritable(List.class));
+		assertFalse(HadoopWritableExtractor.isHadoopWritable(WritableComparator.class));
 	}
 
 	@Test
 	public void testCreateWritableInfo() {
 		TypeInformation<DirectWritable> info1 =
-				TypeExtractor.createHadoopWritableTypeInfo(DirectWritable.class);
+				HadoopWritableExtractor.createHadoopWritableTypeInfo(DirectWritable.class);
 		assertEquals(DirectWritable.class, info1.getTypeClass());
 
 		TypeInformation<ViaInterfaceExtension> info2 =
-				TypeExtractor.createHadoopWritableTypeInfo(ViaInterfaceExtension.class);
+				HadoopWritableExtractor.createHadoopWritableTypeInfo(ViaInterfaceExtension.class);
 		assertEquals(ViaInterfaceExtension.class, info2.getTypeClass());
 
 		TypeInformation<ViaAbstractClassExtension> info3 =
-				TypeExtractor.createHadoopWritableTypeInfo(ViaAbstractClassExtension.class);
+				HadoopWritableExtractor.createHadoopWritableTypeInfo(ViaAbstractClassExtension.class);
 		assertEquals(ViaAbstractClassExtension.class, info3.getTypeClass());
 	}
 
