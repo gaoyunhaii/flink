@@ -71,7 +71,6 @@ import static org.apache.flink.api.java.typeutils.PojoTypeInfo.extractTypeInform
 import static org.apache.flink.api.java.typeutils.TupleTypeInfo.extractTypeInformationForTuple;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.checkAndExtractLambda;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.getClosestFactory;
-import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.hasSuperclass;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.sameTypeVars;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
@@ -112,8 +111,6 @@ public class TypeExtractor {
 	 * Field type: String.class
 	 *
 	 */
-
-	private static final String AVRO_SPECIFIC_RECORD_BASE_CLASS = "org.apache.avro.specific.SpecificRecordBase";
 
 	private static final Logger LOG = LoggerFactory.getLogger(TypeExtractor.class);
 
@@ -881,7 +878,7 @@ public class TypeExtractor {
 			return typeInformation;
 		}
 
-		if ((typeInformation = (TypeInformation<OUT>) extractTypeInformationForAvro(type)) != null) {
+		if ((typeInformation = (TypeInformation<OUT>) AvroTypeExtractor.extract(type)) != null) {
 			return typeInformation;
 		}
 
@@ -1556,20 +1553,6 @@ public class TypeExtractor {
 			final Class<?> clazz = typeToClass(type);
 			if (countTypeInHierarchy(extractingClasses, clazz) > 1) {
 				return new GenericTypeInfo<>(clazz);
-			}
-		}
-		return null;
-	}
-
-	// ------------------------------------------------------------------------
-	//  Extract TypeInformation for Avro
-	// ------------------------------------------------------------------------
-
-	private static TypeInformation<?> extractTypeInformationForAvro(final Type type) {
-		if (isClassType(type)) {
-			final Class<?> clazz = typeToClass(type);
-			if (hasSuperclass(clazz, AVRO_SPECIFIC_RECORD_BASE_CLASS)) {
-				return AvroUtils.getAvroUtils().createAvroTypeInfo(clazz);
 			}
 		}
 		return null;
