@@ -36,7 +36,7 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  * TODO:: 1. make this default and throw exception & make this pattern a common class that could be used by the avro
  * TODO:: 2. move the actual extractor to the hadoop module
  */
-class HadoopWritableExtractor {
+class HadoopWritableExtractorChecker {
 
 	/** The name of the class representing Hadoop's writable. */
 	private static final String HADOOP_WRITABLE_CLASS = "org.apache.hadoop.io.Writable";

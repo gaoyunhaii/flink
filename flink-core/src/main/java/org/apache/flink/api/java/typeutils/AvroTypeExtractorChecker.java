@@ -27,10 +27,10 @@ import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassTyp
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
 
 /**
- * See {@link HadoopWritableExtractor}.
+ * See {@link HadoopWritableExtractorChecker}.
  * TODO:: maybe we could deprecate the {@link AvroUtils}.
  */
-class AvroTypeExtractor {
+class AvroTypeExtractorChecker {
 
 	private static final String AVRO_SPECIFIC_RECORD_BASE_CLASS = "org.apache.avro.specific.SpecificRecordBase";
 

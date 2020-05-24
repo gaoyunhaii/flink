@@ -45,31 +45,31 @@ public class WritableExtractionTest {
 	@Test
 	public void testDetectWritable() {
 		// writable interface itself must not be writable
-		assertFalse(HadoopWritableExtractor.isHadoopWritable(Writable.class));
+		assertFalse(HadoopWritableExtractorChecker.isHadoopWritable(Writable.class));
 
 		// various forms of extension
-		assertTrue(HadoopWritableExtractor.isHadoopWritable(DirectWritable.class));
-		assertTrue(HadoopWritableExtractor.isHadoopWritable(ViaInterfaceExtension.class));
-		assertTrue(HadoopWritableExtractor.isHadoopWritable(ViaAbstractClassExtension.class));
+		assertTrue(HadoopWritableExtractorChecker.isHadoopWritable(DirectWritable.class));
+		assertTrue(HadoopWritableExtractorChecker.isHadoopWritable(ViaInterfaceExtension.class));
+		assertTrue(HadoopWritableExtractorChecker.isHadoopWritable(ViaAbstractClassExtension.class));
 
 		// some non-writables
-		assertFalse(HadoopWritableExtractor.isHadoopWritable(String.class));
-		assertFalse(HadoopWritableExtractor.isHadoopWritable(List.class));
-		assertFalse(HadoopWritableExtractor.isHadoopWritable(WritableComparator.class));
+		assertFalse(HadoopWritableExtractorChecker.isHadoopWritable(String.class));
+		assertFalse(HadoopWritableExtractorChecker.isHadoopWritable(List.class));
+		assertFalse(HadoopWritableExtractorChecker.isHadoopWritable(WritableComparator.class));
 	}
 
 	@Test
 	public void testCreateWritableInfo() {
 		TypeInformation<DirectWritable> info1 =
-				HadoopWritableExtractor.createHadoopWritableTypeInfo(DirectWritable.class);
+				HadoopWritableExtractorChecker.createHadoopWritableTypeInfo(DirectWritable.class);
 		assertEquals(DirectWritable.class, info1.getTypeClass());
 
 		TypeInformation<ViaInterfaceExtension> info2 =
-				HadoopWritableExtractor.createHadoopWritableTypeInfo(ViaInterfaceExtension.class);
+				HadoopWritableExtractorChecker.createHadoopWritableTypeInfo(ViaInterfaceExtension.class);
 		assertEquals(ViaInterfaceExtension.class, info2.getTypeClass());
 
 		TypeInformation<ViaAbstractClassExtension> info3 =
-				HadoopWritableExtractor.createHadoopWritableTypeInfo(ViaAbstractClassExtension.class);
+				HadoopWritableExtractorChecker.createHadoopWritableTypeInfo(ViaAbstractClassExtension.class);
 		assertEquals(ViaAbstractClassExtension.class, info3.getTypeClass());
 	}
 

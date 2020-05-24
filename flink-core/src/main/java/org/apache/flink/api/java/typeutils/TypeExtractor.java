@@ -831,11 +831,11 @@ public class TypeExtractor {
 
 		TypeInformation<OUT> typeInformation;
 
-		if ((typeInformation = (TypeInformation<OUT>) AvroTypeExtractor.extract(type)) != null) {
+		if ((typeInformation = (TypeInformation<OUT>) AvroTypeExtractorChecker.extract(type)) != null) {
 			return typeInformation;
 		}
 
-		if ((typeInformation = (TypeInformation<OUT>) HadoopWritableExtractor.extract(type)) != null) {
+		if ((typeInformation = (TypeInformation<OUT>) HadoopWritableExtractorChecker.extract(type)) != null) {
 			return typeInformation;
 		}
 
