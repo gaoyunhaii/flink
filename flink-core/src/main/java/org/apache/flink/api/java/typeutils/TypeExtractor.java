@@ -18,7 +18,6 @@
 
 package org.apache.flink.api.java.typeutils;
 
-import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.Public;
 import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.annotation.VisibleForTesting;
@@ -41,7 +40,6 @@ import org.apache.flink.api.common.typeinfo.BasicArrayTypeInfo;
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.PrimitiveArrayTypeInfo;
 import org.apache.flink.api.common.typeinfo.SqlTimeTypeInfo;
-import org.apache.flink.api.common.typeinfo.TypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInfoFactory;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
@@ -49,7 +47,6 @@ import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.typeutils.TypeExtractionUtils.LambdaExecutable;
 import org.apache.flink.types.Row;
 import org.apache.flink.types.Value;
-import org.apache.flink.util.InstantiationUtil;
 import org.apache.flink.util.Preconditions;
 
 import org.slf4j.Logger;
@@ -76,10 +73,12 @@ import java.util.Map;
 import static org.apache.flink.api.java.typeutils.PojoTypeInfo.extractTypeInformationFroPOJOType;
 import static org.apache.flink.api.java.typeutils.TupleTypeInfo.extractTypeInformationForTuple;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.checkAndExtractLambda;
+import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.getClosestFactory;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.hasSuperclass;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.sameTypeVars;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
+import static org.apache.flink.api.java.typeutils.TypeInfoExtractor.extractTypeInformationForTypeFactory;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
@@ -1784,152 +1783,4 @@ public class TypeExtractor {
 		}
 		return null;
 	}
-
-	/**
-	 * Extract {@link TypeInformation} for the type that has {@link TypeInfo} annotation.
-	 * @param type  the type needed to extract {@link TypeInformation}
-	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}.
-	 * @param extractingClasses the classes that the type is nested into.
-	 * @return the {@link TypeInformation} of the given type or {@code null} if the type does not have the annotation
-	 * @throws InvalidTypesException if the factory does not create a valid {@link TypeInformation} or if creating generic type failed
-	 */
-	@Nullable
-	private static TypeInformation<?> extractTypeInformationForTypeFactory(
-		final Type type,
-		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
-		final List<Class<?>> extractingClasses) {
-
-		final List<ParameterizedType> factoryHierarchy = new ArrayList<>();
-		final TypeInfoFactory<?> factory = getClosestFactory(factoryHierarchy, type);
-
-		if (factory == null) {
-			return null;
-		}
-
-		final Type factoryDefiningType = factoryHierarchy.size() < 1 ? type :
-			resolveTypeFromTypeHierarchy(factoryHierarchy.get(factoryHierarchy.size() - 1), factoryHierarchy, true);
-
-		// infer possible type parameters from input
-		final Map<String, TypeInformation<?>> genericParams;
-
-		if (factoryDefiningType instanceof ParameterizedType) {
-			genericParams = new HashMap<>();
-			final ParameterizedType paramDefiningType = (ParameterizedType) factoryDefiningType;
-			final Type[] args = typeToClass(paramDefiningType).getTypeParameters();
-
-			final TypeInformation<?>[] subtypeInfo =
-				createSubTypesInfo(type, paramDefiningType, typeVariableBindings, extractingClasses, true);
-			assert subtypeInfo != null;
-			for (int i = 0; i < subtypeInfo.length; i++) {
-				genericParams.put(args[i].toString(), subtypeInfo[i]);
-			}
-		} else {
-			genericParams = Collections.emptyMap();
-		}
-
-		final TypeInformation<?> createdTypeInfo = factory.createTypeInfo(type, genericParams);
-		if (createdTypeInfo == null) {
-			//TODO:: has a test??
-			throw new InvalidTypesException("TypeInfoFactory returned invalid TypeInformation 'null'");
-		}
-		return createdTypeInfo;
-	}
-
-	/**
-	 * Traverses the type hierarchy up until a type information factory can be found.
-	 *
-	 * @param typeHierarchy hierarchy to be filled while traversing up
-	 * @param t type for which a factory needs to be found
-	 * @return closest type information factory or null if there is no factory in the type hierarchy
-	 */
-	private static <OUT> TypeInfoFactory<? super OUT> getClosestFactory(List<ParameterizedType> typeHierarchy, Type t) {
-		TypeInfoFactory factory = null;
-		while (factory == null && isClassType(t) && !(typeToClass(t).equals(Object.class))) {
-			if (t instanceof ParameterizedType) {
-				typeHierarchy.add((ParameterizedType) t);
-			}
-			factory = getTypeInfoFactory(t);
-			t = typeToClass(t).getGenericSuperclass();
-
-			if (t == null) {
-				break;
-			}
-		}
-		return factory;
-	}
-
-	/**
-	 * Returns the type information factory for a type using the factory registry or annotations.
-	 */
-	@Internal
-	public static <OUT> TypeInfoFactory<OUT> getTypeInfoFactory(Type t) {
-		final Class<?> factoryClass;
-
-		if (!isClassType(t) || !typeToClass(t).isAnnotationPresent(TypeInfo.class)) {
-			return null;
-		}
-		final TypeInfo typeInfoAnnotation = typeToClass(t).getAnnotation(TypeInfo.class);
-		factoryClass = typeInfoAnnotation.value();
-		// check for valid factory class
-		if (!TypeInfoFactory.class.isAssignableFrom(factoryClass)) {
-			throw new InvalidTypesException("TypeInfo annotation does not specify a valid TypeInfoFactory.");
-		}
-		// instantiate
-		return (TypeInfoFactory<OUT>) InstantiationUtil.instantiate(factoryClass);
-	}
-
-	/**
-	 * Creates the TypeInformation for all elements of a type that expects a certain number of
-	 * subtypes (e.g. TupleXX).
-	 *
-	 * @param originalType most concrete subclass
-	 * @param definingType type that defines the number of subtypes (e.g. Tuple2 -> 2 subtypes)
-	 * @param typeVariableBindings the mapping relation between the type variable and the typein formation
-	 * @param extractingClasses the classes that the type is nested into.
-	 * @param lenient decides whether exceptions should be thrown if a subtype can not be determined
-	 * @return array containing TypeInformation of sub types or null if definingType contains
-	 *     more subtypes (fields) that defined
-	 */
-	private static TypeInformation<?>[] createSubTypesInfo(
-		final Type originalType,
-		final ParameterizedType definingType,
-		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
-		final List<Class<?>> extractingClasses,
-		final boolean lenient) {
-
-		final int typeArgumentsLength = definingType.getActualTypeArguments().length;
-		final TypeInformation<?>[] subTypesInfo = new TypeInformation<?>[typeArgumentsLength];
-		for (int i = 0; i < typeArgumentsLength; i++) {
-			final Type actualTypeArgument = definingType.getActualTypeArguments()[i];
-
-			try {
-				subTypesInfo[i] = createTypeInfo(actualTypeArgument, typeVariableBindings, extractingClasses);
-			} catch (InvalidTypesException e) {
-				if (lenient) {
-					subTypesInfo[i] = null;
-				} else {
-					throw e;
-				}
-			}
-		}
-
-		// check that number of fields matches the number of subtypes
-		if (!lenient) {
-			Class<?> originalTypeAsClass = null;
-			if (isClassType(originalType)) {
-				originalTypeAsClass = typeToClass(originalType);
-			}
-			checkNotNull(originalTypeAsClass, "originalType has an unexpected type");
-			// check if the class we assumed to conform to the defining type so far is actually a pojo because the
-			// original type contains additional fields.
-			// check for additional fields.
-			int fieldCount = countFieldsInClass(originalTypeAsClass);
-			if (fieldCount > subTypesInfo.length) {
-				return null;
-			}
-		}
-
-		return subTypesInfo;
-	}
-
 }
