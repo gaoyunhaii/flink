@@ -13,10 +13,8 @@ import java.lang.reflect.TypeVariable;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.flink.api.java.typeutils.PojoTypeInfo.extractTypeInformationFroPOJOType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
-import static org.apache.flink.api.java.typeutils.TypeInfoExtractor.extractTypeInformationForTypeFactory;
 
 class DefaultExtractor {
 
@@ -62,11 +60,11 @@ class DefaultExtractor {
 			return typeInformation;
 		}
 
-		if ((typeInformation = extractTypeInformationForTypeFactory(type, typeVariableBindings, extractingClasses)) != null) {
+		if ((typeInformation = TypeInfoExtractor.extract(type, typeVariableBindings, extractingClasses)) != null) {
 			return typeInformation;
 		}
 
-		if ((typeInformation = extractTypeInformationFroPOJOType(type, typeVariableBindings, extractingClasses)) != null) {
+		if ((typeInformation = PojoTypeExtractor.extract(type, typeVariableBindings, extractingClasses)) != null) {
 			return typeInformation;
 		}
 

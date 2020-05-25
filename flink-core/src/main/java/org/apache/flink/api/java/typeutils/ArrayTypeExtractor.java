@@ -1,6 +1,7 @@
 package org.apache.flink.api.java.typeutils;
 
 import org.apache.flink.api.common.typeinfo.BasicArrayTypeInfo;
+import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.PrimitiveArrayTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 
@@ -12,6 +13,7 @@ import java.lang.reflect.TypeVariable;
 import java.util.List;
 import java.util.Map;
 
+import static org.apache.flink.api.java.typeutils.TypeExtractor.bindTypeVariablesWithTypeInformationFromInput;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.createTypeInfo;
 
 class ArrayTypeExtractor {
@@ -30,9 +32,8 @@ class ArrayTypeExtractor {
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
 		final List<Class<?>> extractingClasses) {
 
-		TypeInformation<?> typeInformation = null;
-
-		typeInformation = extractTypeInformationForGenericArray(type, typeVariableBindings, extractingClasses);
+		TypeInformation<?> typeInformation =
+			extractTypeInformationForGenericArray(type, typeVariableBindings, extractingClasses);
 		if (typeInformation != null) {
 			return typeInformation;
 		}
@@ -113,5 +114,27 @@ class ArrayTypeExtractor {
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * Bind the {@link TypeVariable} with {@link TypeInformation} from the generic array type.
+	 * @param genericArrayType the generic array type
+	 * @param typeInformation the array type information
+	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
+	 */
+	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariable(
+		final GenericArrayType genericArrayType,
+		final TypeInformation<?> typeInformation) {
+
+		//TODO:: should not depend on the specific TypeInformation
+		TypeInformation<?> componentInfo = null;
+		if (typeInformation instanceof BasicArrayTypeInfo) {
+			componentInfo = ((BasicArrayTypeInfo<?, ?>) typeInformation).getComponentInfo();
+		} else if (typeInformation instanceof PrimitiveArrayTypeInfo) {
+			componentInfo = BasicTypeInfo.getInfoFor(typeInformation.getTypeClass().getComponentType());
+		} else if (typeInformation instanceof ObjectArrayTypeInfo) {
+			componentInfo = ((ObjectArrayTypeInfo<?, ?>) typeInformation).getComponentInfo();
+		}
+		return bindTypeVariablesWithTypeInformationFromInput(genericArrayType.getGenericComponentType(), componentInfo);
 	}
 }

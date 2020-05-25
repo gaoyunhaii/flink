@@ -30,6 +30,7 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -104,6 +105,37 @@ class TupleTypeExtractor {
 		}
 		// return tuple info
 		return new TupleTypeInfo(typeToClass(type), subTypesInfo);
+	}
+
+	/**
+	 * Bind the {@link TypeVariable} with {@link TypeInformation} from the generic type.
+	 *
+	 * @param type the type that has {@link TypeVariable}
+	 * @param typeInformation the {@link TypeInformation} that stores the mapping relations between the generic parameters
+	 *                        and {@link TypeInformation}.
+	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
+	 */
+	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariable(
+		final Type type,
+		final TypeInformation<?> typeInformation) {
+
+		final List<ParameterizedType> typeHierarchy = new ArrayList<>();
+		Type curType = type;
+		// get tuple from possible tuple subclass
+		while (!(isClassType(curType) && typeToClass(curType).getSuperclass().equals(Tuple.class))) {
+			if (curType instanceof ParameterizedType) {
+				typeHierarchy.add((ParameterizedType) curType);
+			}
+			curType = typeToClass(curType).getGenericSuperclass();
+		}
+		if (curType instanceof ParameterizedType) {
+			typeHierarchy.add((ParameterizedType) curType);
+		}
+		final Type tupleBaseClass = resolveTypeFromTypeHierarchy(curType, typeHierarchy, true);
+		if (tupleBaseClass instanceof ParameterizedType) {
+			return TypeExtractor.bindTypeVariableFromGenericParameters((ParameterizedType) tupleBaseClass, typeInformation);
+		}
+		return Collections.emptyMap();
 	}
 
 	/**

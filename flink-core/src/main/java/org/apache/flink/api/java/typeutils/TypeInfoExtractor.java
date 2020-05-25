@@ -54,7 +54,7 @@ class TypeInfoExtractor {
 	 * @throws InvalidTypesException if the factory does not create a valid {@link TypeInformation} or if creating generic type failed
 	 */
 	@Nullable
-	static TypeInformation<?> extractTypeInformationForTypeFactory(
+	static TypeInformation<?> extract(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
 		final List<Class<?>> extractingClasses) {

@@ -36,9 +36,6 @@ import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.functions.MapPartitionFunction;
 import org.apache.flink.api.common.functions.Partitioner;
 import org.apache.flink.api.common.io.InputFormat;
-import org.apache.flink.api.common.typeinfo.BasicArrayTypeInfo;
-import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
-import org.apache.flink.api.common.typeinfo.PrimitiveArrayTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInfoFactory;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
@@ -65,12 +62,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.flink.api.java.typeutils.PojoTypeInfo.extractTypeInformationFroPOJOType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.checkAndExtractLambda;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.getClosestFactory;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
-import static org.apache.flink.api.java.typeutils.TypeInfoExtractor.extractTypeInformationForTypeFactory;
 import static org.apache.flink.api.java.typeutils.TypeResolve.buildParameterizedTypeHierarchy;
 import static org.apache.flink.api.java.typeutils.TypeResolve.resolveTypeFromTypeHierarchy;
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -934,16 +929,6 @@ public class TypeExtractor {
 		return false;
 	}
 
-	private static TypeInformation<?> getTypeOfPojoField(TypeInformation<?> pojoInfo, Field field) {
-		for (int j = 0; j < pojoInfo.getArity(); j++) {
-			PojoField pf = ((PojoTypeInfo<?>) pojoInfo).getPojoFieldAt(j);
-			if (pf.getField().getName().equals(field.getName())) {
-				return pf.getTypeInformation();
-			}
-		}
-		return null;
-	}
-
 	// --------------------------------------------------------------------------------------------
 	//  Create type information for object.
 	// --------------------------------------------------------------------------------------------
@@ -957,7 +942,7 @@ public class TypeExtractor {
 		checkNotNull(value);
 
 		final TypeInformation<X> typeFromFactory =
-			(TypeInformation<X>) extractTypeInformationForTypeFactory(value.getClass(), Collections.emptyMap(), Collections.emptyList());
+			(TypeInformation<X>) TypeInfoExtractor.extract(value.getClass(), Collections.emptyMap(), Collections.emptyList());
 		if (typeFromFactory != null) {
 			return typeFromFactory;
 		}
@@ -969,7 +954,7 @@ public class TypeExtractor {
 			if (numFields != countFieldsInClass(value.getClass())) {
 				// not a tuple since it has more fields.
 				// we immediately call analyze Pojo here, because there is currently no other type that can handle such a class.
-				return extractTypeInformationFroPOJOType(
+				return PojoTypeExtractor.extract(
 					value.getClass(),
 					Collections.emptyMap(),
 					Collections.emptyList());
@@ -1097,7 +1082,7 @@ public class TypeExtractor {
 	 * @param inTypeInfo the input's {@link TypeInformation}
 	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
 	 */
-	private static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariablesWithTypeInformationFromInput(
+	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariablesWithTypeInformationFromInput(
 		final Type inType,
 		final TypeInformation<?> inTypeInfo) {
 
@@ -1111,26 +1096,11 @@ public class TypeExtractor {
 				return bindTypeVariableFromGenericParameters((ParameterizedType) factoryDefiningType, inTypeInfo);
 			}
 		} else if (inType instanceof GenericArrayType) {
-			return bindTypeVariableFromGenericArray((GenericArrayType) inType, inTypeInfo);
+			return ArrayTypeExtractor.bindTypeVariable((GenericArrayType) inType, inTypeInfo);
 		} else if (inTypeInfo instanceof TupleTypeInfo && isClassType(inType) && Tuple.class.isAssignableFrom(typeToClass(inType))) {
-			final List<ParameterizedType> typeHierarchy = new ArrayList<>();
-			Type curType = inType;
-			// get tuple from possible tuple subclass
-			while (!(isClassType(curType) && typeToClass(curType).getSuperclass().equals(Tuple.class))) {
-				if (curType instanceof ParameterizedType) {
-					typeHierarchy.add((ParameterizedType) curType);
-				}
-				curType = typeToClass(curType).getGenericSuperclass();
-			}
-			if (curType instanceof ParameterizedType) {
-				typeHierarchy.add((ParameterizedType) curType);
-			}
-			final Type tupleBaseClass = resolveTypeFromTypeHierarchy(curType, typeHierarchy, true);
-			if (tupleBaseClass instanceof ParameterizedType) {
-				return bindTypeVariableFromGenericParameters((ParameterizedType) tupleBaseClass, inTypeInfo);
-			}
+			return TupleTypeExtractor.bindTypeVariable(inType, inTypeInfo);
 		} else if (inTypeInfo instanceof PojoTypeInfo && isClassType(inType)) {
-			return bindTypeVariableFromFields(inType, inTypeInfo);
+			return PojoTypeExtractor.bindTypeVariable(inType, inTypeInfo);
 		} else if (inType instanceof TypeVariable) {
 			final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings = new HashMap<>();
 
@@ -1148,7 +1118,7 @@ public class TypeExtractor {
 	 *                        and {@link TypeInformation}.
 	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
 	 */
-	private static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariableFromGenericParameters(
+	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariableFromGenericParameters(
 		final ParameterizedType type,
 		final TypeInformation<?> typeInformation) {
 
@@ -1171,54 +1141,4 @@ public class TypeExtractor {
 		return typeVariableBindings.isEmpty() ? Collections.emptyMap() : typeVariableBindings;
 	}
 
-	/**
-	 * Bind the {@link TypeVariable} with {@link TypeInformation} from the generic array type.
-	 * @param genericArrayType the generic array type
-	 * @param typeInformation the array type information
-	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
-	 */
-	private static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariableFromGenericArray(
-		final GenericArrayType genericArrayType,
-		final TypeInformation<?> typeInformation) {
-
-		//TODO:: should not depend on the specific TypeInformation
-		TypeInformation<?> componentInfo = null;
-		if (typeInformation instanceof BasicArrayTypeInfo) {
-			componentInfo = ((BasicArrayTypeInfo<?, ?>) typeInformation).getComponentInfo();
-		} else if (typeInformation instanceof PrimitiveArrayTypeInfo) {
-			componentInfo = BasicTypeInfo.getInfoFor(typeInformation.getTypeClass().getComponentType());
-		} else if (typeInformation instanceof ObjectArrayTypeInfo) {
-			componentInfo = ((ObjectArrayTypeInfo<?, ?>) typeInformation).getComponentInfo();
-		}
-		return bindTypeVariablesWithTypeInformationFromInput(genericArrayType.getGenericComponentType(), componentInfo);
-	}
-
-	/**
-	 * Bind the {@link TypeVariable} with {@link TypeInformation} from the mapping relation between the fields
-	 * and {@link TypeInformation}.
-	 * TODO:: we could make this method generic later
-	 * @param type pojo type
-	 * @param typeInformation {@link TypeInformation} that could provide the mapping relation between the fields
-	 *                                                and {@link TypeInformation}
-	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
-	 */
-	private static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariableFromFields(
-		final Type type,
-		final TypeInformation<?> typeInformation) {
-
-		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings = new HashMap<>();
-		// build the entire type hierarchy for the pojo
-		final List<ParameterizedType> pojoHierarchy = buildParameterizedTypeHierarchy(type, Object.class);
-		// build the entire type hierarchy for the pojo
-		final List<Field> fields = getAllDeclaredFields(typeToClass(type), false);
-		for (Field field : fields) {
-			final Type fieldType = field.getGenericType();
-			final Type resolvedFieldType =  resolveTypeFromTypeHierarchy(fieldType, pojoHierarchy, true);
-			final Map<TypeVariable<?>, TypeInformation<?>> sub =
-				bindTypeVariablesWithTypeInformationFromInput(resolvedFieldType, getTypeOfPojoField(typeInformation, field));
-			typeVariableBindings.putAll(sub);
-		}
-
-		return typeVariableBindings.isEmpty() ? Collections.emptyMap() : typeVariableBindings;
-	}
 }
