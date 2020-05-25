@@ -44,12 +44,11 @@ import java.util.Map;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.getAllDeclaredMethods;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
-import static org.apache.flink.api.java.typeutils.TypeExtractor.bindTypeVariablesWithTypeInformationFromInput;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.createTypeInfo;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.getAllDeclaredFields;
-import static org.apache.flink.api.java.typeutils.TypeResolve.buildParameterizedTypeHierarchy;
-import static org.apache.flink.api.java.typeutils.TypeResolve.materializeTypeVariable;
-import static org.apache.flink.api.java.typeutils.TypeResolve.resolveTypeFromTypeHierarchy;
+import static org.apache.flink.api.java.typeutils.TypeResolver.buildParameterizedTypeHierarchy;
+import static org.apache.flink.api.java.typeutils.TypeResolver.materializeTypeVariable;
+import static org.apache.flink.api.java.typeutils.TypeResolver.resolveTypeFromTypeHierarchy;
 
 class PojoTypeExtractor {
 
@@ -258,7 +257,7 @@ class PojoTypeExtractor {
 	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation} or {@code null} if the
 	 * typeInformation is not {@link PojoTypeInfo}.
 	 */
-	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariable(
+	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariables(
 		final Type type,
 		final TypeInformation<?> typeInformation) {
 
@@ -272,7 +271,7 @@ class PojoTypeExtractor {
 				final Type fieldType = field.getGenericType();
 				final Type resolvedFieldType = resolveTypeFromTypeHierarchy(fieldType, pojoHierarchy, true);
 				final Map<TypeVariable<?>, TypeInformation<?>> sub =
-					bindTypeVariablesWithTypeInformationFromInput(resolvedFieldType, getTypeOfPojoField(typeInformation, field));
+					TypeVariableBinder.bindTypeVariables(resolvedFieldType, getTypeOfPojoField(typeInformation, field));
 				typeVariableBindings.putAll(sub);
 			}
 

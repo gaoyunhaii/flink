@@ -37,9 +37,9 @@ import java.util.Map;
 
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
-import static org.apache.flink.api.java.typeutils.TypeExtractor.bindTypeVariableFromGenericParameters;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.createTypeInfo;
-import static org.apache.flink.api.java.typeutils.TypeResolve.resolveTypeFromTypeHierarchy;
+import static org.apache.flink.api.java.typeutils.TypeResolver.resolveTypeFromTypeHierarchy;
+import static org.apache.flink.api.java.typeutils.TypeVariableBinder.bindTypeVariableFromGenericParameters;
 
 /**
  * This class is used to extract the {@link org.apache.flink.api.common.typeinfo.TypeInformation} of the class that has
@@ -106,7 +106,7 @@ class TypeInfoFactoryExtractor {
 	 * @return the mapping relation between the {@link TypeVariable} and {@link TypeInformation} or
 	 * 		   {@code null} if the typeInformation is not created from the {@link TypeInfoFactory}
 	 */
-	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariable(final Type type, final TypeInformation<?> typeInformation) {
+	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariables(final Type type, final TypeInformation<?> typeInformation) {
 
 		final List<ParameterizedType> factoryHierarchy = new ArrayList<>();
 		final TypeInfoFactory<?> factory = getClosestFactory(factoryHierarchy, type);

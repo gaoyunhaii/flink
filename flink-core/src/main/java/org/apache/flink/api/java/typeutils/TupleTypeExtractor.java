@@ -38,7 +38,7 @@ import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassTyp
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.countFieldsInClass;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.createTypeInfo;
-import static org.apache.flink.api.java.typeutils.TypeResolve.resolveTypeFromTypeHierarchy;
+import static org.apache.flink.api.java.typeutils.TypeResolver.resolveTypeFromTypeHierarchy;
 
 class TupleTypeExtractor {
 
@@ -114,7 +114,7 @@ class TupleTypeExtractor {
 	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation} or {@code null} if the typeInformation
 	 * is not {@link TupleTypeInfo}.
 	 */
-	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariable(
+	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariables(
 		final Type type,
 		final TypeInformation<?> typeInformation) {
 
@@ -133,7 +133,7 @@ class TupleTypeExtractor {
 			}
 			final Type tupleBaseClass = resolveTypeFromTypeHierarchy(curType, typeHierarchy, true);
 			if (tupleBaseClass instanceof ParameterizedType) {
-				return TypeExtractor.bindTypeVariableFromGenericParameters((ParameterizedType) tupleBaseClass, typeInformation);
+				return TypeVariableBinder.bindTypeVariableFromGenericParameters((ParameterizedType) tupleBaseClass, typeInformation);
 			}
 			return Collections.emptyMap();
 		}

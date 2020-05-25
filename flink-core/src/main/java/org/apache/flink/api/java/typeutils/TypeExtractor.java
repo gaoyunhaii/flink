@@ -20,7 +20,6 @@ package org.apache.flink.api.java.typeutils;
 
 import org.apache.flink.annotation.Public;
 import org.apache.flink.annotation.PublicEvolving;
-import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.functions.CoGroupFunction;
 import org.apache.flink.api.common.functions.CrossFunction;
@@ -47,8 +46,6 @@ import org.apache.flink.util.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nullable;
-
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -64,8 +61,8 @@ import java.util.Map;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.checkAndExtractLambda;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
-import static org.apache.flink.api.java.typeutils.TypeResolve.buildParameterizedTypeHierarchy;
-import static org.apache.flink.api.java.typeutils.TypeResolve.resolveTypeFromTypeHierarchy;
+import static org.apache.flink.api.java.typeutils.TypeResolver.buildParameterizedTypeHierarchy;
+import static org.apache.flink.api.java.typeutils.TypeResolver.resolveTypeFromTypeHierarchy;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
@@ -786,23 +783,35 @@ public class TypeExtractor {
 	// for (Rich)Functions
 	@SuppressWarnings("unchecked")
 	private static <IN1, IN2, OUT> TypeInformation<OUT> privateCreateTypeInfo(
-		Class<?> baseClass,
-		Class<?> clazz,
-		int returnParamPos,
-		TypeInformation<IN1> in1Type,
-		TypeInformation<IN2> in2Type) {
+		final Class<?> baseClass,
+		final Class<?> clazz,
+		final int returnParamPos,
+		final TypeInformation<IN1> in1TypeInfo,
+		final TypeInformation<IN2> in2TypeInfo) {
 
-		final Type returnType = getParameterType(baseClass, clazz, returnParamPos);
+		final List<ParameterizedType> functionTypeHierarchy = buildParameterizedTypeHierarchy(clazz, baseClass, true);
 
-		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings =
-			bindTypeVariablesWithTypeInformationFromInputs(clazz, Function.class, in1Type, 0, in2Type, 1);
+		if (functionTypeHierarchy.size() < 1) {
+			throw new InvalidTypesException("The types of the interface " + baseClass.getName() + " could not be inferred. " +
+				"Support for synthetic interfaces, lambdas, and generic or raw types is limited at this point");
+		}
 
-		// return type is a variable -> try to get the type info from the input directly
-		if (returnType instanceof TypeVariable<?>) {
-			final TypeInformation<OUT> typeInfo = (TypeInformation<OUT>) typeVariableBindings.get(returnType);
-			if (typeInfo != null) {
-				return typeInfo;
-			}
+		final ParameterizedType baseType = functionTypeHierarchy.get(functionTypeHierarchy.size() - 1);
+
+		final Type returnType = resolveTypeFromTypeHierarchy(baseType.getActualTypeArguments()[returnParamPos], functionTypeHierarchy, false);
+
+		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings = new HashMap<>();
+
+		if (in1TypeInfo != null) {
+			final Type in1Type = baseType.getActualTypeArguments()[0];
+			final Type resolvedIn1Type = resolveTypeFromTypeHierarchy(in1Type, functionTypeHierarchy, false);
+			typeVariableBindings.putAll(TypeVariableBinder.bindTypeVariables(resolvedIn1Type, in1TypeInfo));
+		}
+
+		if (in2TypeInfo != null) {
+			final Type in2Type = baseType.getActualTypeArguments()[1];
+			final Type resolvedIn2Type = resolveTypeFromTypeHierarchy(in2Type, functionTypeHierarchy, false);
+			typeVariableBindings.putAll(TypeVariableBinder.bindTypeVariables(resolvedIn2Type, in2TypeInfo));
 		}
 
 		// get info from hierarchy
@@ -842,89 +851,6 @@ public class TypeExtractor {
 		}
 
 		throw new InvalidTypesException("Type Information could not be created.");
-	}
-
-	// --------------------------------------------------------------------------------------------
-	//  Utility methods
-	// --------------------------------------------------------------------------------------------
-
-	static int countFieldsInClass(Class<?> clazz) {
-		int fieldCount = 0;
-		for (Field field : clazz.getFields()) { // get all fields
-			if (!Modifier.isStatic(field.getModifiers()) &&
-				!Modifier.isTransient(field.getModifiers())
-				) {
-				fieldCount++;
-			}
-		}
-		return fieldCount;
-	}
-
-	/**
-	 * Creates type information from a given Class such as Integer, String[] or POJOs.
-	 *
-	 * <p>This method does not support ParameterizedTypes such as Tuples or complex type hierarchies.
-	 * In most cases {@link TypeExtractor#createTypeInfo(Type)} is the recommended method for type extraction
-	 * (a Class is a child of Type).
-	 *
-	 * @param clazz a Class to create TypeInformation for
-	 * @return TypeInformation that describes the passed Class
-	 */
-	public static <X> TypeInformation<X> getForClass(Class<X> clazz) {
-		return createTypeInfo(clazz, Collections.emptyMap(), Collections.emptyList());
-	}
-
-	/**
-	 * Recursively determine all declared fields
-	 * This is required because class.getFields() is not returning fields defined
-	 * in parent classes.
-	 *
-	 * @param clazz class to be analyzed
-	 * @param ignoreDuplicates if true, in case of duplicate field names only the lowest one
-	 *                            in a hierarchy will be returned; throws an exception otherwise
-	 * @return list of fields
-	 */
-	@PublicEvolving
-	public static List<Field> getAllDeclaredFields(Class<?> clazz, boolean ignoreDuplicates) {
-		List<Field> result = new ArrayList<>();
-		while (clazz != null) {
-			Field[] fields = clazz.getDeclaredFields();
-			for (Field field : fields) {
-				if (Modifier.isTransient(field.getModifiers()) || Modifier.isStatic(field.getModifiers())) {
-					continue; // we have no use for transient or static fields
-				}
-				if (hasFieldWithSameName(field.getName(), result)) {
-					if (ignoreDuplicates) {
-						continue;
-					} else {
-						throw new InvalidTypesException("The field " + field + " is already contained in the hierarchy of the " +
-							clazz + ".Please use unique field names through your classes hierarchy");
-					}
-				}
-				result.add(field);
-			}
-			clazz = clazz.getSuperclass();
-		}
-		return result;
-	}
-
-	@PublicEvolving
-	public static Field getDeclaredField(Class<?> clazz, String name) {
-		for (Field field : getAllDeclaredFields(clazz, true)) {
-			if (field.getName().equals(name)) {
-				return field;
-			}
-		}
-		return null;
-	}
-
-	private static boolean hasFieldWithSameName(String name, List<Field> fields) {
-		for (Field field : fields) {
-			if (name.equals(field.getName())) {
-				return true;
-			}
-		}
-		return false;
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -1022,125 +948,86 @@ public class TypeExtractor {
 	}
 
 	// --------------------------------------------------------------------------------------------
-	//  Bind type variable with type information.
+	//  Utility methods
 	// --------------------------------------------------------------------------------------------
 
-	/**
-	 * Bind the {@link TypeVariable} with {@link TypeInformation} from the inputs' {@link TypeInformation}.
-	 * @param clazz the sub class
-	 * @param baseClazz the base class
-	 * @param in1TypeInfo the {@link TypeInformation} of the first input
-	 * @param in1Pos the position of type parameter of the first input in a {@link Function} sub class
-	 * @param in2TypeInfo the {@link TypeInformation} of the second input
-	 * @param in2Pos the position of type parameter of the second input in a {@link Function} sub class
-	 * @param <IN1> the type of the first input
-	 * @param <IN2> the type of the second input
-	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
-	 */
-	@VisibleForTesting
-	static <IN1, IN2> Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariablesWithTypeInformationFromInputs(
-		final Class<?> clazz,
-		final Class<?> baseClazz,
-		@Nullable final TypeInformation<IN1> in1TypeInfo,
-		final int in1Pos,
-		@Nullable final TypeInformation<IN2> in2TypeInfo,
-		final int in2Pos) {
-
-		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings = new HashMap<>();
-
-		if (in1TypeInfo == null && in2TypeInfo == null) {
-			return Collections.emptyMap();
-		}
-
-		final List<ParameterizedType> functionTypeHierarchy = buildParameterizedTypeHierarchy(clazz, baseClazz, true);
-
-		if (functionTypeHierarchy.size() < 1) {
-			return Collections.emptyMap();
-		}
-
-		final ParameterizedType baseClass = functionTypeHierarchy.get(functionTypeHierarchy.size() - 1);
-
-		if (in1TypeInfo != null) {
-			final Type in1Type = baseClass.getActualTypeArguments()[in1Pos];
-			final Type resolvedIn1Type = resolveTypeFromTypeHierarchy(in1Type, functionTypeHierarchy, false);
-			typeVariableBindings.putAll(bindTypeVariablesWithTypeInformationFromInput(resolvedIn1Type, in1TypeInfo));
-		}
-
-		if (in2TypeInfo != null) {
-			final Type in2Type = baseClass.getActualTypeArguments()[in2Pos];
-			final Type resolvedIn2Type = resolveTypeFromTypeHierarchy(in2Type, functionTypeHierarchy, false);
-			typeVariableBindings.putAll(bindTypeVariablesWithTypeInformationFromInput(resolvedIn2Type, in2TypeInfo));
-		}
-		return typeVariableBindings.isEmpty() ? Collections.emptyMap() : typeVariableBindings;
-	}
-
-	/**
-	 * Bind the {@link TypeVariable} with {@link TypeInformation} from one input's {@link TypeInformation}.
-	 * @param inType the input type
-	 * @param inTypeInfo the input's {@link TypeInformation}
-	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
-	 */
-	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariablesWithTypeInformationFromInput(
-		final Type inType,
-		final TypeInformation<?> inTypeInfo) {
-
-		Map<TypeVariable<?>, TypeInformation<?>> result;
-
-		if ((result = TypeInfoFactoryExtractor.bindTypeVariable(inType, inTypeInfo)) != null) {
-			return result;
-		}
-
-		if ((result = ArrayTypeExtractor.bindTypeVariable(inType, inTypeInfo)) != null) {
-			return result;
-		}
-
-		if ((result = TupleTypeExtractor.bindTypeVariable(inType, inTypeInfo)) != null) {
-			return result;
-		}
-
-		if ((result = PojoTypeExtractor.bindTypeVariable(inType, inTypeInfo)) != null) {
-			return result;
-		}
-
-		if (inType instanceof TypeVariable) {
-			final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings = new HashMap<>();
-
-			typeVariableBindings.put((TypeVariable<?>) inType, inTypeInfo);
-			return typeVariableBindings;
-		}
-
-		return Collections.emptyMap();
-	}
-
-	/**
-	 * Bind the {@link TypeVariable} with {@link TypeInformation} from the generic type.
-	 *
-	 * @param type the type that has {@link TypeVariable}
-	 * @param typeInformation the {@link TypeInformation} that stores the mapping relations between the generic parameters
-	 *                        and {@link TypeInformation}.
-	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
-	 */
-	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariableFromGenericParameters(
-		final ParameterizedType type,
-		final TypeInformation<?> typeInformation) {
-
-		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings = new HashMap<>();
-		final Type[] typeParams = typeToClass(type).getTypeParameters();
-		final Type[] actualParams = type.getActualTypeArguments();
-		for (int i = 0; i < actualParams.length; i++) {
-			final Map<String, TypeInformation<?>> componentInfo = typeInformation.getGenericParameters();
-			final String typeParamName = typeParams[i].toString();
-			if (!componentInfo.containsKey(typeParamName) || componentInfo.get(typeParamName) == null) {
-				throw new InvalidTypesException("TypeInformation '" + typeInformation.getClass().getSimpleName() +
-					"' does not supply a mapping of TypeVariable '" + typeParamName + "' to corresponding TypeInformation. " +
-					"Input type inference can only produce a result with this information. " +
-					"Please implement method 'TypeInformation.getGenericParameters()' for this.");
+	static int countFieldsInClass(Class<?> clazz) {
+		int fieldCount = 0;
+		for (Field field : clazz.getFields()) { // get all fields
+			if (!Modifier.isStatic(field.getModifiers()) &&
+				!Modifier.isTransient(field.getModifiers())
+			) {
+				fieldCount++;
 			}
-			final Map<TypeVariable<?>, TypeInformation<?>> sub =
-				bindTypeVariablesWithTypeInformationFromInput(actualParams[i], componentInfo.get(typeParamName));
-			typeVariableBindings.putAll(sub);
 		}
-		return typeVariableBindings.isEmpty() ? Collections.emptyMap() : typeVariableBindings;
+		return fieldCount;
+	}
+
+	/**
+	 * Creates type information from a given Class such as Integer, String[] or POJOs.
+	 *
+	 * <p>This method does not support ParameterizedTypes such as Tuples or complex type hierarchies.
+	 * In most cases {@link TypeExtractor#createTypeInfo(Type)} is the recommended method for type extraction
+	 * (a Class is a child of Type).
+	 *
+	 * @param clazz a Class to create TypeInformation for
+	 * @return TypeInformation that describes the passed Class
+	 */
+	public static <X> TypeInformation<X> getForClass(Class<X> clazz) {
+		return createTypeInfo(clazz, Collections.emptyMap(), Collections.emptyList());
+	}
+
+	/**
+	 * Recursively determine all declared fields
+	 * This is required because class.getFields() is not returning fields defined
+	 * in parent classes.
+	 *
+	 * @param clazz class to be analyzed
+	 * @param ignoreDuplicates if true, in case of duplicate field names only the lowest one
+	 *                            in a hierarchy will be returned; throws an exception otherwise
+	 * @return list of fields
+	 */
+	@PublicEvolving
+	public static List<Field> getAllDeclaredFields(Class<?> clazz, boolean ignoreDuplicates) {
+		List<Field> result = new ArrayList<>();
+		while (clazz != null) {
+			Field[] fields = clazz.getDeclaredFields();
+			for (Field field : fields) {
+				if (Modifier.isTransient(field.getModifiers()) || Modifier.isStatic(field.getModifiers())) {
+					continue; // we have no use for transient or static fields
+				}
+				if (hasFieldWithSameName(field.getName(), result)) {
+					if (ignoreDuplicates) {
+						continue;
+					} else {
+						throw new InvalidTypesException("The field " + field + " is already contained in the hierarchy of the " +
+							clazz + ".Please use unique field names through your classes hierarchy");
+					}
+				}
+				result.add(field);
+			}
+			clazz = clazz.getSuperclass();
+		}
+		return result;
+	}
+
+	@PublicEvolving
+	public static Field getDeclaredField(Class<?> clazz, String name) {
+		for (Field field : getAllDeclaredFields(clazz, true)) {
+			if (field.getName().equals(name)) {
+				return field;
+			}
+		}
+		return null;
+	}
+
+	private static boolean hasFieldWithSameName(String name, List<Field> fields) {
+		for (Field field : fields) {
+			if (name.equals(field.getName())) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 }

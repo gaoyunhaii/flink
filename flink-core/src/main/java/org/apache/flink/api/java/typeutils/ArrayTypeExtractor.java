@@ -14,7 +14,6 @@ import java.lang.reflect.TypeVariable;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.flink.api.java.typeutils.TypeExtractor.bindTypeVariablesWithTypeInformationFromInput;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.createTypeInfo;
 
 class ArrayTypeExtractor {
@@ -124,7 +123,7 @@ class ArrayTypeExtractor {
 	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation} or {@code null}
 	 * if the type is not {@link GenericArrayType}
 	 */
-	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariable(
+	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariables(
 		final Type type,
 		final TypeInformation<?> typeInformation) {
 
@@ -138,7 +137,7 @@ class ArrayTypeExtractor {
 				componentInfo = ((ObjectArrayTypeInfo<?, ?>) typeInformation).getComponentInfo();
 			}
 			Preconditions.checkNotNull(componentInfo, "found unexpected array type information");
-			return bindTypeVariablesWithTypeInformationFromInput(((GenericArrayType) type).getGenericComponentType(), componentInfo);
+			return TypeVariableBinder.bindTypeVariables(((GenericArrayType) type).getGenericComponentType(), componentInfo);
 		}
 		return null;
 	}
