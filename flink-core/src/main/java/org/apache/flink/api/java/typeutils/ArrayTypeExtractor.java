@@ -4,6 +4,7 @@ import org.apache.flink.api.common.typeinfo.BasicArrayTypeInfo;
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.PrimitiveArrayTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.util.Preconditions;
 
 import javax.annotation.Nullable;
 
@@ -117,24 +118,28 @@ class ArrayTypeExtractor {
 	}
 
 	/**
-	 * Bind the {@link TypeVariable} with {@link TypeInformation} from the generic array type.
-	 * @param genericArrayType the generic array type
-	 * @param typeInformation the array type information
-	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
+	 * Bind the {@link TypeVariable} with {@link TypeInformation} from the generic array {@link TypeInformation}.
+	 * @param type the resolved type
+	 * @param typeInformation the type information of the given type
+	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation} or {@code null}
+	 * if the type is not {@link GenericArrayType}
 	 */
 	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariable(
-		final GenericArrayType genericArrayType,
+		final Type type,
 		final TypeInformation<?> typeInformation) {
 
-		//TODO:: should not depend on the specific TypeInformation
-		TypeInformation<?> componentInfo = null;
-		if (typeInformation instanceof BasicArrayTypeInfo) {
-			componentInfo = ((BasicArrayTypeInfo<?, ?>) typeInformation).getComponentInfo();
-		} else if (typeInformation instanceof PrimitiveArrayTypeInfo) {
-			componentInfo = BasicTypeInfo.getInfoFor(typeInformation.getTypeClass().getComponentType());
-		} else if (typeInformation instanceof ObjectArrayTypeInfo) {
-			componentInfo = ((ObjectArrayTypeInfo<?, ?>) typeInformation).getComponentInfo();
+		if (type instanceof GenericArrayType) {
+			TypeInformation<?> componentInfo = null;
+			if (typeInformation instanceof BasicArrayTypeInfo) {
+				componentInfo = ((BasicArrayTypeInfo<?, ?>) typeInformation).getComponentInfo();
+			} else if (typeInformation instanceof PrimitiveArrayTypeInfo) {
+				componentInfo = BasicTypeInfo.getInfoFor(typeInformation.getTypeClass().getComponentType());
+			} else if (typeInformation instanceof ObjectArrayTypeInfo) {
+				componentInfo = ((ObjectArrayTypeInfo<?, ?>) typeInformation).getComponentInfo();
+			}
+			Preconditions.checkNotNull(componentInfo, "found unexpected array type information");
+			return bindTypeVariablesWithTypeInformationFromInput(((GenericArrayType) type).getGenericComponentType(), componentInfo);
 		}
-		return bindTypeVariablesWithTypeInformationFromInput(genericArrayType.getGenericComponentType(), componentInfo);
+		return null;
 	}
 }

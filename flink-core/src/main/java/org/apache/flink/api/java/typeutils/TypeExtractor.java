@@ -50,7 +50,6 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.Nullable;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
@@ -63,7 +62,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.checkAndExtractLambda;
-import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.getClosestFactory;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
 import static org.apache.flink.api.java.typeutils.TypeResolve.buildParameterizedTypeHierarchy;
@@ -942,7 +940,7 @@ public class TypeExtractor {
 		checkNotNull(value);
 
 		final TypeInformation<X> typeFromFactory =
-			(TypeInformation<X>) TypeInfoExtractor.extract(value.getClass(), Collections.emptyMap(), Collections.emptyList());
+			(TypeInformation<X>) TypeInfoFactoryExtractor.extract(value.getClass(), Collections.emptyMap(), Collections.emptyList());
 		if (typeFromFactory != null) {
 			return typeFromFactory;
 		}
@@ -1086,27 +1084,31 @@ public class TypeExtractor {
 		final Type inType,
 		final TypeInformation<?> inTypeInfo) {
 
-		final List<ParameterizedType> factoryHierarchy = new ArrayList<>();
-		final TypeInfoFactory<?> factory = getClosestFactory(factoryHierarchy, inType);
+		Map<TypeVariable<?>, TypeInformation<?>> result;
 
-		if (factory != null) {
-			final Type factoryDefiningType = factoryHierarchy.size() < 1 ? inType :
-				resolveTypeFromTypeHierarchy(factoryHierarchy.get(factoryHierarchy.size() - 1), factoryHierarchy, true);
-			if (factoryDefiningType instanceof ParameterizedType) {
-				return bindTypeVariableFromGenericParameters((ParameterizedType) factoryDefiningType, inTypeInfo);
-			}
-		} else if (inType instanceof GenericArrayType) {
-			return ArrayTypeExtractor.bindTypeVariable((GenericArrayType) inType, inTypeInfo);
-		} else if (inTypeInfo instanceof TupleTypeInfo && isClassType(inType) && Tuple.class.isAssignableFrom(typeToClass(inType))) {
-			return TupleTypeExtractor.bindTypeVariable(inType, inTypeInfo);
-		} else if (inTypeInfo instanceof PojoTypeInfo && isClassType(inType)) {
-			return PojoTypeExtractor.bindTypeVariable(inType, inTypeInfo);
-		} else if (inType instanceof TypeVariable) {
+		if ((result = TypeInfoFactoryExtractor.bindTypeVariable(inType, inTypeInfo)) != null) {
+			return result;
+		}
+
+		if ((result = ArrayTypeExtractor.bindTypeVariable(inType, inTypeInfo)) != null) {
+			return result;
+		}
+
+		if ((result = TupleTypeExtractor.bindTypeVariable(inType, inTypeInfo)) != null) {
+			return result;
+		}
+
+		if ((result = PojoTypeExtractor.bindTypeVariable(inType, inTypeInfo)) != null) {
+			return result;
+		}
+
+		if (inType instanceof TypeVariable) {
 			final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings = new HashMap<>();
 
 			typeVariableBindings.put((TypeVariable<?>) inType, inTypeInfo);
 			return typeVariableBindings;
 		}
+
 		return Collections.emptyMap();
 	}
 

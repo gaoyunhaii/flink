@@ -22,6 +22,7 @@ import org.apache.flink.api.common.functions.InvalidTypesException;
 import org.apache.flink.api.common.typeinfo.TypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInfoFactory;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.util.InstantiationUtil;
 
 import javax.annotation.Nullable;
 
@@ -34,8 +35,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.getClosestFactory;
+import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
+import static org.apache.flink.api.java.typeutils.TypeExtractor.bindTypeVariableFromGenericParameters;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.createTypeInfo;
 import static org.apache.flink.api.java.typeutils.TypeResolve.resolveTypeFromTypeHierarchy;
 
@@ -43,7 +45,7 @@ import static org.apache.flink.api.java.typeutils.TypeResolve.resolveTypeFromTyp
  * This class is used to extract the {@link org.apache.flink.api.common.typeinfo.TypeInformation} of the class that has
  * the {@link org.apache.flink.api.common.typeinfo.TypeInfo} annotation.
  */
-class TypeInfoExtractor {
+class TypeInfoFactoryExtractor {
 
 	/**
 	 * Extract {@link TypeInformation} for the type that has {@link TypeInfo} annotation.
@@ -95,6 +97,70 @@ class TypeInfoExtractor {
 			throw new InvalidTypesException("TypeInfoFactory returned invalid TypeInformation 'null'");
 		}
 		return createdTypeInfo;
+	}
+
+	/**
+	 * Bind the {@link TypeVariable} with the {@link TypeInformation} from {@link TypeInformation} that is created from {@link TypeInfoFactory}.
+	 * @param type the resolved type
+	 * @param typeInformation the type information of the given type
+	 * @return the mapping relation between the {@link TypeVariable} and {@link TypeInformation} or
+	 * 		   {@code null} if the typeInformation is not created from the {@link TypeInfoFactory}
+	 */
+	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariable(final Type type, final TypeInformation<?> typeInformation) {
+
+		final List<ParameterizedType> factoryHierarchy = new ArrayList<>();
+		final TypeInfoFactory<?> factory = getClosestFactory(factoryHierarchy, type);
+
+		if (factory != null) {
+			final Type factoryDefiningType = factoryHierarchy.size() < 1 ? type :
+				resolveTypeFromTypeHierarchy(factoryHierarchy.get(factoryHierarchy.size() - 1), factoryHierarchy, true);
+			if (factoryDefiningType instanceof ParameterizedType) {
+				return bindTypeVariableFromGenericParameters((ParameterizedType) factoryDefiningType, typeInformation);
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Traverses the type hierarchy up until a type information factory can be found.
+	 * @param typeHierarchy hierarchy to be filled while traversing up
+	 * @param t type for which a factory needs to be found
+	 * @return closest type information factory or null if there is no factory in the type hierarchy
+	 */
+	private static TypeInfoFactory<?> getClosestFactory(List<ParameterizedType> typeHierarchy, Type t) {
+		TypeInfoFactory factory = null;
+		while (factory == null && isClassType(t) && !(typeToClass(t).equals(Object.class))) {
+			if (t instanceof ParameterizedType) {
+				typeHierarchy.add((ParameterizedType) t);
+			}
+			factory = getTypeInfoFactory(t);
+			t = typeToClass(t).getGenericSuperclass();
+
+			if (t == null) {
+				break;
+			}
+		}
+		return factory;
+	}
+
+	/**
+	 * Returns the type information factory for a type using the factory registry or annotations.
+	 */
+	private static TypeInfoFactory<?> getTypeInfoFactory(Type t) {
+		final Class<?> factoryClass;
+
+		if (!isClassType(t) || !typeToClass(t).isAnnotationPresent(TypeInfo.class)) {
+			return null;
+		}
+		final TypeInfo typeInfoAnnotation = typeToClass(t).getAnnotation(TypeInfo.class);
+		factoryClass = typeInfoAnnotation.value();
+		// check for valid factory class
+		if (!TypeInfoFactory.class.isAssignableFrom(factoryClass)) {
+			throw new InvalidTypesException("TypeInfo annotation does not specify a valid TypeInfoFactory.");
+		}
+		// instantiate
+		return (TypeInfoFactory<?>) InstantiationUtil.instantiate(factoryClass);
 	}
 
 }

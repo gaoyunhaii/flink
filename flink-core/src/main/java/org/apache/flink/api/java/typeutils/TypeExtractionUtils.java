@@ -21,9 +21,6 @@ package org.apache.flink.api.java.typeutils;
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.functions.Function;
 import org.apache.flink.api.common.functions.InvalidTypesException;
-import org.apache.flink.api.common.typeinfo.TypeInfo;
-import org.apache.flink.api.common.typeinfo.TypeInfoFactory;
-import org.apache.flink.util.InstantiationUtil;
 
 import java.lang.invoke.SerializedLambda;
 import java.lang.reflect.Array;
@@ -353,49 +350,5 @@ public class TypeExtractionUtils {
 				+ "An easy workaround is to use an (anonymous) class instead that implements the '" + baseClass.getName() + "' interface. "
 				+ "Otherwise the type has to be specified explicitly using type information.");
 		}
-	}
-
-	/**
-	 * Traverses the type hierarchy up until a type information factory can be found.
-	 * TODO :: do we need the generic parameter here?
-	 * @param typeHierarchy hierarchy to be filled while traversing up
-	 * @param t type for which a factory needs to be found
-	 * @return closest type information factory or null if there is no factory in the type hierarchy
-	 */
-	static <OUT> TypeInfoFactory<? super OUT> getClosestFactory(List<ParameterizedType> typeHierarchy, Type t) {
-		TypeInfoFactory factory = null;
-		while (factory == null && isClassType(t) && !(typeToClass(t).equals(Object.class))) {
-			if (t instanceof ParameterizedType) {
-				typeHierarchy.add((ParameterizedType) t);
-			}
-			factory = getTypeInfoFactory(t);
-			t = typeToClass(t).getGenericSuperclass();
-
-			if (t == null) {
-				break;
-			}
-		}
-		return factory;
-	}
-
-	/**
-	 * Returns the type information factory for a type using the factory registry or annotations.
-	 * TODO :: do we need the generic parameter here?
-	 */
-	@Internal
-	public static <OUT> TypeInfoFactory<OUT> getTypeInfoFactory(Type t) {
-		final Class<?> factoryClass;
-
-		if (!isClassType(t) || !typeToClass(t).isAnnotationPresent(TypeInfo.class)) {
-			return null;
-		}
-		final TypeInfo typeInfoAnnotation = typeToClass(t).getAnnotation(TypeInfo.class);
-		factoryClass = typeInfoAnnotation.value();
-		// check for valid factory class
-		if (!TypeInfoFactory.class.isAssignableFrom(factoryClass)) {
-			throw new InvalidTypesException("TypeInfo annotation does not specify a valid TypeInfoFactory.");
-		}
-		// instantiate
-		return (TypeInfoFactory<OUT>) InstantiationUtil.instantiate(factoryClass);
 	}
 }

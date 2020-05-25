@@ -253,30 +253,32 @@ class PojoTypeExtractor {
 	/**
 	 * Bind the {@link TypeVariable} with {@link TypeInformation} from the mapping relation between the fields
 	 * and {@link TypeInformation}.
-	 * TODO:: we could make this method generic later
-	 * @param type pojo type
-	 * @param typeInformation {@link TypeInformation} that could provide the mapping relation between the fields
-	 *                                                and {@link TypeInformation}
-	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
+	 * @param type the resolved type
+	 * @param typeInformation the type information of the given type
+	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation} or {@code null} if the
+	 * typeInformation is not {@link PojoTypeInfo}.
 	 */
 	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariable(
 		final Type type,
 		final TypeInformation<?> typeInformation) {
 
-		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings = new HashMap<>();
-		// build the entire type hierarchy for the pojo
-		final List<ParameterizedType> pojoHierarchy = buildParameterizedTypeHierarchy(type, Object.class);
-		// build the entire type hierarchy for the pojo
-		final List<Field> fields = getAllDeclaredFields(typeToClass(type), false);
-		for (Field field : fields) {
-			final Type fieldType = field.getGenericType();
-			final Type resolvedFieldType =  resolveTypeFromTypeHierarchy(fieldType, pojoHierarchy, true);
-			final Map<TypeVariable<?>, TypeInformation<?>> sub =
-				bindTypeVariablesWithTypeInformationFromInput(resolvedFieldType, getTypeOfPojoField(typeInformation, field));
-			typeVariableBindings.putAll(sub);
-		}
+		if (typeInformation instanceof PojoTypeInfo && isClassType(type)) {
+			final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings = new HashMap<>();
+			// build the entire type hierarchy for the pojo
+			final List<ParameterizedType> pojoHierarchy = buildParameterizedTypeHierarchy(type, Object.class);
+			// build the entire type hierarchy for the pojo
+			final List<Field> fields = getAllDeclaredFields(typeToClass(type), false);
+			for (Field field : fields) {
+				final Type fieldType = field.getGenericType();
+				final Type resolvedFieldType = resolveTypeFromTypeHierarchy(fieldType, pojoHierarchy, true);
+				final Map<TypeVariable<?>, TypeInformation<?>> sub =
+					bindTypeVariablesWithTypeInformationFromInput(resolvedFieldType, getTypeOfPojoField(typeInformation, field));
+				typeVariableBindings.putAll(sub);
+			}
 
-		return typeVariableBindings.isEmpty() ? Collections.emptyMap() : typeVariableBindings;
+			return typeVariableBindings.isEmpty() ? Collections.emptyMap() : typeVariableBindings;
+		}
+		return null;
 	}
 
 	private static TypeInformation<?> getTypeOfPojoField(TypeInformation<?> pojoInfo, Field field) {

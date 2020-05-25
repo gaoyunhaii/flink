@@ -60,7 +60,7 @@ class DefaultExtractor {
 			return typeInformation;
 		}
 
-		if ((typeInformation = TypeInfoExtractor.extract(type, typeVariableBindings, extractingClasses)) != null) {
+		if ((typeInformation = TypeInfoFactoryExtractor.extract(type, typeVariableBindings, extractingClasses)) != null) {
 			return typeInformation;
 		}
 

@@ -108,34 +108,36 @@ class TupleTypeExtractor {
 	}
 
 	/**
-	 * Bind the {@link TypeVariable} with {@link TypeInformation} from the generic type.
-	 *
-	 * @param type the type that has {@link TypeVariable}
-	 * @param typeInformation the {@link TypeInformation} that stores the mapping relations between the generic parameters
-	 *                        and {@link TypeInformation}.
-	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
+	 * Bind the {@link TypeVariable} with {@link TypeInformation} from the {@link TupleTypeInfo}.
+	 * @param type the resolved type
+	 * @param typeInformation the type information of the given type
+	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation} or {@code null} if the typeInformation
+	 * is not {@link TupleTypeInfo}.
 	 */
 	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariable(
 		final Type type,
 		final TypeInformation<?> typeInformation) {
 
-		final List<ParameterizedType> typeHierarchy = new ArrayList<>();
-		Type curType = type;
-		// get tuple from possible tuple subclass
-		while (!(isClassType(curType) && typeToClass(curType).getSuperclass().equals(Tuple.class))) {
+		if (typeInformation instanceof TupleTypeInfo && isClassType(type) && Tuple.class.isAssignableFrom(typeToClass(type))) {
+			final List<ParameterizedType> typeHierarchy = new ArrayList<>();
+			Type curType = type;
+			// get tuple from possible tuple subclass
+			while (!(isClassType(curType) && typeToClass(curType).getSuperclass().equals(Tuple.class))) {
+				if (curType instanceof ParameterizedType) {
+					typeHierarchy.add((ParameterizedType) curType);
+				}
+				curType = typeToClass(curType).getGenericSuperclass();
+			}
 			if (curType instanceof ParameterizedType) {
 				typeHierarchy.add((ParameterizedType) curType);
 			}
-			curType = typeToClass(curType).getGenericSuperclass();
+			final Type tupleBaseClass = resolveTypeFromTypeHierarchy(curType, typeHierarchy, true);
+			if (tupleBaseClass instanceof ParameterizedType) {
+				return TypeExtractor.bindTypeVariableFromGenericParameters((ParameterizedType) tupleBaseClass, typeInformation);
+			}
+			return Collections.emptyMap();
 		}
-		if (curType instanceof ParameterizedType) {
-			typeHierarchy.add((ParameterizedType) curType);
-		}
-		final Type tupleBaseClass = resolveTypeFromTypeHierarchy(curType, typeHierarchy, true);
-		if (tupleBaseClass instanceof ParameterizedType) {
-			return TypeExtractor.bindTypeVariableFromGenericParameters((ParameterizedType) tupleBaseClass, typeInformation);
-		}
-		return Collections.emptyMap();
+		return null;
 	}
 
 	/**
@@ -143,7 +145,7 @@ class TupleTypeExtractor {
 	 *
 	 * @param originalType most concrete subclass
 	 * @param definingType type that defines the number of subtypes (e.g. Tuple2 -> 2 subtypes)
-	 * @param typeVariableBindings the mapping relation between the type variable and the typeinformation
+	 * @param typeVariableBindings the mapping relation between the type variable and the type information
 	 * @param extractingClasses the classes that the type is nested into.
 	 * @return array containing TypeInformation of sub types or null if definingType contains
 	 *     more subtypes (fields) that defined
