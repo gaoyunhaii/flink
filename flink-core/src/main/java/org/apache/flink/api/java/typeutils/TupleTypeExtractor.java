@@ -37,7 +37,7 @@ import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassTyp
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.countFieldsInClass;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.createTypeInfo;
-import static org.apache.flink.api.java.typeutils.TypeExtractor.resolveTypeFromTypeHierarchy;
+import static org.apache.flink.api.java.typeutils.TypeResolve.resolveTypeFromTypeHierarchy;
 
 class TupleTypeExtractor {
 

@@ -37,7 +37,7 @@ import java.util.Map;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.getClosestFactory;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.createTypeInfo;
-import static org.apache.flink.api.java.typeutils.TypeExtractor.resolveTypeFromTypeHierarchy;
+import static org.apache.flink.api.java.typeutils.TypeResolve.resolveTypeFromTypeHierarchy;
 
 /**
  * This class is used to extract the {@link org.apache.flink.api.common.typeinfo.TypeInformation} of the class that has

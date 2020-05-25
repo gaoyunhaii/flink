@@ -56,11 +56,11 @@ import java.util.regex.Pattern;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.getAllDeclaredMethods;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
-import static org.apache.flink.api.java.typeutils.TypeExtractor.buildParameterizedTypeHierarchy;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.createTypeInfo;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.getAllDeclaredFields;
-import static org.apache.flink.api.java.typeutils.TypeExtractor.materializeTypeVariable;
-import static org.apache.flink.api.java.typeutils.TypeExtractor.resolveTypeFromTypeHierarchy;
+import static org.apache.flink.api.java.typeutils.TypeResolve.buildParameterizedTypeHierarchy;
+import static org.apache.flink.api.java.typeutils.TypeResolve.materializeTypeVariable;
+import static org.apache.flink.api.java.typeutils.TypeResolve.resolveTypeFromTypeHierarchy;
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkState;
 
