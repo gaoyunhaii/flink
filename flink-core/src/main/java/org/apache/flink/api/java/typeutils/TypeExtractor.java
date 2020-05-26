@@ -38,13 +38,8 @@ import org.apache.flink.api.common.io.InputFormat;
 import org.apache.flink.api.common.typeinfo.TypeInfoFactory;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
-import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.typeutils.TypeExtractionUtils.LambdaExecutable;
-import org.apache.flink.types.Row;
 import org.apache.flink.util.Preconditions;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -98,8 +93,6 @@ public class TypeExtractor {
 	 * Field type: String.class
 	 *
 	 */
-
-	private static final Logger LOG = LoggerFactory.getLogger(TypeExtractor.class);
 
 	public static final int[] NO_INDEX = new int[] {};
 
@@ -787,6 +780,115 @@ public class TypeExtractor {
 		return createTypeInfo(clazz, Collections.emptyMap(), Collections.emptyList());
 	}
 
+	// --------------------------------------------------------------------------------------------
+	//  Create type information for object.
+	// --------------------------------------------------------------------------------------------
+	@SuppressWarnings("unchecked")
+	public static <X> TypeInformation<X> getForObject(X value) {
+		checkNotNull(value);
+
+		TypeInformation<X> typeInformation;
+		if ((typeInformation = (TypeInformation<X>) TypeInfoFactoryExtractor.extract(value.getClass(), Collections.emptyMap(), Collections.emptyList())) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = (TypeInformation<X>) TupleTypeExtractor.extract(value)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = (TypeInformation<X>) RowTypeExtractor.extract(value)) != null) {
+			return typeInformation;
+		}
+
+		return createTypeInfo(value.getClass(), Collections.emptyMap(), Collections.emptyList());
+	}
+
+	// --------------------------------------------------------------------------------------------
+	//  Extract type parameters
+	// --------------------------------------------------------------------------------------------
+
+	/**
+	 * Resolve the type of the {@code pos}-th generic parameter of the {@code baseClass} from a parameterized type hierarchy
+	 * that is built from {@code clazz} to {@code baseClass}. If the {@code pos}-th generic parameter is a generic class the
+	 * type of generic parameters of it would also be resolved. This is a recursive resolving process.
+	 *
+	 * @param baseClass a generic class/interface
+	 * @param clazz a sub class of the {@code baseClass}
+	 * @param pos the position of generic parameter in the {@code baseClass}
+	 * @return the type of the {@code pos}-th generic parameter
+	 */
+	@PublicEvolving
+	public static Type getParameterType(Class<?> baseClass, Class<?> clazz, int pos) {
+		final List<ParameterizedType> typeHierarchy = TypeHierarchyBuilder.buildParameterizedTypeHierarchy(clazz, baseClass);
+
+		if (typeHierarchy.size() < 1) {
+			throw new InvalidTypesException("The types of the interface " + baseClass.getName() + " could not be inferred. " +
+				"Support for synthetic interfaces, lambdas, and generic or raw types is limited at this point");
+		}
+
+		final Type baseClassType =
+			resolveTypeFromTypeHierarchy(typeHierarchy.get(typeHierarchy.size() - 1), typeHierarchy, false);
+
+		return ((ParameterizedType) baseClassType).getActualTypeArguments()[pos];
+	}
+
+	// --------------------------------------------------------------------------------------------
+	//  Utility methods
+	// --------------------------------------------------------------------------------------------
+
+	/**
+	 * Recursively determine all declared fields
+	 * This is required because class.getFields() is not returning fields defined
+	 * in parent classes.
+	 *
+	 * @param clazz class to be analyzed
+	 * @param ignoreDuplicates if true, in case of duplicate field names only the lowest one
+	 *                            in a hierarchy will be returned; throws an exception otherwise
+	 * @return list of fields
+	 */
+	@PublicEvolving
+	public static List<Field> getAllDeclaredFields(Class<?> clazz, boolean ignoreDuplicates) {
+		List<Field> result = new ArrayList<>();
+		while (clazz != null) {
+			Field[] fields = clazz.getDeclaredFields();
+			for (Field field : fields) {
+				if (Modifier.isTransient(field.getModifiers()) || Modifier.isStatic(field.getModifiers())) {
+					continue; // we have no use for transient or static fields
+				}
+				if (hasFieldWithSameName(field.getName(), result)) {
+					if (ignoreDuplicates) {
+						continue;
+					} else {
+						throw new InvalidTypesException("The field " + field + " is already contained in the hierarchy of the " +
+							clazz + ".Please use unique field names through your classes hierarchy");
+					}
+				}
+				result.add(field);
+			}
+			clazz = clazz.getSuperclass();
+		}
+		return result;
+	}
+
+	@PublicEvolving
+	public static Field getDeclaredField(Class<?> clazz, String name) {
+		for (Field field : getAllDeclaredFields(clazz, true)) {
+			if (field.getName().equals(name)) {
+				return field;
+			}
+		}
+		return null;
+	}
+
+	private static boolean hasFieldWithSameName(String name, List<Field> fields) {
+		for (Field field : fields) {
+			if (name.equals(field.getName())) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	// ----------------------------------- private methods ----------------------------------------
 
 	// for (Rich)Functions
@@ -860,169 +962,6 @@ public class TypeExtractor {
 		}
 
 		throw new InvalidTypesException("Type Information could not be created.");
-	}
-
-	// --------------------------------------------------------------------------------------------
-	//  Create type information for object.
-	// --------------------------------------------------------------------------------------------
-
-	public static <X> TypeInformation<X> getForObject(X value) {
-		return privateGetForObject(value);
-	}
-
-	@SuppressWarnings({ "unchecked", "rawtypes" })
-	private static <X> TypeInformation<X> privateGetForObject(X value) {
-		checkNotNull(value);
-
-		final TypeInformation<X> typeFromFactory =
-			(TypeInformation<X>) TypeInfoFactoryExtractor.extract(value.getClass(), Collections.emptyMap(), Collections.emptyList());
-		if (typeFromFactory != null) {
-			return typeFromFactory;
-		}
-
-		// check if we can extract the types from tuples, otherwise work with the class
-		if (value instanceof Tuple) {
-			Tuple t = (Tuple) value;
-			int numFields = t.getArity();
-			if (numFields != countFieldsInClass(value.getClass())) {
-				// not a tuple since it has more fields.
-				// we immediately call analyze Pojo here, because there is currently no other type that can handle such a class.
-				return (TypeInformation<X>) PojoTypeExtractor.extract(
-					value.getClass(),
-					Collections.emptyMap(),
-					Collections.emptyList());
-			}
-
-			TypeInformation<?>[] infos = new TypeInformation[numFields];
-			for (int i = 0; i < numFields; i++) {
-				Object field = t.getField(i);
-
-				if (field == null) {
-					throw new InvalidTypesException("Automatic type extraction is not possible on candidates with null values. "
-							+ "Please specify the types directly.");
-				}
-
-				infos[i] = privateGetForObject(field);
-			}
-			return new TupleTypeInfo(value.getClass(), infos);
-		}
-		else if (value instanceof Row) {
-			Row row = (Row) value;
-			int arity = row.getArity();
-			for (int i = 0; i < arity; i++) {
-				if (row.getField(i) == null) {
-					LOG.warn("Cannot extract type of Row field, because of Row field[" + i + "] is null. " +
-						"Should define RowTypeInfo explicitly.");
-					return createTypeInfo(value.getClass(), Collections.emptyMap(), Collections.emptyList());
-				}
-			}
-			TypeInformation<?>[] typeArray = new TypeInformation<?>[arity];
-			for (int i = 0; i < arity; i++) {
-				typeArray[i] = TypeExtractor.getForObject(row.getField(i));
-			}
-			return (TypeInformation<X>) new RowTypeInfo(typeArray);
-		}
-		else {
-			return createTypeInfo(value.getClass(), Collections.emptyMap(), Collections.emptyList());
-		}
-	}
-
-	// --------------------------------------------------------------------------------------------
-	//  Extract type parameters
-	// --------------------------------------------------------------------------------------------
-
-	/**
-	 * Resolve the type of the {@code pos}-th generic parameter of the {@code baseClass} from a parameterized type hierarchy
-	 * that is built from {@code clazz} to {@code baseClass}. If the {@code pos}-th generic parameter is a generic class the
-	 * type of generic parameters of it would also be resolved. This is a recursive resolving process.
-	 *
-	 * @param baseClass a generic class/interface
-	 * @param clazz a sub class of the {@code baseClass}
-	 * @param pos the position of generic parameter in the {@code baseClass}
-	 * @return the type of the {@code pos}-th generic parameter
-	 */
-	@PublicEvolving
-	public static Type getParameterType(Class<?> baseClass, Class<?> clazz, int pos) {
-		final List<ParameterizedType> typeHierarchy = TypeHierarchyBuilder.buildParameterizedTypeHierarchy(clazz, baseClass);
-
-		if (typeHierarchy.size() < 1) {
-			throw new InvalidTypesException("The types of the interface " + baseClass.getName() + " could not be inferred. " +
-				"Support for synthetic interfaces, lambdas, and generic or raw types is limited at this point");
-		}
-
-		final Type baseClassType =
-			resolveTypeFromTypeHierarchy(typeHierarchy.get(typeHierarchy.size() - 1), typeHierarchy, false);
-
-		return ((ParameterizedType) baseClassType).getActualTypeArguments()[pos];
-	}
-
-	// --------------------------------------------------------------------------------------------
-	//  Utility methods
-	// --------------------------------------------------------------------------------------------
-
-	static int countFieldsInClass(Class<?> clazz) {
-		int fieldCount = 0;
-		for (Field field : clazz.getFields()) { // get all fields
-			if (!Modifier.isStatic(field.getModifiers()) &&
-				!Modifier.isTransient(field.getModifiers())
-			) {
-				fieldCount++;
-			}
-		}
-		return fieldCount;
-	}
-
-	/**
-	 * Recursively determine all declared fields
-	 * This is required because class.getFields() is not returning fields defined
-	 * in parent classes.
-	 *
-	 * @param clazz class to be analyzed
-	 * @param ignoreDuplicates if true, in case of duplicate field names only the lowest one
-	 *                            in a hierarchy will be returned; throws an exception otherwise
-	 * @return list of fields
-	 */
-	@PublicEvolving
-	public static List<Field> getAllDeclaredFields(Class<?> clazz, boolean ignoreDuplicates) {
-		List<Field> result = new ArrayList<>();
-		while (clazz != null) {
-			Field[] fields = clazz.getDeclaredFields();
-			for (Field field : fields) {
-				if (Modifier.isTransient(field.getModifiers()) || Modifier.isStatic(field.getModifiers())) {
-					continue; // we have no use for transient or static fields
-				}
-				if (hasFieldWithSameName(field.getName(), result)) {
-					if (ignoreDuplicates) {
-						continue;
-					} else {
-						throw new InvalidTypesException("The field " + field + " is already contained in the hierarchy of the " +
-							clazz + ".Please use unique field names through your classes hierarchy");
-					}
-				}
-				result.add(field);
-			}
-			clazz = clazz.getSuperclass();
-		}
-		return result;
-	}
-
-	@PublicEvolving
-	public static Field getDeclaredField(Class<?> clazz, String name) {
-		for (Field field : getAllDeclaredFields(clazz, true)) {
-			if (field.getName().equals(name)) {
-				return field;
-			}
-		}
-		return null;
-	}
-
-	private static boolean hasFieldWithSameName(String name, List<Field> fields) {
-		for (Field field : fields) {
-			if (name.equals(field.getName())) {
-				return true;
-			}
-		}
-		return false;
 	}
 
 }

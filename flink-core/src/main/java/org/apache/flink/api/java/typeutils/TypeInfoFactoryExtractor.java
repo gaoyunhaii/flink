@@ -18,6 +18,7 @@
 
 package org.apache.flink.api.java.typeutils;
 
+import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.functions.InvalidTypesException;
 import org.apache.flink.api.common.typeinfo.TypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInfoFactory;
@@ -45,7 +46,7 @@ import static org.apache.flink.api.java.typeutils.TypeVariableBinder.bindTypeVar
  * This class is used to extract the {@link org.apache.flink.api.common.typeinfo.TypeInformation} of the class that has
  * the {@link org.apache.flink.api.common.typeinfo.TypeInfo} annotation.
  */
-class TypeInfoFactoryExtractor {
+public class TypeInfoFactoryExtractor {
 
 	/**
 	 * Extract {@link TypeInformation} for the type that has {@link TypeInfo} annotation.
@@ -122,7 +123,9 @@ class TypeInfoFactoryExtractor {
 	/**
 	 * Returns the type information factory for a type using the factory registry or annotations.
 	 */
-	private static TypeInfoFactory<?> getTypeInfoFactory(Type t) {
+	@Internal
+	@SuppressWarnings("unchecked")
+	public static <X> TypeInfoFactory<X> getTypeInfoFactory(Type t) {
 		final Class<?> factoryClass;
 
 		if (!isClassType(t) || !typeToClass(t).isAnnotationPresent(TypeInfo.class)) {
@@ -135,7 +138,7 @@ class TypeInfoFactoryExtractor {
 			throw new InvalidTypesException("TypeInfo annotation does not specify a valid TypeInfoFactory.");
 		}
 		// instantiate
-		return (TypeInfoFactory<?>) InstantiationUtil.instantiate(factoryClass);
+		return (TypeInfoFactory<X>) InstantiationUtil.instantiate(factoryClass);
 	}
 
 	private static Tuple3<Type, List<ParameterizedType>, TypeInfoFactory<?>> buildTypeHierarchy(final Type type) {

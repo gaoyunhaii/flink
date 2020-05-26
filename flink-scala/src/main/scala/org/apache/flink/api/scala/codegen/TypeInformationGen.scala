@@ -101,7 +101,7 @@ private[flink] trait TypeInformationGen[C <: Context] {
     val typeInfosList = c.Expr[List[TypeInformation[_]]](mkList(typeInfos.toList))
 
     reify {
-      val factory = TypeExtractionUtils.getTypeInfoFactory[T](baseClazz.splice)
+      val factory = TypeInfoFactoryExtractor.getTypeInfoFactory[T](baseClazz.splice)
       val genericParameters = typeInfosList.splice
         .zip(baseClazz.splice.getTypeParameters).map { case (typeInfo, typeParam) =>
           typeParam.getName -> typeInfo

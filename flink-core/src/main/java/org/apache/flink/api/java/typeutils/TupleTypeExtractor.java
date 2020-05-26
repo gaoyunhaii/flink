@@ -25,6 +25,8 @@ import org.apache.flink.api.java.tuple.Tuple0;
 
 import javax.annotation.Nullable;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
@@ -34,8 +36,8 @@ import java.util.Map;
 
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
-import static org.apache.flink.api.java.typeutils.TypeExtractor.countFieldsInClass;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.createTypeInfo;
+import static org.apache.flink.api.java.typeutils.TypeExtractor.getForObject;
 import static org.apache.flink.api.java.typeutils.TypeHierarchyBuilder.buildParameterizedTypeHierarchy;
 import static org.apache.flink.api.java.typeutils.TypeResolver.resolveTypeFromTypeHierarchy;
 
@@ -46,8 +48,8 @@ class TupleTypeExtractor {
 	 * @param type the type needed to extract {@link TypeInformation}
 	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}
 	 * @param extractingClasses the classes that the type is nested into.
-	 * @return the {@link TypeInformation} of the type or {@code null} if the type information of the generic parameter of
-	 * the {@link Tuple} could not be extracted
+	 * @return the {@link TypeInformation} of the type or {@code null} if the type information of
+	 * the generic parameter of the {@link Tuple} could not be extracted
 	 * @throws InvalidTypesException if the type is sub type of {@link Tuple} but not a generic class or if the type equals {@link Tuple}.
 	 */
 	@Nullable
@@ -123,5 +125,56 @@ class TupleTypeExtractor {
 			return Collections.emptyMap();
 		}
 		return null;
+	}
+
+	/**
+	 * Extract the {@link TypeInformation} for the Tuple object.
+	 * @param value the object needed to extract {@link TypeInformation}
+	 * @return the {@link TypeInformation} of the type or {@code null} if the value is not the Tuple type.
+	 */
+	@SuppressWarnings("unchecked")
+	static TypeInformation<?> extract(Object value) {
+
+		if (!(value instanceof Tuple)) {
+			return null;
+		}
+
+		final Tuple t = (Tuple) value;
+		final int numFields = t.getArity();
+
+		if (numFields != countFieldsInClass(value.getClass())) {
+			// not a tuple since it has more fields.
+			// we immediately call analyze Pojo here, because there is currently no other type that can handle such a class.
+			//TODO:: use creaetType??
+			return PojoTypeExtractor.extract(
+				value.getClass(),
+				Collections.emptyMap(),
+				Collections.emptyList());
+		}
+
+		final TypeInformation<?>[] typeInformations = new TypeInformation[numFields];
+		for (int i = 0; i < numFields; i++) {
+			Object field = t.getField(i);
+
+			if (field == null) {
+				throw new InvalidTypesException("Automatic type extraction is not possible on candidates with null values. "
+					+ "Please specify the types directly.");
+			}
+
+			typeInformations[i] = getForObject(field);
+		}
+		return new TupleTypeInfo(value.getClass(), typeInformations);
+	}
+
+	private static int countFieldsInClass(Class<?> clazz) {
+		int fieldCount = 0;
+		for (Field field : clazz.getFields()) { // get all fields
+			if (!Modifier.isStatic(field.getModifiers()) &&
+				!Modifier.isTransient(field.getModifiers())
+			) {
+				fieldCount++;
+			}
+		}
+		return fieldCount;
 	}
 }
