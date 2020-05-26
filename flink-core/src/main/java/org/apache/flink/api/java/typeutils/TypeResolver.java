@@ -24,18 +24,14 @@ import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
-import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.sameTypeVars;
-import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
 
 /**
  * This class is used to resolve the type from the type hierarchy.
  */
-public class TypeResolver {
+class TypeResolver {
 
 	/**
 	 * Resolve all {@link TypeVariable}s of the type from the type hierarchy.
@@ -68,72 +64,6 @@ public class TypeResolver {
 	}
 
 	/**
-	 * Build the parameterized type hierarchy from {@code subClass} to {@code baseClass}.
-	 * @param subClass the begin class of the type hierarchy
-	 * @param baseClass the end class of the type hierarchy
-	 * @param traverseInterface whether to traverse the interface type
-	 * @return the parameterized type hierarchy.
-	 */
-	static List<ParameterizedType> buildParameterizedTypeHierarchy(
-		final Class<?> subClass,
-		final Class<?> baseClass,
-		final boolean traverseInterface) {
-
-		final List<ParameterizedType> typeHierarchy = new ArrayList<>();
-
-		if (baseClass.equals(subClass) || !baseClass.isAssignableFrom(subClass)) {
-			return Collections.emptyList();
-		}
-
-		if (traverseInterface) {
-			final Type[] interfaceTypes = subClass.getGenericInterfaces();
-
-			for (Type type : interfaceTypes) {
-				if (baseClass.isAssignableFrom(typeToClass(type))) {
-					final List<ParameterizedType> subTypeHierarchy = buildParameterizedTypeHierarchy(typeToClass(type), baseClass, traverseInterface);
-					if (type instanceof ParameterizedType) {
-						typeHierarchy.add((ParameterizedType) type);
-					}
-					typeHierarchy.addAll(subTypeHierarchy);
-					return typeHierarchy;
-				}
-			}
-		}
-
-		if (baseClass.isAssignableFrom(subClass)) {
-			final Type type = subClass.getGenericSuperclass();
-			if (type != null) {
-				final List<ParameterizedType> subTypeHierarchy = buildParameterizedTypeHierarchy(typeToClass(type), baseClass, traverseInterface);
-				if (type instanceof ParameterizedType) {
-					typeHierarchy.add((ParameterizedType) type);
-				}
-				typeHierarchy.addAll(subTypeHierarchy);
-				return typeHierarchy;
-			}
-		}
-		return Collections.emptyList();
-	}
-
-	/**
-	 * Build the parameterized type hierarchy from {@code type} to the {@code baseClass}.
-	 * @param type the begin type of the type hierarchy
-	 * @param baseClass the end type of the type hierarchy
-	 * @return the parameterized type hierarchy.
-	 */
-	static List<ParameterizedType> buildParameterizedTypeHierarchy(final Type type, final Class<?> baseClass) {
-		if (isClassType(type)) {
-			final List<ParameterizedType> typeHierarchy = new ArrayList<>();
-			if (type instanceof ParameterizedType) {
-				typeHierarchy.add((ParameterizedType) type);
-			}
-			typeHierarchy.addAll(buildParameterizedTypeHierarchy(typeToClass(type), baseClass, false));
-			return typeHierarchy.size() == 0 ? Collections.emptyList() : typeHierarchy;
-		}
-
-		return Collections.emptyList();
-	}
-
-	/**
 	 * Resolve all {@link TypeVariable}s of a {@link ParameterizedType}.
 	 * @param parameterizedType the {@link ParameterizedType} needed to be resolved.
 	 * @param typeHierarchy the set of types which the {@link TypeVariable}s could be resolved from.
@@ -157,6 +87,20 @@ public class TypeResolver {
 			parameterizedType.getOwnerType(),
 			actualTypeArguments,
 			parameterizedType.getTypeName());
+	}
+
+	/**
+	 * Resolve the component type of {@link GenericArrayType}.
+	 * @param genericArrayType the {@link GenericArrayType} needed to be resolved.
+	 * @param typeHierarchy the set of types which the {@link TypeVariable}s could be resolved from.
+	 * @return resolved {@link GenericArrayType}
+	 */
+	private static Type resolveGenericArrayType(final GenericArrayType genericArrayType, final List<ParameterizedType> typeHierarchy) {
+
+		final Type resolvedComponentType =
+			resolveTypeFromTypeHierarchy(genericArrayType.getGenericComponentType(), typeHierarchy, true);
+
+		return new ResolvedGenericArrayType(genericArrayType.getTypeName(), resolvedComponentType);
 	}
 
 	/**
@@ -196,20 +140,6 @@ public class TypeResolver {
 		// can not be materialized, most likely due to type erasure
 		// return the type variable of the deepest level
 		return inTypeTypeVar;
-	}
-
-	/**
-	 * Resolve the component type of {@link GenericArrayType}.
-	 * @param genericArrayType the {@link GenericArrayType} needed to be resolved.
-	 * @param typeHierarchy the set of types which the {@link TypeVariable}s could be resolved from.
-	 * @return resolved {@link GenericArrayType}
-	 */
-	private static Type resolveGenericArrayType(final GenericArrayType genericArrayType, final List<ParameterizedType> typeHierarchy) {
-
-		final Type resolvedComponentType =
-			resolveTypeFromTypeHierarchy(genericArrayType.getGenericComponentType(), typeHierarchy, true);
-
-		return new ResolvedGenericArrayType(genericArrayType.getTypeName(), resolvedComponentType);
 	}
 
 	private static class ResolvedGenericArrayType implements GenericArrayType {
@@ -269,4 +199,5 @@ public class TypeResolver {
 			return typeName;
 		}
 	}
+
 }

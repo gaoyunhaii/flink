@@ -22,6 +22,7 @@ import org.apache.flink.api.common.functions.InvalidTypesException;
 import org.apache.flink.api.common.typeinfo.TypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInfoFactory;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.util.InstantiationUtil;
 
 import javax.annotation.Nullable;
@@ -29,7 +30,6 @@ import javax.annotation.Nullable;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -61,23 +61,21 @@ class TypeInfoFactoryExtractor {
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
 		final List<Class<?>> extractingClasses) {
 
-		final List<ParameterizedType> factoryHierarchy = new ArrayList<>();
-		final TypeInfoFactory<?> factory = getClosestFactory(factoryHierarchy, type);
+		final Tuple3<Type, List<ParameterizedType>, TypeInfoFactory<?>> result = buildTypeHierarchy(type);
 
-		if (factory == null) {
+		if (result == null) {
 			return null;
 		}
 
-		final Type factoryDefiningType = factoryHierarchy.size() < 1 ? type :
-			resolveTypeFromTypeHierarchy(factoryHierarchy.get(factoryHierarchy.size() - 1), factoryHierarchy, true);
+		final Type resolvedFactoryDefiningType = resolveTypeFromTypeHierarchy(result.f0, result.f1, true);
 
 		// infer possible type parameters from input
 		final Map<String, TypeInformation<?>> genericParams;
 
-		if (factoryDefiningType instanceof ParameterizedType) {
+		if (resolvedFactoryDefiningType instanceof ParameterizedType) {
 			genericParams = new HashMap<>();
-			final Type[] genericTypes = ((ParameterizedType) factoryDefiningType).getActualTypeArguments();
-			final Type[] args = typeToClass(factoryDefiningType).getTypeParameters();
+			final Type[] genericTypes = ((ParameterizedType) resolvedFactoryDefiningType).getActualTypeArguments();
+			final Type[] args = typeToClass(resolvedFactoryDefiningType).getTypeParameters();
 			for (int i = 0; i < genericTypes.length; i++) {
 				try {
 					genericParams.put(
@@ -91,9 +89,8 @@ class TypeInfoFactoryExtractor {
 			genericParams = Collections.emptyMap();
 		}
 
-		final TypeInformation<?> createdTypeInfo = factory.createTypeInfo(type, genericParams);
+		final TypeInformation<?> createdTypeInfo = result.f2.createTypeInfo(type, genericParams);
 		if (createdTypeInfo == null) {
-			//TODO:: has a test??
 			throw new InvalidTypesException("TypeInfoFactory returned invalid TypeInformation 'null'");
 		}
 		return createdTypeInfo;
@@ -108,40 +105,18 @@ class TypeInfoFactoryExtractor {
 	 */
 	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariables(final Type type, final TypeInformation<?> typeInformation) {
 
-		final List<ParameterizedType> factoryHierarchy = new ArrayList<>();
-		final TypeInfoFactory<?> factory = getClosestFactory(factoryHierarchy, type);
+		final Tuple3<Type, List<ParameterizedType>, TypeInfoFactory<?>> result = buildTypeHierarchy(type);
 
-		if (factory != null) {
-			final Type factoryDefiningType = factoryHierarchy.size() < 1 ? type :
-				resolveTypeFromTypeHierarchy(factoryHierarchy.get(factoryHierarchy.size() - 1), factoryHierarchy, true);
-			if (factoryDefiningType instanceof ParameterizedType) {
-				return bindTypeVariableFromGenericParameters((ParameterizedType) factoryDefiningType, typeInformation);
-			}
+		if (result == null) {
+			return null;
 		}
-
-		return null;
-	}
-
-	/**
-	 * Traverses the type hierarchy up until a type information factory can be found.
-	 * @param typeHierarchy hierarchy to be filled while traversing up
-	 * @param t type for which a factory needs to be found
-	 * @return closest type information factory or null if there is no factory in the type hierarchy
-	 */
-	private static TypeInfoFactory<?> getClosestFactory(List<ParameterizedType> typeHierarchy, Type t) {
-		TypeInfoFactory factory = null;
-		while (factory == null && isClassType(t) && !(typeToClass(t).equals(Object.class))) {
-			if (t instanceof ParameterizedType) {
-				typeHierarchy.add((ParameterizedType) t);
-			}
-			factory = getTypeInfoFactory(t);
-			t = typeToClass(t).getGenericSuperclass();
-
-			if (t == null) {
-				break;
-			}
+		if (result.f0 instanceof ParameterizedType) {
+			final ParameterizedType resolvedFactoryDefiningType =
+				(ParameterizedType) resolveTypeFromTypeHierarchy(result.f0, result.f1, true);
+			return bindTypeVariableFromGenericParameters(resolvedFactoryDefiningType, typeInformation);
+		} else {
+			return Collections.emptyMap();
 		}
-		return factory;
 	}
 
 	/**
@@ -161,6 +136,34 @@ class TypeInfoFactoryExtractor {
 		}
 		// instantiate
 		return (TypeInfoFactory<?>) InstantiationUtil.instantiate(factoryClass);
+	}
+
+	private static Tuple3<Type, List<ParameterizedType>, TypeInfoFactory<?>> buildTypeHierarchy(final Type type) {
+
+		if (!isClassType(type)) {
+			return null;
+		}
+		final List<ParameterizedType> factoryHierarchy = TypeHierarchyBuilder.buildParameterizedTypeHierarchy(
+			type,
+			clazz -> clazz.equals(Object.class) || getTypeInfoFactory(clazz) != null,
+			clazz -> true);
+
+		final TypeInfoFactory<?> factory;
+		final Type factoryDefiningType;
+
+		if (factoryHierarchy.size() > 0) {
+			factoryDefiningType = factoryHierarchy.get(factoryHierarchy.size() - 1);
+			factory = getTypeInfoFactory(factoryDefiningType);
+		} else {
+			factoryDefiningType = type;
+			factory = getTypeInfoFactory(type);
+		}
+
+		if (factory == null) {
+			return null;
+		}
+
+		return Tuple3.of(factoryDefiningType, factoryHierarchy, factory);
 	}
 
 }

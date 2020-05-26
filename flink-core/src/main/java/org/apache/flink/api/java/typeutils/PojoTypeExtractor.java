@@ -46,8 +46,7 @@ import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassTyp
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.createTypeInfo;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.getAllDeclaredFields;
-import static org.apache.flink.api.java.typeutils.TypeResolver.buildParameterizedTypeHierarchy;
-import static org.apache.flink.api.java.typeutils.TypeResolver.materializeTypeVariable;
+import static org.apache.flink.api.java.typeutils.TypeHierarchyBuilder.buildParameterizedTypeHierarchy;
 import static org.apache.flink.api.java.typeutils.TypeResolver.resolveTypeFromTypeHierarchy;
 
 class PojoTypeExtractor {
@@ -62,24 +61,16 @@ class PojoTypeExtractor {
 	 * @param extractingClasses the classes that the type is nested into.
 	 * @return the {@link TypeInformation} of the given type or {@code null} if the type is not a pojo type
 	 */
-	@SuppressWarnings("unchecked")
 	@Nullable
-	static <OUT> TypeInformation<OUT> extract(
-		final Type type, final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
+	static TypeInformation<?> extract(
+		final Type type,
+		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
 		final List<Class<?>> extractingClasses) {
 
-		final Class<OUT> clazz;
-		final ParameterizedType parameterizedType;
-
-		if (type instanceof Class<?>) {
-			clazz = (Class<OUT>) type;
-			parameterizedType = null;
-		} else if (type instanceof ParameterizedType) {
-			clazz = (Class<OUT>) typeToClass(type);
-			parameterizedType = (ParameterizedType) type;
-		} else {
+		if (!isClassType(type)) {
 			return null;
 		}
+		final Class<?> clazz = typeToClass(type);
 
 		final List<ParameterizedType> typeHierarchy;
 		if (!Modifier.isPublic(clazz.getModifiers())) {
@@ -90,12 +81,7 @@ class PojoTypeExtractor {
 			return new GenericTypeInfo<>(clazz);
 		}
 
-		// add the hierarchy of the POJO itself if it is generic
-		if (parameterizedType != null) {
-			typeHierarchy = buildParameterizedTypeHierarchy(parameterizedType, Object.class);
-		} else { // create a type hierarchy, if the incoming only contains the most bottom one or none.
-			typeHierarchy = buildParameterizedTypeHierarchy(clazz, Object.class);
-		}
+		typeHierarchy = buildParameterizedTypeHierarchy(type, Object.class);
 
 		final List<Field> fields;
 		try {
@@ -135,11 +121,11 @@ class PojoTypeExtractor {
 				if (isClassType(fieldType)) {
 					genericClass = typeToClass(fieldType);
 				}
-				pojoFields.add(new PojoField(field, new GenericTypeInfo<>((Class<OUT>) genericClass)));
+				pojoFields.add(new PojoField(field, new GenericTypeInfo<>(genericClass)));
 			}
 		}
 
-		CompositeType<OUT> pojoType = new PojoTypeInfo<>(clazz, pojoFields);
+		CompositeType<?> pojoType = new PojoTypeInfo<>(clazz, pojoFields);
 
 		//
 		// Validate the correctness of the pojo.
@@ -205,7 +191,7 @@ class PojoTypeExtractor {
 			TypeVariable<?> fieldTypeGeneric = null;
 			if (fieldType instanceof TypeVariable) {
 				fieldTypeGeneric = (TypeVariable<?>) fieldType;
-				fieldType = materializeTypeVariable(typeHierarchy, (TypeVariable<?>) fieldType);
+				fieldType = TypeResolver.resolveTypeFromTypeHierarchy(fieldType, typeHierarchy, true);
 			}
 			for (Method m : clazz.getMethods()) {
 				final String methodNameLow = m.getName().endsWith("_$eq") ?

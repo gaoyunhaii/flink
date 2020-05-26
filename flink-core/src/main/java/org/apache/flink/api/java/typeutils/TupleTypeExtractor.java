@@ -22,14 +22,12 @@ import org.apache.flink.api.common.functions.InvalidTypesException;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple0;
-import org.apache.flink.util.Preconditions;
 
 import javax.annotation.Nullable;
 
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +36,7 @@ import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassTyp
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.countFieldsInClass;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.createTypeInfo;
+import static org.apache.flink.api.java.typeutils.TypeHierarchyBuilder.buildParameterizedTypeHierarchy;
 import static org.apache.flink.api.java.typeutils.TypeResolver.resolveTypeFromTypeHierarchy;
 
 class TupleTypeExtractor {
@@ -62,46 +61,41 @@ class TupleTypeExtractor {
 			return null;
 		}
 
-		final List<ParameterizedType> typeHierarchy = new ArrayList<>();
-
-		Type curT = type;
-
-		// do not allow usage of Tuple as type
+		//do not allow usage of Tuple as type
 		if (typeToClass(type).equals(Tuple.class)) {
 			throw new InvalidTypesException(
 				"Usage of class Tuple as a type is not allowed. Use a concrete subclass (e.g. Tuple1, Tuple2, etc.) instead.");
 		}
 
-		// go up the hierarchy until we reach immediate child of Tuple (with or without generics)
-		// collect the types while moving up for a later top-down
-		while (!(isClassType(curT) && typeToClass(curT).getSuperclass().equals(Tuple.class))) {
-			if (curT instanceof ParameterizedType) {
-				typeHierarchy.add((ParameterizedType) curT);
-			}
-			curT = typeToClass(curT).getGenericSuperclass();
-		}
-
-		if (curT == Tuple0.class) {
+		if (Tuple0.class.isAssignableFrom(typeToClass(type))) {
 			return new TupleTypeInfo(Tuple0.class);
 		}
 
-		// check if immediate child of Tuple has generics
-		if (curT instanceof Class<?>) {
+		final List<ParameterizedType> typeHierarchy = buildParameterizedTypeHierarchy(type, Tuple.class);
+
+		if (typeHierarchy.size() < 1) {
 			throw new InvalidTypesException("Tuple needs to be parameterized by using generics.");
 		}
 
-		if (curT instanceof ParameterizedType) {
-			typeHierarchy.add((ParameterizedType) curT);
+		// check if immediate child of Tuple has generics
+		if (typeToClass(typeHierarchy.get(typeHierarchy.size() - 1)).getSuperclass() != Tuple.class) {
+			throw new InvalidTypesException("Tuple needs to be parameterized by using generics.");
 		}
 
-		curT = resolveTypeFromTypeHierarchy(curT, typeHierarchy, true);
+		final ParameterizedType curT = typeHierarchy.get(typeHierarchy.size() - 1);
+		final ParameterizedType resolvedType = (ParameterizedType) resolveTypeFromTypeHierarchy(curT, typeHierarchy, true);
+		final int typeArgumentsLength = resolvedType.getActualTypeArguments().length;
+
+		// check the origin type contains additional fields.
+		if (countFieldsInClass(typeToClass(type)) > typeArgumentsLength) {
+			return null;
+		}
 
 		// create the type information for the subtypes
-		final TypeInformation<?>[] subTypesInfo =
-			createSubTypesInfo(type, (ParameterizedType) curT, typeVariableBindings, extractingClasses);
+		final TypeInformation<?>[] subTypesInfo = new TypeInformation<?>[typeArgumentsLength];
 
-		if (subTypesInfo == null) {
-			return null;
+		for (int i = 0; i < typeArgumentsLength; i++) {
+			subTypesInfo[i] = createTypeInfo(resolvedType.getActualTypeArguments()[i], typeVariableBindings, extractingClasses);
 		}
 		// return tuple info
 		return new TupleTypeInfo(typeToClass(type), subTypesInfo);
@@ -119,57 +113,15 @@ class TupleTypeExtractor {
 		final TypeInformation<?> typeInformation) {
 
 		if (typeInformation instanceof TupleTypeInfo && isClassType(type) && Tuple.class.isAssignableFrom(typeToClass(type))) {
-			final List<ParameterizedType> typeHierarchy = new ArrayList<>();
-			Type curType = type;
-			// get tuple from possible tuple subclass
-			while (!(isClassType(curType) && typeToClass(curType).getSuperclass().equals(Tuple.class))) {
-				if (curType instanceof ParameterizedType) {
-					typeHierarchy.add((ParameterizedType) curType);
-				}
-				curType = typeToClass(curType).getGenericSuperclass();
-			}
-			if (curType instanceof ParameterizedType) {
-				typeHierarchy.add((ParameterizedType) curType);
-			}
-			final Type tupleBaseClass = resolveTypeFromTypeHierarchy(curType, typeHierarchy, true);
-			if (tupleBaseClass instanceof ParameterizedType) {
-				return TypeVariableBinder.bindTypeVariableFromGenericParameters((ParameterizedType) tupleBaseClass, typeInformation);
+			final List<ParameterizedType> typeHierarchy = buildParameterizedTypeHierarchy(type, Tuple.class);
+
+			if (typeHierarchy.size() > 0) {
+				final ParameterizedType tupleBaseClass = typeHierarchy.get(typeHierarchy.size() - 1);
+				final ParameterizedType resolvedTupleBaseClass = (ParameterizedType) resolveTypeFromTypeHierarchy(tupleBaseClass, typeHierarchy, true);
+				return TypeVariableBinder.bindTypeVariableFromGenericParameters(resolvedTupleBaseClass, typeInformation);
 			}
 			return Collections.emptyMap();
 		}
 		return null;
-	}
-
-	/**
-	 * Creates the TypeInformation for all generic type of {@link Tuple}.
-	 *
-	 * @param originalType most concrete subclass
-	 * @param definingType type that defines the number of subtypes (e.g. Tuple2 -> 2 subtypes)
-	 * @param typeVariableBindings the mapping relation between the type variable and the type information
-	 * @param extractingClasses the classes that the type is nested into.
-	 * @return array containing TypeInformation of sub types or null if definingType contains
-	 *     more subtypes (fields) that defined
-	 */
-	private static TypeInformation<?>[] createSubTypesInfo(
-		final Type originalType,
-		final ParameterizedType definingType,
-		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
-		final List<Class<?>> extractingClasses) {
-
-		Preconditions.checkArgument(isClassType(originalType), "originalType has an unexpected type");
-
-		final int typeArgumentsLength = definingType.getActualTypeArguments().length;
-		// check the origin type contains additional fields.
-		final int fieldCount = countFieldsInClass(typeToClass(originalType));
-		if (fieldCount > typeArgumentsLength) {
-			return null;
-		}
-
-		final TypeInformation<?>[] subTypesInfo = new TypeInformation<?>[typeArgumentsLength];
-
-		for (int i = 0; i < typeArgumentsLength; i++) {
-			subTypesInfo[i] = createTypeInfo(definingType.getActualTypeArguments()[i], typeVariableBindings, extractingClasses);
-		}
-		return subTypesInfo;
 	}
 }

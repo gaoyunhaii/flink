@@ -61,7 +61,6 @@ import java.util.Map;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.checkAndExtractLambda;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
-import static org.apache.flink.api.java.typeutils.TypeResolver.buildParameterizedTypeHierarchy;
 import static org.apache.flink.api.java.typeutils.TypeResolver.resolveTypeFromTypeHierarchy;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -750,11 +749,7 @@ public class TypeExtractor {
 	 */
 	@SuppressWarnings("unchecked")
 	@PublicEvolving
-	public static <OUT> TypeInformation<OUT> createTypeInfo(
-		Object instance,
-		Class<?> baseClass,
-		Class<?> clazz,
-		int returnParamPos) {
+	public static <OUT> TypeInformation<OUT> createTypeInfo(Object instance, Class<?> baseClass, Class<?> clazz, int returnParamPos) {
 
 		if (instance instanceof ResultTypeQueryable) {
 			return ((ResultTypeQueryable<OUT>) instance).getProducedType();
@@ -778,6 +773,20 @@ public class TypeExtractor {
 		return ti;
 	}
 
+	/**
+	 * Creates type information from a given Class such as Integer, String[] or POJOs.
+	 *
+	 * <p>This method does not support ParameterizedTypes such as Tuples or complex type hierarchies.
+	 * In most cases {@link TypeExtractor#createTypeInfo(Type)} is the recommended method for type extraction
+	 * (a Class is a child of Type).
+	 *
+	 * @param clazz a Class to create TypeInformation for
+	 * @return TypeInformation that describes the passed Class
+	 */
+	public static <X> TypeInformation<X> getForClass(Class<X> clazz) {
+		return createTypeInfo(clazz, Collections.emptyMap(), Collections.emptyList());
+	}
+
 	// ----------------------------------- private methods ----------------------------------------
 
 	// for (Rich)Functions
@@ -789,7 +798,7 @@ public class TypeExtractor {
 		final TypeInformation<IN1> in1TypeInfo,
 		final TypeInformation<IN2> in2TypeInfo) {
 
-		final List<ParameterizedType> functionTypeHierarchy = buildParameterizedTypeHierarchy(clazz, baseClass, true);
+		final List<ParameterizedType> functionTypeHierarchy = TypeHierarchyBuilder.buildParameterizedTypeHierarchy(clazz, baseClass);
 
 		if (functionTypeHierarchy.size() < 1) {
 			throw new InvalidTypesException("The types of the interface " + baseClass.getName() + " could not be inferred. " +
@@ -878,7 +887,7 @@ public class TypeExtractor {
 			if (numFields != countFieldsInClass(value.getClass())) {
 				// not a tuple since it has more fields.
 				// we immediately call analyze Pojo here, because there is currently no other type that can handle such a class.
-				return PojoTypeExtractor.extract(
+				return (TypeInformation<X>) PojoTypeExtractor.extract(
 					value.getClass(),
 					Collections.emptyMap(),
 					Collections.emptyList());
@@ -934,7 +943,7 @@ public class TypeExtractor {
 	 */
 	@PublicEvolving
 	public static Type getParameterType(Class<?> baseClass, Class<?> clazz, int pos) {
-		final List<ParameterizedType> typeHierarchy = buildParameterizedTypeHierarchy(clazz, baseClass, true);
+		final List<ParameterizedType> typeHierarchy = TypeHierarchyBuilder.buildParameterizedTypeHierarchy(clazz, baseClass);
 
 		if (typeHierarchy.size() < 1) {
 			throw new InvalidTypesException("The types of the interface " + baseClass.getName() + " could not be inferred. " +
@@ -961,20 +970,6 @@ public class TypeExtractor {
 			}
 		}
 		return fieldCount;
-	}
-
-	/**
-	 * Creates type information from a given Class such as Integer, String[] or POJOs.
-	 *
-	 * <p>This method does not support ParameterizedTypes such as Tuples or complex type hierarchies.
-	 * In most cases {@link TypeExtractor#createTypeInfo(Type)} is the recommended method for type extraction
-	 * (a Class is a child of Type).
-	 *
-	 * @param clazz a Class to create TypeInformation for
-	 * @return TypeInformation that describes the passed Class
-	 */
-	public static <X> TypeInformation<X> getForClass(Class<X> clazz) {
-		return createTypeInfo(clazz, Collections.emptyMap(), Collections.emptyList());
 	}
 
 	/**
