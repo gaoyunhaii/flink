@@ -18,7 +18,6 @@
 
 package org.apache.flink.api.java.typeutils;
 
-import org.apache.flink.api.common.functions.InvalidTypesException;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.types.Either;
 
