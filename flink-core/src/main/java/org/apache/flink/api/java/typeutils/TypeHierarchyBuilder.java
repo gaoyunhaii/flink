@@ -73,12 +73,20 @@ class TypeHierarchyBuilder {
 
 		if (isClassType(type)) {
 			final List<ParameterizedType> typeHierarchy = new ArrayList<>();
-			if (type instanceof ParameterizedType) {
-				typeHierarchy.add((ParameterizedType) type);
+			if (matcher.test(typeToClass(type))) {
+				if (type instanceof ParameterizedType) {
+					typeHierarchy.add((ParameterizedType) type);
+				}
+				if (stopCondition.test(typeToClass(type))) {
+					return typeHierarchy;
+				} else {
+					typeHierarchy.addAll(
+						buildParameterizedTypeHierarchy(typeToClass(type), stopCondition, matcher, false));
+					return typeHierarchy.size() == 0 ? Collections.emptyList() : typeHierarchy;
+				}
+			} else {
+				return Collections.emptyList();
 			}
-			typeHierarchy.addAll(
-				buildParameterizedTypeHierarchy(typeToClass(type), stopCondition, matcher, false));
-			return typeHierarchy.size() == 0 ? Collections.emptyList() : typeHierarchy;
 		}
 
 		return Collections.emptyList();
