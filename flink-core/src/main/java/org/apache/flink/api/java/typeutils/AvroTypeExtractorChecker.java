@@ -20,6 +20,8 @@ package org.apache.flink.api.java.typeutils;
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 
+import javax.annotation.Nullable;
+
 import java.lang.reflect.Type;
 
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.hasSuperclass;
@@ -39,6 +41,7 @@ class AvroTypeExtractorChecker {
 	//  Extract TypeInformation for Avro
 	// ------------------------------------------------------------------------
 
+	@Nullable
 	static TypeInformation<?> extract(final Type type) {
 		if (isClassType(type)) {
 			final Class<?> clazz = typeToClass(type);

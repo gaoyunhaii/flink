@@ -21,6 +21,8 @@ package org.apache.flink.api.java.typeutils;
 import org.apache.flink.api.common.functions.InvalidTypesException;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 
+import javax.annotation.Nonnull;
+
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
@@ -31,42 +33,43 @@ import java.util.Map;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
 
 /**
- * This class is used to bind the {@link TypeVariable} with {@link TypeInformation}.
+ * This class is used to infer the {@link TypeInformation} of the {@link TypeVariable}s in the given resolved type from
+ * the given {@link TypeInformation}.
  */
 class TypeVariableBinder {
 
 	/**
-	 * Bind the {@link TypeVariable} with {@link TypeInformation} from one input's {@link TypeInformation}.
-	 * @param inType the resolved type
-	 * @param inTypeInfo the {@link TypeInformation} of the given type
+	 * Infer all the {@link TypeInformation} of the {@link TypeVariable}s in the given resolved type from the given {@link TypeInformation}.
+	 * @param type the resolved type
+	 * @param typeInformation the {@link TypeInformation} of the given resolved type
 	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation}
 	 */
-	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariables(
-		final Type inType,
-		final TypeInformation<?> inTypeInfo) {
+	@Nonnull
+	//TODO:: make this more general and decouple it from specific extractor
+	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariables(final Type type, final TypeInformation<?> typeInformation) {
 
 		Map<TypeVariable<?>, TypeInformation<?>> result;
 
-		if ((result = TypeInfoFactoryExtractor.bindTypeVariables(inType, inTypeInfo)) != null) {
+		if ((result = TypeInfoFactoryExtractor.bindTypeVariables(type, typeInformation)) != null) {
 			return result;
 		}
 
-		if ((result = ArrayTypeExtractor.bindTypeVariables(inType, inTypeInfo)) != null) {
+		if ((result = ArrayTypeExtractor.bindTypeVariables(type, typeInformation)) != null) {
 			return result;
 		}
 
-		if ((result = TupleTypeExtractor.bindTypeVariables(inType, inTypeInfo)) != null) {
+		if ((result = TupleTypeExtractor.bindTypeVariables(type, typeInformation)) != null) {
 			return result;
 		}
 
-		if ((result = PojoTypeExtractor.bindTypeVariables(inType, inTypeInfo)) != null) {
+		if ((result = PojoTypeExtractor.bindTypeVariables(type, typeInformation)) != null) {
 			return result;
 		}
 
-		if (inType instanceof TypeVariable) {
+		if (type instanceof TypeVariable) {
 			final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings = new HashMap<>();
 
-			typeVariableBindings.put((TypeVariable<?>) inType, inTypeInfo);
+			typeVariableBindings.put((TypeVariable<?>) type, typeInformation);
 			return typeVariableBindings;
 		}
 
@@ -74,7 +77,7 @@ class TypeVariableBinder {
 	}
 
 	/**
-	 * Bind the {@link TypeVariable} with {@link TypeInformation} from the generic type.
+	 * Infer all the {@link TypeInformation} of the {@link TypeVariable}s in the given resolved from the given {@link TypeInformation}.
 	 *
 	 * @param type the type that has {@link TypeVariable}
 	 * @param typeInformation the {@link TypeInformation} that stores the mapping relations between the generic parameters

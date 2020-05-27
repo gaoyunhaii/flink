@@ -14,17 +14,16 @@ import java.lang.reflect.TypeVariable;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.flink.api.java.typeutils.TypeExtractor.createTypeInfo;
-
 class ArrayTypeExtractor {
-
 
 	/**
 	 * Extract {@link TypeInformation} for the array type.
 	 * @param type the type needed to extract {@link TypeInformation}
-	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}.
-	 * @param extractingClasses the classes that the type is nested into.
-	 * @return the {@link TypeInformation} of the given type or {@code null} if the type is not a {@link GenericArrayType}
+	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}. This
+	 *                             is used to extract the {@link TypeInformation} for {@link TypeVariable}.
+	 * @param extractingClasses contains the classes that type extractor stack is extracting for {@link TypeInformation}.
+	 *                             This is used to check whether there is a recursive type.
+	 * @return the {@link TypeInformation} of the given type or {@code null} if the type is not an array type.
 	 */
 	@Nullable
 	static TypeInformation<?> extract(
@@ -42,10 +41,40 @@ class ArrayTypeExtractor {
 	}
 
 	/**
+	 * Infer the {@link TypeInformation} of {@link TypeVariable} from the given {@link TypeInformation} that is
+	 * {@link BasicArrayTypeInfo} or {@link PrimitiveArrayTypeInfo} or {@link ObjectArrayTypeInfo}.
+	 * @param type the resolved type
+	 * @param typeInformation the type information of the given type
+	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation} or {@code null}
+	 * if the type is not {@link GenericArrayType}
+	 */
+	@Nullable
+	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariables(
+		final Type type,
+		final TypeInformation<?> typeInformation) {
+
+		if (type instanceof GenericArrayType) {
+			TypeInformation<?> componentInfo = null;
+			if (typeInformation instanceof BasicArrayTypeInfo) {
+				componentInfo = ((BasicArrayTypeInfo<?, ?>) typeInformation).getComponentInfo();
+			} else if (typeInformation instanceof PrimitiveArrayTypeInfo) {
+				componentInfo = BasicTypeInfo.getInfoFor(typeInformation.getTypeClass().getComponentType());
+			} else if (typeInformation instanceof ObjectArrayTypeInfo) {
+				componentInfo = ((ObjectArrayTypeInfo<?, ?>) typeInformation).getComponentInfo();
+			}
+			Preconditions.checkNotNull(componentInfo, "found unexpected array type information");
+			return TypeVariableBinder.bindTypeVariables(((GenericArrayType) type).getGenericComponentType(), componentInfo);
+		}
+		return null;
+	}
+
+	/**
 	 * Extract {@link TypeInformation} for {@link GenericArrayType}.
 	 * @param type the type needed to extract {@link TypeInformation}
-	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}.
-	 * @param extractingClasses the classes that the type is nested into.
+	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}. This
+	 *                             is used to extract the {@link TypeInformation} for {@link TypeVariable}.
+	 * @param extractingClasses contains the classes that type extractor stack is extracting for {@link TypeInformation}.
+	 *                             This is used to check whether there is a recursive type.
 	 * @return the {@link TypeInformation} of the given type or {@code null} if the type is not a {@link GenericArrayType}
 	 */
 	@Nullable
@@ -64,9 +93,9 @@ class ArrayTypeExtractor {
 				final Class<?> componentClass = (Class<?>) componentType;
 
 				classArray = (java.lang.reflect.Array.newInstance(componentClass, 0).getClass());
-				return createTypeInfo(classArray, typeVariableBindings, extractingClasses);
+				return TypeExtractor.extract(classArray, typeVariableBindings, extractingClasses);
 			} else {
-				final TypeInformation<?> componentInfo = createTypeInfo(
+				final TypeInformation<?> componentInfo = TypeExtractor.extract(
 					genericArray.getGenericComponentType(),
 					typeVariableBindings,
 					extractingClasses);
@@ -82,8 +111,10 @@ class ArrayTypeExtractor {
 	/**
 	 * Extract {@link TypeInformation} for the class array.
 	 * @param type the type needed to extract {@link TypeInformation}
-	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}.
-	 * @param extractingClasses the classes that the type is nested into.
+	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}. This
+	 *                             is used to extract the {@link TypeInformation} for {@link TypeVariable}.
+	 * @param extractingClasses contains the classes that type extractor stack is extracting for {@link TypeInformation}.
+	 *                             This is used to check whether there is a recursive type.
 	 * @return the {@link TypeInformation} of the given type if it is a array class or {@code null} if the type is not the array class.
 	 */
 	@Nullable
@@ -105,7 +136,7 @@ class ArrayTypeExtractor {
 			if (basicArrayInfo != null) {
 				return basicArrayInfo;
 			} else {
-				final TypeInformation<?> componentTypeInfo = createTypeInfo(
+				final TypeInformation<?> componentTypeInfo = TypeExtractor.extract(
 					classArray.getComponentType(),
 					typeVariableBindings,
 					extractingClasses);
@@ -116,29 +147,4 @@ class ArrayTypeExtractor {
 		return null;
 	}
 
-	/**
-	 * Bind the {@link TypeVariable} with {@link TypeInformation} from the generic array {@link TypeInformation}.
-	 * @param type the resolved type
-	 * @param typeInformation the type information of the given type
-	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation} or {@code null}
-	 * if the type is not {@link GenericArrayType}
-	 */
-	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariables(
-		final Type type,
-		final TypeInformation<?> typeInformation) {
-
-		if (type instanceof GenericArrayType) {
-			TypeInformation<?> componentInfo = null;
-			if (typeInformation instanceof BasicArrayTypeInfo) {
-				componentInfo = ((BasicArrayTypeInfo<?, ?>) typeInformation).getComponentInfo();
-			} else if (typeInformation instanceof PrimitiveArrayTypeInfo) {
-				componentInfo = BasicTypeInfo.getInfoFor(typeInformation.getTypeClass().getComponentType());
-			} else if (typeInformation instanceof ObjectArrayTypeInfo) {
-				componentInfo = ((ObjectArrayTypeInfo<?, ?>) typeInformation).getComponentInfo();
-			}
-			Preconditions.checkNotNull(componentInfo, "found unexpected array type information");
-			return TypeVariableBinder.bindTypeVariables(((GenericArrayType) type).getGenericComponentType(), componentInfo);
-		}
-		return null;
-	}
 }

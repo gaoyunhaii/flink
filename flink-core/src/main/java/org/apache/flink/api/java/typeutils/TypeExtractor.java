@@ -41,6 +41,8 @@ import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.typeutils.TypeExtractionUtils.LambdaExecutable;
 import org.apache.flink.util.Preconditions;
 
+import javax.annotation.Nonnull;
+
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -470,7 +472,7 @@ public class TypeExtractor {
 		if (inputFormatInterface instanceof ResultTypeQueryable) {
 			return ((ResultTypeQueryable<IN>) inputFormatInterface).getProducedType();
 		}
-		return privateCreateTypeInfo(
+		return (TypeInformation<IN>) privateCreateTypeInfo(
 			InputFormat.class,
 			inputFormatInterface.getClass(),
 			0,
@@ -579,9 +581,9 @@ public class TypeExtractor {
 					TypeExtractionUtils.validateLambdaType(baseClass, output);
 				}
 
-				return (TypeInformation<OUT>) createTypeInfo(output, Collections.emptyMap(), Collections.emptyList());
+				return (TypeInformation<OUT>) createTypeInfo(output);
 			} else {
-				return privateCreateTypeInfo(baseClass, function.getClass(), outputTypeArgumentIndex, inType, null);
+				return (TypeInformation<OUT>) privateCreateTypeInfo(baseClass, function.getClass(), outputTypeArgumentIndex, inType, null);
 			}
 		}
 		catch (InvalidTypesException e) {
@@ -694,10 +696,10 @@ public class TypeExtractor {
 					TypeExtractionUtils.validateLambdaType(baseClass, output);
 				}
 
-				return (TypeInformation<OUT>) createTypeInfo(output, Collections.emptyMap(), Collections.emptyList());
+				return (TypeInformation<OUT>) createTypeInfo(output);
 			}
 			else {
-				return privateCreateTypeInfo(baseClass, function.getClass(), outputTypeArgumentIndex, in1Type, in2Type);
+				return (TypeInformation<OUT>) privateCreateTypeInfo(baseClass, function.getClass(), outputTypeArgumentIndex, in1Type, in2Type);
 			}
 		}
 		catch (InvalidTypesException e) {
@@ -719,11 +721,7 @@ public class TypeExtractor {
 	}
 
 	public static TypeInformation<?> createTypeInfo(Type t) {
-		TypeInformation<?> ti = createTypeInfo(t, Collections.emptyMap(), Collections.emptyList());
-		if (ti == null) {
-			throw new InvalidTypesException("Could not extract type information.");
-		}
-		return ti;
+		return extract(t, Collections.emptyMap(), Collections.emptyList());
 	}
 
 	/**
@@ -747,10 +745,11 @@ public class TypeExtractor {
 		if (instance instanceof ResultTypeQueryable) {
 			return ((ResultTypeQueryable<OUT>) instance).getProducedType();
 		} else {
-			return createTypeInfo(baseClass, clazz, returnParamPos, null, null);
+			return (TypeInformation<OUT>) privateCreateTypeInfo(baseClass, clazz, returnParamPos, null, null);
 		}
 	}
 
+	@SuppressWarnings("unchecked")
 	@PublicEvolving
 	public static <IN1, IN2, OUT> TypeInformation<OUT> createTypeInfo(
 		Class<?> baseClass,
@@ -759,11 +758,53 @@ public class TypeExtractor {
 		TypeInformation<IN1> in1Type,
 		TypeInformation<IN2> in2Type) {
 
-		TypeInformation<OUT> ti =  privateCreateTypeInfo(baseClass, clazz, returnParamPos, in1Type, in2Type);
-		if (ti == null) {
-			throw new InvalidTypesException("Could not extract type information.");
+		return (TypeInformation<OUT>) privateCreateTypeInfo(baseClass, clazz, returnParamPos, in1Type, in2Type);
+	}
+
+	/**
+	 * Extracting the {@link TypeInformation} for the given type.
+	 * @param type the type needed to extract {@link TypeInformation}
+	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}. This
+	 *                             is used to extract the {@link TypeInformation} for {@link TypeVariable}.
+	 * @param extractingClasses contains the classes that type extractor stack is extracting for {@link TypeInformation}.
+	 *                             This is used to check whether there is a recursive type.
+	 * @return the {@link TypeInformation} of the given type
+	 * @throws InvalidTypesException if cant handle the given type
+	 */
+	@PublicEvolving
+	@SuppressWarnings({ "unchecked"})
+	@Nonnull
+	static TypeInformation<?> extract(
+		final Type type,
+		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
+		final List<Class<?>> extractingClasses) {
+
+		final List<Class<?>> currentExtractingClasses;
+		if (isClassType(type)) {
+			currentExtractingClasses = new ArrayList(extractingClasses);
+			currentExtractingClasses.add(typeToClass(type));
+		} else {
+			currentExtractingClasses = extractingClasses;
 		}
-		return ti;
+
+		TypeInformation<?> typeInformation;
+
+		if ((typeInformation = AvroTypeExtractorChecker.extract(type)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = HadoopWritableExtractorChecker.extract(type)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = TupleTypeExtractor.extract(type, typeVariableBindings, currentExtractingClasses)) != null) {
+			return typeInformation;
+		}
+
+		if ((typeInformation = DefaultExtractor.extract(type, typeVariableBindings, currentExtractingClasses)) != null) {
+			return typeInformation;
+		}
+		throw new InvalidTypesException("Type Information could not be created.");
 	}
 
 	/**
@@ -777,7 +818,7 @@ public class TypeExtractor {
 	 * @return TypeInformation that describes the passed Class
 	 */
 	public static <X> TypeInformation<X> getForClass(Class<X> clazz) {
-		return createTypeInfo(clazz, Collections.emptyMap(), Collections.emptyList());
+		return createTypeInfo(clazz);
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -800,7 +841,7 @@ public class TypeExtractor {
 			return typeInformation;
 		}
 
-		return createTypeInfo(value.getClass(), Collections.emptyMap(), Collections.emptyList());
+		return (TypeInformation<X>) createTypeInfo(value.getClass());
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -893,12 +934,12 @@ public class TypeExtractor {
 
 	// for (Rich)Functions
 	@SuppressWarnings("unchecked")
-	private static <IN1, IN2, OUT> TypeInformation<OUT> privateCreateTypeInfo(
+	private static TypeInformation<?> privateCreateTypeInfo(
 		final Class<?> baseClass,
 		final Class<?> clazz,
 		final int returnParamPos,
-		final TypeInformation<IN1> in1TypeInfo,
-		final TypeInformation<IN2> in2TypeInfo) {
+		final TypeInformation<?> in1TypeInfo,
+		final TypeInformation<?> in2TypeInfo) {
 
 		final List<ParameterizedType> functionTypeHierarchy = TypeHierarchyBuilder.buildParameterizedTypeHierarchy(clazz, baseClass);
 
@@ -924,44 +965,6 @@ public class TypeExtractor {
 			final Type resolvedIn2Type = resolveTypeFromTypeHierarchy(in2Type, functionTypeHierarchy, false);
 			typeVariableBindings.putAll(TypeVariableBinder.bindTypeVariables(resolvedIn2Type, in2TypeInfo));
 		}
-
-		// get info from hierarchy
-		return (TypeInformation<OUT>) createTypeInfo(returnType, typeVariableBindings, Collections.emptyList());
+		return extract(returnType, typeVariableBindings, Collections.emptyList());
 	}
-
-	@SuppressWarnings({ "unchecked", "rawtypes" })
-	static <OUT> TypeInformation<OUT> createTypeInfo(
-		final Type type,
-		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
-		final List<Class<?>> extractingClasses) {
-
-		final List<Class<?>> currentExtractingClasses;
-		if (isClassType(type)) {
-			currentExtractingClasses = new ArrayList(extractingClasses);
-			currentExtractingClasses.add(typeToClass(type));
-		} else {
-			currentExtractingClasses = extractingClasses;
-		}
-
-		TypeInformation<OUT> typeInformation;
-
-		if ((typeInformation = (TypeInformation<OUT>) AvroTypeExtractorChecker.extract(type)) != null) {
-			return typeInformation;
-		}
-
-		if ((typeInformation = (TypeInformation<OUT>) HadoopWritableExtractorChecker.extract(type)) != null) {
-			return typeInformation;
-		}
-
-		if ((typeInformation = (TypeInformation<OUT>) TupleTypeExtractor.extract(type, typeVariableBindings, currentExtractingClasses)) != null) {
-			return typeInformation;
-		}
-
-		if ((typeInformation = (TypeInformation<OUT>) DefaultExtractor.extract(type, typeVariableBindings, currentExtractingClasses)) != null) {
-			return typeInformation;
-		}
-
-		throw new InvalidTypesException("Type Information could not be created.");
-	}
-
 }

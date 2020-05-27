@@ -24,6 +24,7 @@ import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.java.typeutils.GenericTypeInfo;
 import org.apache.flink.api.java.typeutils.PojoField;
+import org.apache.flink.api.java.typeutils.PojoTypeExtractor;
 import org.apache.flink.api.java.typeutils.PojoTypeInfo;
 
 import org.apache.avro.specific.SpecificRecordBase;
@@ -63,7 +64,7 @@ public class AvroTypeInfo<T extends SpecificRecordBase> extends PojoTypeInfo<T> 
 	@SuppressWarnings("unchecked")
 	@Internal
 	private static <T extends SpecificRecordBase> List<PojoField> generateFieldsFromAvroSchema(Class<T> typeClass) {
-			final TypeInformation ti = extractTypeInformationFroPOJOType(typeClass, Collections.emptyMap(), Collections.emptyList());
+			final TypeInformation ti = PojoTypeExtractor.extract(typeClass, Collections.emptyMap(), Collections.emptyList());
 
 			if ((ti != null) && !(ti instanceof PojoTypeInfo)) {
 				throw new IllegalStateException("Expecting type to be a PojoTypeInfo");

@@ -19,12 +19,15 @@ import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClas
 class DefaultExtractor {
 
 	/**
-	 * TODO:: JAVADOC.
-	 * @param type
-	 * @param typeVariableBindings
-	 * @param extractingClasses
-	 * @return
+	 * Extract the {@link TypeInformation} for a given type using a list of type extractor.
+	 * @param type the type needed to extract {@link TypeInformation}
+	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}. This
+	 *                             is used to extract the {@link TypeInformation} for {@link TypeVariable}.
+	 * @param extractingClasses contains the classes that type extractor stack is extracting for {@link TypeInformation}.
+	 *                             This is used to check whether there is a recursive type.
+	 * @return the {@link TypeInformation} of the given type or {@code null} if the extract can not handle this type.
 	 */
+	@Nullable
 	static TypeInformation<?> extract(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,

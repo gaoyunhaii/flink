@@ -24,6 +24,8 @@ import org.apache.flink.types.Row;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nullable;
+
 import java.util.Collections;
 
 class RowTypeExtractor {
@@ -35,6 +37,7 @@ class RowTypeExtractor {
 	 * @param value the object needed to extract {@link TypeInformation}
 	 * @return the {@link TypeInformation} of the type or {@code null} if the value is not the Tuple type.
 	 */
+	@Nullable
 	static TypeInformation<?> extract(Object value) {
 		if (!(value instanceof Row)){
 			return null;
@@ -46,7 +49,7 @@ class RowTypeExtractor {
 			if (row.getField(i) == null) {
 				LOG.warn("Cannot extract type of Row field, because of Row field[" + i + "] is null. " +
 					"Should define RowTypeInfo explicitly.");
-				return TypeExtractor.createTypeInfo(value.getClass(), Collections.emptyMap(), Collections.emptyList());
+				return TypeExtractor.extract(value.getClass(), Collections.emptyMap(), Collections.emptyList());
 			}
 		}
 		final TypeInformation<?>[] typeArray = new TypeInformation<?>[arity];

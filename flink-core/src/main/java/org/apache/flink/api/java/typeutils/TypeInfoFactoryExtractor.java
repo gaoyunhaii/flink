@@ -38,7 +38,6 @@ import java.util.Map;
 
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
-import static org.apache.flink.api.java.typeutils.TypeExtractor.createTypeInfo;
 import static org.apache.flink.api.java.typeutils.TypeResolver.resolveTypeFromTypeHierarchy;
 import static org.apache.flink.api.java.typeutils.TypeVariableBinder.bindTypeVariableFromGenericParameters;
 
@@ -51,8 +50,10 @@ public class TypeInfoFactoryExtractor {
 	/**
 	 * Extract {@link TypeInformation} for the type that has {@link TypeInfo} annotation.
 	 * @param type  the type needed to extract {@link TypeInformation}
-	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}.
-	 * @param extractingClasses the classes that the type is nested into.
+	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}. This
+	 *                             is used to extract the {@link TypeInformation} for {@link TypeVariable}.
+	 * @param extractingClasses contains the classes that type extractor stack is extracting for {@link TypeInformation}.
+	 *                             This is used to check whether there is a recursive type.
 	 * @return the {@link TypeInformation} of the given type or {@code null} if the type does not have the annotation
 	 * @throws InvalidTypesException if the factory does not create a valid {@link TypeInformation} or if creating generic type failed
 	 */
@@ -81,8 +82,9 @@ public class TypeInfoFactoryExtractor {
 				try {
 					genericParams.put(
 						args[i].toString(),
-						createTypeInfo(genericTypes[i], typeVariableBindings, extractingClasses));
+						TypeExtractor.extract(genericTypes[i], typeVariableBindings, extractingClasses));
 				} catch (InvalidTypesException e) {
+					//TODO:: this is in-consistent behavior when Tuple or TypeInfoFactory fail
 					genericParams.put(args[i].toString(), null);
 				}
 			}
@@ -98,12 +100,14 @@ public class TypeInfoFactoryExtractor {
 	}
 
 	/**
-	 * Bind the {@link TypeVariable} with the {@link TypeInformation} from {@link TypeInformation} that is created from {@link TypeInfoFactory}.
+	 * Infer {@link TypeInformation} of {@link TypeVariable} in the give resolved type from {@link TypeInformation} that
+	 * is created from {@link TypeInfoFactory}.
 	 * @param type the resolved type
 	 * @param typeInformation the type information of the given type
-	 * @return the mapping relation between the {@link TypeVariable} and {@link TypeInformation} or
-	 * 		   {@code null} if the typeInformation is not created from the {@link TypeInfoFactory}
+	 * @return the mapping relation between the {@link TypeVariable} and {@link TypeInformation} or{@code null} if the typeInformation
+	 * is not created from the {@link TypeInfoFactory}
 	 */
+	@Nullable
 	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariables(final Type type, final TypeInformation<?> typeInformation) {
 
 		final Tuple3<Type, List<ParameterizedType>, TypeInfoFactory<?>> result = buildTypeHierarchy(type);

@@ -44,12 +44,14 @@ import java.util.Map;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.getAllDeclaredMethods;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
-import static org.apache.flink.api.java.typeutils.TypeExtractor.createTypeInfo;
 import static org.apache.flink.api.java.typeutils.TypeExtractor.getAllDeclaredFields;
 import static org.apache.flink.api.java.typeutils.TypeHierarchyBuilder.buildParameterizedTypeHierarchy;
 import static org.apache.flink.api.java.typeutils.TypeResolver.resolveTypeFromTypeHierarchy;
 
-class PojoTypeExtractor {
+/**
+ * This class extracts pojo type information.
+ */
+public class PojoTypeExtractor {
 
 	private static final Logger LOG = LoggerFactory.getLogger(PojoTypeExtractor.class);
 
@@ -57,12 +59,14 @@ class PojoTypeExtractor {
 	/**
 	 * Extract the {@link TypeInformation} for the POJO type.
 	 * @param type the type needed to extract {@link TypeInformation}
-	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}.
-	 * @param extractingClasses the classes that the type is nested into.
+	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}. This
+	 *                             is used to extract the {@link TypeInformation} for {@link TypeVariable}.
+	 * @param extractingClasses contains the classes that type extractor stack is extracting for {@link TypeInformation}.
+	 *                             This is used to check whether there is a recursive type.
 	 * @return the {@link TypeInformation} of the given type or {@code null} if the type is not a pojo type
 	 */
 	@Nullable
-	static TypeInformation<?> extract(
+	public static TypeInformation<?> extract(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
 		final List<Class<?>> extractingClasses) {
@@ -72,7 +76,6 @@ class PojoTypeExtractor {
 		}
 		final Class<?> clazz = typeToClass(type);
 
-		final List<ParameterizedType> typeHierarchy;
 		if (!Modifier.isPublic(clazz.getModifiers())) {
 			LOG.info("Class " + clazz.getName() + " is not public so it cannot be used as a POJO type " +
 				"and must be processed as GenericType. Please read the Flink documentation " +
@@ -80,8 +83,6 @@ class PojoTypeExtractor {
 			// TODO:: maybe we should return null
 			return new GenericTypeInfo<>(clazz);
 		}
-
-		typeHierarchy = buildParameterizedTypeHierarchy(type, Object.class);
 
 		final List<Field> fields;
 		try {
@@ -100,6 +101,8 @@ class PojoTypeExtractor {
 			return new GenericTypeInfo<>(clazz);
 		}
 
+		final List<ParameterizedType> typeHierarchy = buildParameterizedTypeHierarchy(type, Object.class);
+
 		List<PojoField> pojoFields = new ArrayList<>();
 		for (Field field : fields) {
 			Type fieldType = field.getGenericType();
@@ -110,10 +113,9 @@ class PojoTypeExtractor {
 				return null;
 			}
 			try {
-				List<ParameterizedType> fieldTypeHierarchy = new ArrayList<>(typeHierarchy);
-				Type resolveFieldType = resolveTypeFromTypeHierarchy(fieldType, fieldTypeHierarchy, true);
+				final Type resolveFieldType = resolveTypeFromTypeHierarchy(fieldType, typeHierarchy, true);
 
-				TypeInformation<?> ti = createTypeInfo(resolveFieldType, typeVariableBindings, extractingClasses);
+				TypeInformation<?> ti = TypeExtractor.extract(resolveFieldType, typeVariableBindings, extractingClasses);
 				pojoFields.add(new PojoField(field, ti));
 			} catch (InvalidTypesException e) {
 				// TODO:: This exception handle leads to inconsistent behaviour when Tuple & TypeFactory fail.
@@ -236,13 +238,13 @@ class PojoTypeExtractor {
 	}
 
 	/**
-	 * Bind the {@link TypeVariable} with {@link TypeInformation} from the mapping relation between the fields
-	 * and {@link TypeInformation}.
+	 * Infer the {@link TypeInformation} of the {@link TypeVariable}  from the given {@link TypeInformation} that is {@link PojoTypeInfo}.
 	 * @param type the resolved type
 	 * @param typeInformation the type information of the given type
 	 * @return the mapping relation between {@link TypeVariable} and {@link TypeInformation} or {@code null} if the
 	 * typeInformation is not {@link PojoTypeInfo}.
 	 */
+	@Nullable
 	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariables(
 		final Type type,
 		final TypeInformation<?> typeInformation) {
