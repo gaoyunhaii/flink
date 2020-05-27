@@ -932,7 +932,6 @@ public class TypeExtractor {
 
 	// ----------------------------------- private methods ----------------------------------------
 
-	// for (Rich)Functions
 	@SuppressWarnings("unchecked")
 	private static TypeInformation<?> privateCreateTypeInfo(
 		final Class<?> baseClass,
