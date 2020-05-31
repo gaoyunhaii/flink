@@ -36,6 +36,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.getRawClass;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClass;
 import static org.apache.flink.api.java.typeutils.TypeResolver.resolveTypeFromTypeHierarchy;
@@ -61,10 +62,11 @@ public class TypeInfoFactoryExtractor {
 	static TypeInformation<?> extract(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
-		final List<Class<?>> extractingClasses) {
+		final List<Class<?>> extractingClasses,
+		@Nullable TypeExtractor.CustomizedHieraBuilder builder) {
 
-		final Tuple3<Type, List<ParameterizedType>, TypeInfoFactory<?>> result = buildTypeHierarchy(type);
-
+		final Tuple3<Type, List<ParameterizedType>, TypeInfoFactory<?>> result = buildTypeHierarchy(type, builder);
+		System.out.println("type info factory result is " + result);
 		if (result == null) {
 			return null;
 		}
@@ -82,7 +84,7 @@ public class TypeInfoFactoryExtractor {
 				try {
 					genericParams.put(
 						args[i].toString(),
-						TypeExtractor.extract(genericTypes[i], typeVariableBindings, extractingClasses));
+						TypeExtractor.extractWithBuilder(genericTypes[i], typeVariableBindings, extractingClasses, builder));
 				} catch (InvalidTypesException e) {
 					//TODO:: this is in-consistent behavior when Tuple or TypeInfoFactory fail
 					genericParams.put(args[i].toString(), null);
@@ -110,7 +112,7 @@ public class TypeInfoFactoryExtractor {
 	@Nullable
 	static Map<TypeVariable<?>, TypeInformation<?>> bindTypeVariables(final Type type, final TypeInformation<?> typeInformation) {
 
-		final Tuple3<Type, List<ParameterizedType>, TypeInfoFactory<?>> result = buildTypeHierarchy(type);
+		final Tuple3<Type, List<ParameterizedType>, TypeInfoFactory<?>> result = buildTypeHierarchy(type, new TypeExtractor.DefaultHieraBuilder());
 
 		if (result == null) {
 			return null;
@@ -145,12 +147,13 @@ public class TypeInfoFactoryExtractor {
 		return (TypeInfoFactory<X>) InstantiationUtil.instantiate(factoryClass);
 	}
 
-	private static Tuple3<Type, List<ParameterizedType>, TypeInfoFactory<?>> buildTypeHierarchy(final Type type) {
+	private static Tuple3<Type, List<ParameterizedType>, TypeInfoFactory<?>> buildTypeHierarchy(final Type type, TypeExtractor.CustomizedHieraBuilder builder) {
 
 		if (!isClassType(type)) {
 			return null;
 		}
-		final List<ParameterizedType> factoryHierarchy = TypeHierarchyBuilder.buildParameterizedTypeHierarchy(
+
+		final List<ParameterizedType> factoryHierarchy = builder.buildHiera(
 			type,
 			clazz -> clazz.equals(Object.class) || getTypeInfoFactory(clazz) != null,
 			clazz -> true);

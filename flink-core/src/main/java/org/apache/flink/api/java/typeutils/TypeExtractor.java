@@ -54,6 +54,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.checkAndExtractLambda;
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.isClassType;
@@ -721,7 +722,7 @@ public class TypeExtractor {
 	}
 
 	public static TypeInformation<?> createTypeInfo(Type t) {
-		return extract(t, Collections.emptyMap(), Collections.emptyList());
+		return extractWithBuilder(t, Collections.emptyMap(), Collections.emptyList(), new DefaultHieraBuilder());
 	}
 
 	/**
@@ -761,6 +762,79 @@ public class TypeExtractor {
 		return (TypeInformation<OUT>) privateCreateTypeInfo(baseClass, clazz, returnParamPos, in1Type, in2Type);
 	}
 
+//	/**
+////	 * Extracting the {@link TypeInformation} for the given type.
+////	 * @param type the type needed to extract {@link TypeInformation}
+////	 * @param typeVariableBindings contains mapping relation between {@link TypeVariable} and {@link TypeInformation}. This
+////	 *                             is used to extract the {@link TypeInformation} for {@link TypeVariable}.
+////	 * @param extractingClasses contains the classes that type extractor stack is extracting for {@link TypeInformation}.
+////	 *                             This is used to check whether there is a recursive type.
+////	 * @return the {@link TypeInformation} of the given type
+////	 * @throws InvalidTypesException if cant handle the given type
+////	 */
+////	@PublicEvolving
+////	@SuppressWarnings({ "unchecked"})
+////	@Nonnull
+////	public static TypeInformation<?> extract(
+////		final Type type,
+////		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
+////		final List<Class<?>> extractingClasses) {
+////
+////		final List<Class<?>> currentExtractingClasses;
+////		if (isClassType(type)) {
+////			currentExtractingClasses = new ArrayList(extractingClasses);
+////			currentExtractingClasses.add(typeToClass(type));
+////		} else {
+////			currentExtractingClasses = extractingClasses;
+////		}
+////
+////		TypeInformation<?> typeInformation;
+////
+////		if ((typeInformation = TypeInfoFactoryExtractor.extract(type, typeVariableBindings, extractingClasses, new DefaultHieraBuilder())) != null) {
+////			return typeInformation;
+////		}
+////
+////		if ((typeInformation = AvroTypeExtractorChecker.extract(type)) != null) {
+////			return typeInformation;
+////		}
+////
+////		if ((typeInformation = HadoopWritableExtractorChecker.extract(type)) != null) {
+////			return typeInformation;
+////		}
+////
+////		if ((typeInformation = TupleTypeExtractor.extract(type, typeVariableBindings, currentExtractingClasses)) != null) {
+////			return typeInformation;
+////		}
+////
+////		if ((typeInformation = DefaultExtractor.extract(type, typeVariableBindings, currentExtractingClasses)) != null) {
+////			System.out.println("Default transformation parse " + type + " returns " + typeInformation + ", class is " + typeInformation.getClass());
+////			return typeInformation;
+////		}
+////		throw new InvalidTypesException("Type Information could not be created.");
+////	}
+//
+//	@PublicEvolving
+//	@SuppressWarnings({ "unchecked"})
+//	@Nonnull
+//	public static TypeInformation<?> extract(
+//		final Type type,
+//		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
+//		final List<Class<?>> extractingClasses) {
+//	}
+//}
+
+	public interface CustomizedHieraBuilder {
+		List<ParameterizedType> buildHiera(Type sub, Predicate<Class> stopCondition, Predicate<Class> matcher);
+	}
+
+	public static class DefaultHieraBuilder implements CustomizedHieraBuilder {
+
+		@Override
+		public List<ParameterizedType> buildHiera(Type sub, Predicate<Class> stopCondition, Predicate<Class> matcher) {
+			return TypeHierarchyBuilder.buildParameterizedTypeHierarchy(sub, stopCondition, matcher);
+		}
+	}
+
 	/**
 	 * Extracting the {@link TypeInformation} for the given type.
 	 * @param type the type needed to extract {@link TypeInformation}
@@ -774,10 +848,11 @@ public class TypeExtractor {
 	@PublicEvolving
 	@SuppressWarnings({ "unchecked"})
 	@Nonnull
-	public static TypeInformation<?> extract(
+	public static TypeInformation<?> extractWithBuilder(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
-		final List<Class<?>> extractingClasses) {
+		final List<Class<?>> extractingClasses,
+		final CustomizedHieraBuilder builder) {
 
 		final List<Class<?>> currentExtractingClasses;
 		if (isClassType(type)) {
@@ -789,7 +864,7 @@ public class TypeExtractor {
 
 		TypeInformation<?> typeInformation;
 
-		if ((typeInformation = TypeInfoFactoryExtractor.extract(type, typeVariableBindings, extractingClasses)) != null) {
+		if ((typeInformation = TypeInfoFactoryExtractor.extract(type, typeVariableBindings, extractingClasses, builder)) != null) {
 			return typeInformation;
 		}
 
@@ -801,7 +876,7 @@ public class TypeExtractor {
 			return typeInformation;
 		}
 
-		if ((typeInformation = TupleTypeExtractor.extract(type, typeVariableBindings, currentExtractingClasses)) != null) {
+		if ((typeInformation = TupleTypeExtractor.extract(type, typeVariableBindings, currentExtractingClasses, builder)) != null) {
 			return typeInformation;
 		}
 
@@ -809,9 +884,9 @@ public class TypeExtractor {
 		try {
 			Class<?> scalaFactoryClazz = Class.forName("org.apache.flink.api.scala.typeutils.ScalaTypeInfoExtractor");
 			Object scalaFactory = scalaFactoryClazz.newInstance();
-			Method method = scalaFactoryClazz.getDeclaredMethod("createTypeInfo", Type.class, Map.class);
+			Method method = scalaFactoryClazz.getDeclaredMethod("createTypeInfo", Type.class, Map.class, CustomizedHieraBuilder.class);
 
-			if ((typeInformation = (TypeInformation<?>) method.invoke(scalaFactory, type, typeVariableBindings)) != null) {
+			if ((typeInformation = (TypeInformation<?>) method.invoke(scalaFactory, type, typeVariableBindings, builder)) != null) {
 				System.out.println("Scala transformation parse " + type + " returns " + typeInformation + ", class is " + typeInformation.getClass());
 				return typeInformation;
 			}
@@ -819,7 +894,7 @@ public class TypeExtractor {
 			e.printStackTrace();
 		}
 
-		if ((typeInformation = DefaultExtractor.extract(type, typeVariableBindings, currentExtractingClasses)) != null) {
+		if ((typeInformation = DefaultExtractor.extract(type, typeVariableBindings, currentExtractingClasses, builder)) != null) {
 			System.out.println("Default transformation parse " + type + " returns " + typeInformation + ", class is " + typeInformation.getClass());
 			return typeInformation;
 		}
@@ -848,7 +923,7 @@ public class TypeExtractor {
 		checkNotNull(value);
 
 		TypeInformation<X> typeInformation;
-		if ((typeInformation = (TypeInformation<X>) TypeInfoFactoryExtractor.extract(value.getClass(), Collections.emptyMap(), Collections.emptyList())) != null) {
+		if ((typeInformation = (TypeInformation<X>) TypeInfoFactoryExtractor.extract(value.getClass(), Collections.emptyMap(), Collections.emptyList(), new DefaultHieraBuilder())) != null) {
 			return typeInformation;
 		}
 
@@ -983,6 +1058,6 @@ public class TypeExtractor {
 			final Type resolvedIn2Type = resolveTypeFromTypeHierarchy(in2Type, functionTypeHierarchy, false);
 			typeVariableBindings.putAll(TypeVariableBinder.bindTypeVariables(resolvedIn2Type, in2TypeInfo));
 		}
-		return extract(returnType, typeVariableBindings, Collections.emptyList());
+		return extractWithBuilder(returnType, typeVariableBindings, Collections.emptyList(), new DefaultHieraBuilder());
 	}
 }

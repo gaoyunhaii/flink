@@ -49,7 +49,8 @@ class DefaultExtractor {
 	static TypeInformation<?> extract(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
-		final List<Class<?>> extractingClasses) {
+		final List<Class<?>> extractingClasses,
+		TypeExtractor.CustomizedHieraBuilder builder) {
 
 		TypeInformation<?> typeInformation;
 
@@ -77,11 +78,11 @@ class DefaultExtractor {
 			return typeInformation;
 		}
 
-		if ((typeInformation = ArrayTypeExtractor.extract(type, typeVariableBindings, extractingClasses)) != null) {
+		if ((typeInformation = ArrayTypeExtractor.extract(type, typeVariableBindings, extractingClasses, builder)) != null) {
 			return typeInformation;
 		}
 
-		if ((typeInformation = PojoTypeExtractor.extract(type, typeVariableBindings, extractingClasses)) != null) {
+		if ((typeInformation = PojoTypeExtractor.extract(type, typeVariableBindings, extractingClasses, builder)) != null) {
 			return typeInformation;
 		}
 

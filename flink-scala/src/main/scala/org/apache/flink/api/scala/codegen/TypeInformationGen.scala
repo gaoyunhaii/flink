@@ -17,8 +17,9 @@
  */
 package org.apache.flink.api.scala.codegen
 
+import java.lang.reflect
 import java.lang.reflect.{Field, Modifier, TypeVariable}
-import java.util
+import java.{lang, util}
 import java.util.HashMap
 
 import org.apache.flink.annotation.Internal
@@ -32,7 +33,7 @@ import org.apache.flink.types.Value
 
 import scala.collection.JavaConverters._
 import scala.collection.generic.CanBuildFrom
-import scala.collection.mutable
+import scala.collection.{TraversableOnce, mutable}
 import scala.language.postfixOps
 import scala.reflect.macros.Context
 
@@ -125,7 +126,8 @@ private[flink] trait TypeInformationGen[C <: Context] {
       }
     } catch {
       // Do nothing
-      case _ => println("some error occurs")
+      case e: Throwable => println("some error occurs", e)
+      case _ =>
     }
 
     // Check if it is traversalOnce & it requires the to check if it has canBuildFrom declaration
@@ -138,6 +140,13 @@ private[flink] trait TypeInformationGen[C <: Context] {
 
     println("new ts 1 cbf string", cbfString)
 
+    // now we need to extract the element type...
+    val traversable = tpe.baseType(typeOf[TraversableOnce[_]].typeSymbol)
+    val elementType = traversable match {
+      case TypeRef(_, _, elemTpe :: Nil) => elemTpe.asSeenFrom(tpe, tpe.typeSymbol)
+      case _ => null
+    }
+
     if (cbfString.isDefined) {
       // This should be specialized traversalonce type
       reify {
@@ -149,6 +158,7 @@ private[flink] trait TypeInformationGen[C <: Context] {
           null,
           genericTypes.splice.toArray,
           tpeClazz.splice.getTypeName,
+          null,
           cbfValue)
       }
     } else {
@@ -213,10 +223,11 @@ private[flink] trait TypeInformationGen[C <: Context] {
       println("In extract 2 reify before extract", javaType, "bindings is", bindings)
       // val extractorFactory = new ScalaTypeInfoExtractor()
       // extractorFactory.createTypeInfo(javaType).asInstanceOf[TypeInformation[T]]
-      TypeExtractor.extract(
+      TypeExtractor.extractWithBuilder(
         javaType,
         bindings,
-        new util.ArrayList[Class[_]]()).asInstanceOf[TypeInformation[T]]
+        new util.ArrayList[Class[_]](),
+        new ScalaTypeHieraBuilder).asInstanceOf[TypeInformation[T]]
     }
   }
 
@@ -260,24 +271,77 @@ private[flink] trait TypeInformationGen[C <: Context] {
     }
   }
 
+  def mine[T <: Product : c.WeakTypeTag](
+                                          desc: CaseClassDescriptor) : c.Expr[TypeInformation[T]] = {
+    val tpeClazz = c.Expr[Class[T]](Literal(Constant(weakTypeTag[T].tpe)))
+
+    val genericTypeInfos = desc.tpe match {
+      case TypeRef(_, _, typeParams) =>
+        val typeInfos = typeParams map { tpe => mkTypeInfo(c.WeakTypeTag[T](tpe)).tree }
+        c.Expr[List[TypeInformation[_]]](mkList(typeInfos))
+      case _ =>
+        reify {
+          List[TypeInformation[_]]()
+        }
+    }
+
+    val fields = desc.getters.toList map { field =>
+      mkTypeInfo(field.desc)(c.WeakTypeTag(field.tpe)).tree
+    }
+    val fieldsExpr = c.Expr[Seq[TypeInformation[_]]](mkList(fields))
+    val instance = mkCreateTupleInstance[T](desc)(c.WeakTypeTag(desc.tpe))
+
+    val fieldNames = desc.getters map { f => Literal(Constant(f.getter.name.toString)) } toList
+    val fieldNamesExpr = c.Expr[Seq[String]](mkSeq(fieldNames))
+
+    reify {
+      new CaseClassTypeInfo[T](tpeClazz.splice,
+        genericTypeInfos.splice.toArray,
+        fieldsExpr.splice,
+        fieldNamesExpr.splice) {
+        /**
+         * Creates a serializer for the type. The serializer may use the ExecutionConfig
+         * for parameterization.
+         *
+         * @param config The config used to parameterize the serializer.
+         * @return A serializer for this type.
+         */
+        override def createSerializer(config: ExecutionConfig): TypeSerializer[T] = null
+      }
+    }
+  }
+
   // This is for external calling by TypeUtils.createTypeInfo
   def mkTypeInfo[T: c.WeakTypeTag]: c.Expr[TypeInformation[T]] = {
     println("Start checking : ", weakTypeTag[T].tpe)
-//    val desc = getUDTDescriptor(weakTypeTag[T].tpe)
+    val desc = getUDTDescriptor(weakTypeTag[T].tpe)
 //    val result: c.Expr[TypeInformation[T]] = mkTypeInfo(desc)(c.WeakTypeTag(desc.tpe))
-//
-     val result2: c.Expr[TypeInformation[T]] = mkTypeInfo2(c.weakTypeTag(weakTypeTag[T]))
-     println("result 2: ", result2)
-//     println("result: ", result)
+
+//    val unused = new Predef.Function[String, String] {
+//      override def apply(v1: String): String = null
+//    }
+
 //    result
+    val first = mine(desc.asInstanceOf[CaseClassDescriptor])(c.WeakTypeTag(weakTypeTag[T].tpe).asInstanceOf[c.WeakTypeTag[Product]]).asInstanceOf[c.Expr[TypeInformation[T]]]
+    first
 //
-    result2
+////     val result2: c.Expr[TypeInformation[T]] = mkTypeInfo2(c.weakTypeTag(weakTypeTag[T]))
+////     println("result 2: ", result2)
+////     println("result: ", result)
+//    val second = result
+//
+//    if (desc.id < 10) {
+//      first
+//    } else {
+//      second
+//    }
+
+//    result2
   }
 
   // We have this for internal use so that we can use it to recursively generate a tree of
   // TypeInformation from a tree of UDTDescriptor
   def mkTypeInfo[T: c.WeakTypeTag](desc: UDTDescriptor): c.Expr[TypeInformation[T]] = desc match {
-
     case f: FactoryTypeDescriptor => mkTypeInfoFromFactory(f)
 
     case cc@CaseClassDescriptor(_, tpe, _, _, _) =>
@@ -364,7 +428,7 @@ private[flink] trait TypeInformationGen[C <: Context] {
     val fieldNamesExpr = c.Expr[Seq[String]](mkSeq(fieldNames))
     reify {
       new CaseClassTypeInfo[T](
-        tpeClazz.splice,
+          tpeClazz.splice,
         genericTypeInfos.splice.toArray,
         fieldsExpr.splice,
         fieldNamesExpr.splice) {

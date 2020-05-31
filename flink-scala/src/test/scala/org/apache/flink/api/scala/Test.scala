@@ -30,6 +30,11 @@ import scala.util.Try
 object Test {
 
   def main(args: Array[String]): Unit = {
+
+    class MyObject(var a: Int, var b: String) {
+      def this() = this(0, "")
+    }
+
     val env = ExecutionEnvironment.getExecutionEnvironment
 
     val source = env.fromCollection(Array("test", "test2"))
@@ -38,8 +43,11 @@ object Test {
 //    val ds = source.map(x => haha.MyClass[String, Integer]("5a", new MyClassSub[Integer](5)))
 
     // val func: String => Either[Integer, String] = s => Either.cond(1 + 1 == 2, "5", 3)
-     val func: String => MyEnum.Value = s => MyEnum.Fri
+//     val func: String => MyEnum.Value = s => MyEnum.Fri
 //    val func : String => Int = s => 1
+
+    val func : String => MyObject = s => new MyObject(5, "")
+
     val ds = source.map(func)
 
 //    val func: String => Try[Integer] = s => Try.apply(5)
@@ -50,7 +58,7 @@ object Test {
 
     println(ds.getType(), ds.getType().getClass)
 //    println(MyEnum.Fri.getClass)
-    println("abcdedfghilmaaaaalaadb22aaaadaaaa2a2aa2aab2a2aa2a")
+    println("abcdedfghilmaaaaalaadb22aaaadaaaa2a22aa2aab2a2aa2a")
 
 //    System.out.println(classOf[MyEnum.Value])
 

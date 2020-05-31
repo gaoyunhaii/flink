@@ -69,7 +69,8 @@ public class PojoTypeExtractor {
 	public static TypeInformation<?> extract(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
-		final List<Class<?>> extractingClasses) {
+		final List<Class<?>> extractingClasses,
+		TypeExtractor.CustomizedHieraBuilder builder) {
 
 		if (!isClassType(type)) {
 			return null;
@@ -115,7 +116,7 @@ public class PojoTypeExtractor {
 			try {
 				final Type resolveFieldType = resolveTypeFromTypeHierarchy(fieldType, typeHierarchy, true);
 
-				TypeInformation<?> ti = TypeExtractor.extract(resolveFieldType, typeVariableBindings, extractingClasses);
+				TypeInformation<?> ti = TypeExtractor.extractWithBuilder(resolveFieldType, typeVariableBindings, extractingClasses, builder);
 				pojoFields.add(new PojoField(field, ti));
 			} catch (InvalidTypesException e) {
 				// TODO:: This exception handle leads to inconsistent behaviour when Tuple & TypeFactory fail.

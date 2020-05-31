@@ -31,6 +31,8 @@ import org.apache.flink.api.scala.codegen.{EnumParameterizedType, ScalaResolvedG
 import org.apache.flink.types.Nothing
 import java.util.Map
 
+import org.apache.flink.api.java.typeutils.TypeExtractor.CustomizedHieraBuilder
+
 import scala.collection._
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.runtime.{universe => ru}
@@ -42,34 +44,19 @@ import scala.util.Try
 @Internal
 class ScalaTypeInfoExtractor {
 
-  def createTypeInfo(outputType: java.lang.reflect.Type, bindings : Map[TypeVariable[_], TypeInformation[_]]): TypeInformation[_] = {
-    val clazz = getTrueClass(outputType)
-    if (clazz == null) {
-      return null
-    }
-
-    println()
-    println("in create info, type is " + outputType + ", ", outputType.getClass, clazz.getName)
-    new RuntimeException("check path" + ("in create info, type is " + outputType + ", ", outputType.getClass, clazz.getName).toString()).printStackTrace()
-//    new RuntimeException("check path").printStackTrace()
-
-    val mirror = ru.runtimeMirror(getClass.getClassLoader)
-    val classSymbol = mirror.classSymbol(clazz)
-    if (classSymbol.isJava) {
-      println("is java, skip")
-      return null
-    }
-
-    // Base line: Only scala.Any is accept
-    TypeExtractionUtils.hasSuperclass(clazz, "")
+  def createTypeInfo(
+    outputType: java.lang.reflect.Type,
+    bindings : Map[TypeVariable[_], TypeInformation[_]],
+    builder : CustomizedHieraBuilder): TypeInformation[_] = {
 
     // check for array first
     if (outputType.isInstanceOf[ScalaResolvedGenericArray]) {
+      println("will be changed later... now handle array first...")
       val arrayType = outputType.asInstanceOf[ScalaResolvedGenericArray]
       val componentType = arrayType.getGenericComponentType
 
-        if (componentType.isInstanceOf[ScalaTypeVariable[_]]) {
-        val elementType = callExtract(componentType, bindings)
+      if (componentType.isInstanceOf[ScalaTypeVariable[_]]) {
+        val elementType = callExtract(componentType, bindings, builder)
         return elementType match {
           case BasicTypeInfo.BOOLEAN_TYPE_INFO =>
             PrimitiveArrayTypeInfo.BOOLEAN_PRIMITIVE_ARRAY_TYPE_INFO
@@ -106,14 +93,44 @@ class ScalaTypeInfoExtractor {
       return null
     }
 
+    val clazz = getTrueClass(outputType)
+    if (clazz == null) {
+      return null
+    }
+
+    println()
+    println("in create info, type is " + outputType + ", ", outputType.getClass, clazz.getName)
+    new RuntimeException("check path" + ("in create info, type is " + outputType + ", ", outputType.getClass, clazz.getName).toString()).printStackTrace()
+
+    if (!outputType.isInstanceOf[ScalaTypeVariable[_]] &&
+      !outputType.isInstanceOf[EnumParameterizedType] &&
+      !outputType.isInstanceOf[TraversalOnceParameterizedType]) {
+
+      val mirror = ru.runtimeMirror(getClass.getClassLoader)
+      val classSymbol = mirror.classSymbol(clazz)
+
+      println(classSymbol.baseClasses.exists(b => {
+        println("\t, base", b)
+        b.eq(ru.typeOf[Any].typeSymbol)
+      }))
+
+      if (classSymbol.isJava) {
+        println("is java, skip")
+        return null
+      }
+    }
+
+    // Base line: Only scala.Any is accept
+    TypeExtractionUtils.hasSuperclass(clazz, "")
+
     if (isNothing(clazz)) {
       new NothingTypeInfo().asInstanceOf[TypeInformation[_]]
     } else if (isUnit(clazz)) {
       new UnitTypeInfo().asInstanceOf[TypeInformation[_]]
     } else if (isEither(clazz)) {
       val pt = outputType.asInstanceOf[ParameterizedType]
-      val leftTypeInfo = callExtract(pt.getActualTypeArguments()(0), bindings)
-      val rightTypeInfo = callExtract(pt.getActualTypeArguments()(1), bindings)
+      val leftTypeInfo = callExtract(pt.getActualTypeArguments()(0), bindings, builder)
+      val rightTypeInfo = callExtract(pt.getActualTypeArguments()(1), bindings, builder)
 
       new EitherTypeInfo(pt.getRawType.asInstanceOf[Class[_ <: Either[Any, Any]]], leftTypeInfo.asInstanceOf[TypeInformation[Any]], rightTypeInfo.asInstanceOf[TypeInformation[Any]])
     } else if (isEnum(outputType)) {
@@ -121,11 +138,11 @@ class ScalaTypeInfoExtractor {
       new EnumValueTypeInfo[Enumeration](moduleObj, clazz.asInstanceOf[Class[Enumeration#Value]])
     } else if (isTry(clazz)) {
       val pt = outputType.asInstanceOf[ParameterizedType]
-      val subTypeInfo = callExtract(pt.getActualTypeArguments()(0), bindings)
+      val subTypeInfo = callExtract(pt.getActualTypeArguments()(0), bindings, builder)
       new TryTypeInfo[Any, Try[Any]](subTypeInfo.asInstanceOf[TypeInformation[Any]])
     } else if (isOption(clazz)) {
       val pt = outputType.asInstanceOf[ParameterizedType]
-      val subTypeInfo = callExtract(pt.getActualTypeArguments()(0), bindings)
+      val subTypeInfo = callExtract(pt.getActualTypeArguments()(0), bindings, builder)
       new OptionTypeInfo[Any, Option[Any]](subTypeInfo.asInstanceOf[TypeInformation[Any]])
     } else if (isCaseClass(clazz)) {
       //      val pt = outputType.asInstanceOf[ParameterizedType]
@@ -141,12 +158,12 @@ class ScalaTypeInfoExtractor {
       }
 
       val genericInfo = outputType match {
-        case pt : ParameterizedType => pt.getActualTypeArguments.map(ag => callExtract(ag, bindings))
+        case pt : ParameterizedType => pt.getActualTypeArguments.map(ag => callExtract(ag, bindings, builder))
         case _ => Array[TypeInformation[_]]()
       }
 
       val fieldNames = fields.map(_._1)
-      val fieldTypes = fields.map(f => callExtract(f._2, bindings))
+      val fieldTypes = fields.map(f => callExtract(f._2, bindings, builder))
 
       // Now we need to create the case class info for it...
       new CaseClassTypeInfo[Product](clazz.asInstanceOf[Class[Product]], genericInfo, fieldTypes, fieldNames) {
@@ -163,18 +180,10 @@ class ScalaTypeInfoExtractor {
             fieldSerializers(i) = types(i).createSerializer(config)
           }
 
-          val unused = new ScalaCaseClassSerializer[Product](getTypeClass(), fieldSerializers) {
-
-            override def createInstance(fields: Array[AnyRef]): Product = {
-              Nil
-            }
-          }
-
           new ScalaCaseClassSerializer[Product](getTypeClass, fieldSerializers)
         }
       }
     } else if (isTraversalOnce(clazz)) {
-
 //      if (clazz.isInstance(BitSet)) {
       ////        return TypeExtractor.callExtract(outputType)
       ////      }
@@ -188,7 +197,15 @@ class ScalaTypeInfoExtractor {
         throw new RuntimeException("Why it is not TraversalOnceParameterizedType but " + outputType.getClass + "...?")
       }
 
-      val elementType = callExtract(outputType.asInstanceOf[ParameterizedType].getActualTypeArguments()(0), bindings)
+      val mirror = ru.runtimeMirror(getClass.getClassLoader)
+      val tpe = mirror.classSymbol(clazz).asType.toType
+
+      val traversable = tpe.baseType(ru.typeOf[TraversableOnce[_]].typeSymbol)
+      println("traversal once element type: " + traversable.typeArgs.head)
+
+      //def
+
+      val elementType = callExtract(outputType.asInstanceOf[ParameterizedType].getActualTypeArguments.head, bindings, builder)
 
       new TraversableTypeInfo[TraversableOnce[Any], Any](clazz.asInstanceOf[Class[TraversableOnce[Any]]], elementType.asInstanceOf[TypeInformation[Any]]) {
         override def createSerializer(executionConfig: ExecutionConfig): TypeSerializer[TraversableOnce[Any]] = {
@@ -198,16 +215,17 @@ class ScalaTypeInfoExtractor {
         }
       }
     } else {
-      val finalTry = analyzePojo(clazz, bindings)
+      val finalTry = analyzePojo(clazz, bindings, builder)
       finalTry
     }
   }
 
-  def callExtract(t : Type, bindings : util.Map[TypeVariable[_], TypeInformation[_]]): TypeInformation[_] = {
-    TypeExtractor.extract(
+  def callExtract(t : Type, bindings : util.Map[TypeVariable[_], TypeInformation[_]], builder : CustomizedHieraBuilder): TypeInformation[_] = {
+    TypeExtractor.extractWithBuilder(
       t,
       bindings,
-      new util.ArrayList[Class[_]]())
+      new util.ArrayList[Class[_]](),
+      builder)
   }
 
   def isNothing(clazz: Class[_]): Boolean = {
@@ -273,7 +291,7 @@ class ScalaTypeInfoExtractor {
       !(classSymbol.toType <:< ru.typeOf[SortedSet[_]])
   }
 
-  def analyzePojo(clazz: Class[_], bindings : Map[TypeVariable[_], TypeInformation[_]]): TypeInformation[_] = {
+  def analyzePojo(clazz: Class[_], bindings : Map[TypeVariable[_], TypeInformation[_]], builder : CustomizedHieraBuilder): TypeInformation[_] = {
     println("Analyze is pojo? ", clazz)
     val mirror = ru.runtimeMirror(getClass.getClassLoader)
     val classSymbol = mirror.classSymbol(clazz)
@@ -370,7 +388,7 @@ class ScalaTypeInfoExtractor {
         val clazzField = clazzFields(fName)
 
         println("1", clazzField)
-        val ti = callExtract(clazzField.getGenericType, bindings)
+        val ti = callExtract(clazzField.getGenericType, bindings, builder)
         println("2", ti)
         arrayList.add(new PojoField(clazzField, ti))
       })

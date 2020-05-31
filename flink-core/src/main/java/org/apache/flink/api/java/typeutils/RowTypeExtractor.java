@@ -49,7 +49,7 @@ class RowTypeExtractor {
 			if (row.getField(i) == null) {
 				LOG.warn("Cannot extract type of Row field, because of Row field[" + i + "] is null. " +
 					"Should define RowTypeInfo explicitly.");
-				return TypeExtractor.extract(value.getClass(), Collections.emptyMap(), Collections.emptyList());
+				return TypeExtractor.extractWithBuilder(value.getClass(), Collections.emptyMap(), Collections.emptyList(), new TypeExtractor.DefaultHieraBuilder());
 			}
 		}
 		final TypeInformation<?>[] typeArray = new TypeInformation<?>[arity];

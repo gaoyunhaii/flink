@@ -24,6 +24,7 @@ import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.sameTypeVars;
@@ -197,6 +198,14 @@ public class TypeResolver {
 
 		public String getTypeName() {
 			return typeName;
+		}
+
+		@Override
+		public String toString() {
+			return "ResolvedParameterizedType{" +
+				"rawType=" + rawType +
+				", actualTypeArguments=" + Arrays.toString(actualTypeArguments) +
+				'}';
 		}
 	}
 

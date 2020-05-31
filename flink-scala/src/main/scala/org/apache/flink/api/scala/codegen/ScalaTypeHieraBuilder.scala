@@ -1,0 +1,153 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.flink.api.scala.codegen
+
+import scala.reflect.runtime.{universe => ru}
+import java.lang.reflect.{ParameterizedType, Type}
+import java.util
+import java.util.function.Predicate
+
+import org.apache.flink.api.java.tuple.Tuple
+import org.apache.flink.api.java.typeutils.TypeExtractionUtils
+import org.apache.flink.api.java.typeutils.TypeExtractor.CustomizedHieraBuilder
+import org.apache.flink.api.java.typeutils.TypeResolver.ResolvedParameterizedType
+
+import scala.util.control.Breaks._
+
+class ScalaTypeHieraBuilder extends CustomizedHieraBuilder {
+  private def copyParameterizedType(extracted: Type, seen: ru.Type): Type = {
+    val mirror = ru.runtimeMirror(getClass.getClassLoader)
+
+    extracted match {
+      case clazz: Class[_] => {
+        if (clazz.equals(classOf[Object])) {
+          val seenClazz = mirror.runtimeClass(seen.typeSymbol.asClass)
+          if (!clazz.equals(seenClazz)) {
+            return seenClazz
+          }
+        }
+
+        clazz
+      }
+      case pt: ParameterizedType => {
+        // First let's make sure the base type is as ok...
+//        println("args", seen.typeArgs)
+//        println("ag", pt.getActualTypeArguments.mkString(", "))
+
+        val newArgs = (pt.getActualTypeArguments zip seen.typeArgs).map(obj => {
+          val (ag, seen) = obj
+          copyParameterizedType(ag, seen)
+        }).toArray
+        println(newArgs.mkString(", "))
+
+        new ResolvedParameterizedType(pt.getRawType, pt.getOwnerType, newArgs, pt.getTypeName)
+      }
+      case other: Type => other
+    }
+  }
+
+  override def buildHiera(sub: Type, stopCondition: Predicate[Class[_]], matcher: Predicate[Class[_]]): util.List[ParameterizedType] = {
+    val result = new util.ArrayList[ParameterizedType]()
+
+    if (!TypeExtractionUtils.isClassType(sub)) {
+      return result
+    }
+
+    if (sub.isInstanceOf[ParameterizedType]) {
+      result.add(sub.asInstanceOf[ParameterizedType])
+    }
+
+    val mirror = ru.runtimeMirror(getClass.getClassLoader)
+    val symbol = mirror.classSymbol(TypeExtractionUtils.typeToClass(sub))
+
+    var cur: Class[_] = TypeExtractionUtils.typeToClass(sub)
+    val subClassSymbol = mirror.classSymbol(cur)
+
+    while (cur != null) {
+      val parent = cur.getGenericSuperclass
+
+      if (parent.isInstanceOf[ParameterizedType]) {
+//        println(parent, parent.getClass)
+        cur = TypeExtractionUtils.typeToClass(parent)
+
+        // now try to deduct all the status of the type with scala runtime
+        val curSymbol = mirror.classSymbol(cur)
+//        println(curSymbol.asClass.typeParams)
+
+        val parameters = cur.getTypeParameters
+        val actualArguments = parent.asInstanceOf[ParameterizedType].getActualTypeArguments
+
+        val map = new java.util.HashMap[String, Type]()
+        for ((a, b) <- parameters zip actualArguments) {
+          map.put(a.getName, b)
+        }
+//        println(map)
+
+        val fixedTypes = curSymbol.asClass.typeParams.map({ tp =>
+          val name = tp.asType.fullName.split("\\.").last
+//          println("[" + name + "]")
+
+          // Now try to use as seen from for this
+          val actual = tp.asType.toType.asSeenFrom(subClassSymbol.toType, curSymbol)
+//          println(actual, actual.getClass)
+//          println(actual.typeArgs)
+
+          val actualType = copyParameterizedType(map.get(name), actual)
+//          println(actualType)
+          actualType
+        }).toArray
+
+        val pt = parent.asInstanceOf[ParameterizedType]
+        result.add(new ResolvedParameterizedType(
+          pt.getRawType,
+          pt.getOwnerType,
+          fixedTypes,
+          pt.getTypeName))
+      } else {
+        cur = parent.asInstanceOf[Class[_]]
+      }
+    }
+
+    result
+  }
+}
+
+object ScalaTypeHieraBuilder {
+
+  class MyObject extends org.apache.flink.api.java.tuple.Tuple2[Double, String] {
+    /**
+     * Shallow tuple copy.
+     *
+     * @return A new Tuple with the same fields as this.
+     */
+    override def copy[T <: Tuple](): T = null.asInstanceOf[T]
+  }
+
+  def main(args: Array[String]): Unit = {
+    val builder = new ScalaTypeHieraBuilder
+    println("final", builder.buildHiera(
+      classOf[MyObject],
+      new Predicate[Class[_]] {
+        override def test(t: Class[_]): Boolean = t.equals(classOf[Object])
+      },
+      new Predicate[Class[_]] {
+        override def test(t: Class[_]): Boolean = classOf[Object].isAssignableFrom(t)
+      }))
+  }
+}

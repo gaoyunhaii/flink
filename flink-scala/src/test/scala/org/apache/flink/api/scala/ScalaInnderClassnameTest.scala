@@ -16,40 +16,19 @@
  * limitations under the License.
  */
 
-package org.apache.flink.api.scala.codegen;
+package org.apache.flink.api.scala
 
-import org.apache.flink.api.java.typeutils.TypeResolver;
+import org.apache.flink.api.scala.ScalaMacro.Help
+import org.junit.Test
 
-import java.lang.reflect.Type;
+class ScalaInnderClassnameTest {
 
-/**
- * On going.
- */
-public class TraversalOnceParameterizedType extends TypeResolver.ResolvedParameterizedType {
-	private final Type elementType;
-	private final String cbfString;
+  @Test
+  def HahaTest: Unit = {
+    val a = ScalaMacro.theA
+//    val b = ScalaMacro.theA
 
-	public TraversalOnceParameterizedType(
-		Type rawType,
-		Type ownerType,
-		Type[] actualTypeArguments,
-		String typeName,
-		Type elementType,
-		String cbfString) {
-
-		super(rawType, ownerType, actualTypeArguments, typeName);
-		this.elementType = elementType;
-		this.cbfString = cbfString;
-	}
-
-	public String getCbfString() {
-		return cbfString;
-	}
-
-	@Override
-	public String toString() {
-		return "TraversalOnceParameterizedType{" +
-			"cbfString='" + cbfString + '\'' +
-			'}';
-	}
+    println("checking: "  + Class.forName("org.apache.flink.api.scala.ScalaInnderClassnameTest$$anon$1"))
+    println(a.getClass.getName)
+  }
 }

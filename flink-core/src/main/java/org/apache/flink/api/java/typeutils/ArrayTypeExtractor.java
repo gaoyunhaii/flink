@@ -47,15 +47,16 @@ class ArrayTypeExtractor {
 	static TypeInformation<?> extract(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
-		final List<Class<?>> extractingClasses) {
+		final List<Class<?>> extractingClasses,
+		TypeExtractor.CustomizedHieraBuilder builder) {
 
 		TypeInformation<?> typeInformation =
-			extractTypeInformationForGenericArray(type, typeVariableBindings, extractingClasses);
+			extractTypeInformationForGenericArray(type, typeVariableBindings, extractingClasses, builder);
 		if (typeInformation != null) {
 			return typeInformation;
 		}
 
-		return extractTypeInformationForClassArray(type, typeVariableBindings, extractingClasses);
+		return extractTypeInformationForClassArray(type, typeVariableBindings, extractingClasses, builder);
 	}
 
 	/**
@@ -99,7 +100,8 @@ class ArrayTypeExtractor {
 	private static TypeInformation<?> extractTypeInformationForGenericArray(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
-		final List<Class<?>> extractingClasses) {
+		final List<Class<?>> extractingClasses,
+		TypeExtractor.CustomizedHieraBuilder builder) {
 
 		final Class<?> classArray;
 
@@ -111,12 +113,13 @@ class ArrayTypeExtractor {
 				final Class<?> componentClass = (Class<?>) componentType;
 
 				classArray = (java.lang.reflect.Array.newInstance(componentClass, 0).getClass());
-				return TypeExtractor.extract(classArray, typeVariableBindings, extractingClasses);
+				return TypeExtractor.extractWithBuilder(classArray, typeVariableBindings, extractingClasses, builder);
 			} else {
-				final TypeInformation<?> componentInfo = TypeExtractor.extract(
+				final TypeInformation<?> componentInfo = TypeExtractor.extractWithBuilder(
 					genericArray.getGenericComponentType(),
 					typeVariableBindings,
-					extractingClasses);
+					extractingClasses,
+					builder);
 
 				return ObjectArrayTypeInfo.getInfoFor(
 					java.lang.reflect.Array.newInstance(componentInfo.getTypeClass(), 0).getClass(),
@@ -139,7 +142,8 @@ class ArrayTypeExtractor {
 	private static TypeInformation<?> extractTypeInformationForClassArray(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
-		final List<Class<?>> extractingClasses) {
+		final List<Class<?>> extractingClasses,
+		TypeExtractor.CustomizedHieraBuilder builder) {
 
 		if (type instanceof Class && ((Class) type).isArray()) {
 			final Class<?> classArray = (Class<?>) type;
@@ -154,10 +158,11 @@ class ArrayTypeExtractor {
 			if (basicArrayInfo != null) {
 				return basicArrayInfo;
 			} else {
-				final TypeInformation<?> componentTypeInfo = TypeExtractor.extract(
+				final TypeInformation<?> componentTypeInfo = TypeExtractor.extractWithBuilder(
 					classArray.getComponentType(),
 					typeVariableBindings,
-					extractingClasses);
+					extractingClasses,
+					builder);
 
 				return ObjectArrayTypeInfo.getInfoFor(classArray, componentTypeInfo);
 			}

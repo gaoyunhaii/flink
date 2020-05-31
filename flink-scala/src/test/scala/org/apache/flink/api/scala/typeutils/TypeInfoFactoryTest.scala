@@ -70,7 +70,7 @@ class TypeInfoFactoryTest extends TestLogger with JUnitSuiteLike {
   @Test
   def testMyTupleHierarchyWithCaseClass(): Unit = {
     val pt = classOf[MyScalaTupleCaseClass].getGenericSuperclass.asInstanceOf[ParameterizedType]
-    println("?????", pt.getActualTypeArguments.mkString(", "))
+    println("???????2", pt.getActualTypeArguments.mkString(", "))
 
     val ti = createTypeInformation[MyScalaTupleCaseClass]
 
@@ -82,6 +82,7 @@ class TypeInfoFactoryTest extends TestLogger with JUnitSuiteLike {
 
   @Test
   def testMyEitherGenericType(): Unit = {
+    println("???")
     val ti = createTypeInformation[MyScalaEither[String, (Double, Int)]]
     assertTrue(ti.isInstanceOf[JavaEitherTypeInfo[_, _]])
     val eti = ti.asInstanceOf[JavaEitherTypeInfo[_, _]]

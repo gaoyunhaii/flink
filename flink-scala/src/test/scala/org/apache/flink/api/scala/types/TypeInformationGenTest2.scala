@@ -25,6 +25,7 @@ import org.apache.flink.api.java.typeutils.TypeExtractorTest.CustomTuple
 import org.apache.flink.api.java.typeutils._
 import org.apache.flink.api.scala._
 import org.apache.flink.api.scala.typeutils.{CaseClassTypeInfo, TraversableSerializer, UnitTypeInfo}
+import org.apache.flink.core.memory.{DataInputDeserializer, DataOutputSerializer}
 import org.apache.flink.types.{IntValue, Row, StringValue}
 import org.junit.{Assert, Test}
 
@@ -42,6 +43,13 @@ import org.junit.{Assert, Test}
 //class MyObject[A](var a: A) {
 //  def this() { this(null.asInstanceOf[A]) }
 //}
+
+object TypeInformationGenTest2 {
+
+  class MyObject(var a: Int, var b: String) {
+    def this() = this(0, "")
+  }
+}
 
 class TypeInformationGenTest2 {
 //
@@ -109,13 +117,8 @@ class TypeInformationGenTest2 {
 //
 //  }
 
-  class MyObject(var a: Int, var b: String) {
-    def this() = this(0, "")
-  }
-
   @Test
   def testGenericArrays(): Unit = {
-//
 //    val boolArray = Array(true, false)
 //    val byteArray = Array(1.toByte, 2.toByte, 3.toByte)
 //    val charArray= Array(1.toChar, 2.toChar, 3.toChar)
@@ -125,19 +128,20 @@ class TypeInformationGenTest2 {
 //    val floatArray = Array(1.0f, 2.0f, 3.0f)
 //    val doubleArray = Array(1.0, 2.0, 3.0)
 //    val stringArray = Array("hey", "there")
-//    val objectArray = Array(new MyObject(1, "hey"), new MyObject(2, "there"))
-//
-//    def getType[T: TypeInformation](arr: Array[T]): TypeInformation[Array[T]] = {
-//      createTypeInformation[Array[T]]
-//    }
+    val objectArray = Array(new MyObject(1, "hey"), new MyObject(2, "there"))
 
-    println("2222222")
+    def getType[T: TypeInformation](arr: Array[T]): TypeInformation[Array[T]] = {
+      createTypeInformation[Array[T]]
+    }
+
+
+    println("2222222222")
     def getType2[T: TypeInformation](): TypeInformation[T] = {
       createTypeInformation[T]
     }
 
-    val result = getType2[Row]()
-    println(result)
+//    val result = getType2[Row]()
+//    println(result)
 
     // println(boolArray.mkString(","), "22222222222222222222222222")
 //    val result = getType(boolArray)
@@ -185,6 +189,19 @@ class TypeInformationGenTest2 {
 //    Assert.assertTrue(
 //      getType(objectArray).asInstanceOf[ObjectArrayTypeInfo[_, _]]
 //        .getComponentInfo.isInstanceOf[PojoTypeInfo[_]])
+
+    val objTypeInfo = getType2[TypeInformationGenTest2.MyObject]
+    println(objTypeInfo)
+
+    val serializer = objTypeInfo.createSerializer(new ExecutionConfig)
+    val buffer = new DataOutputSerializer(10)
+
+    val obj = new TypeInformationGenTest2.MyObject(10, "")
+    serializer.serialize(obj, buffer)
+
+    val deBuffer = new DataInputDeserializer(buffer.getCopyOfBuffer)
+    val newObj = serializer.deserialize(deBuffer)
+    println(newObj, newObj.a, newObj.b)
   }
 
 //  @Test

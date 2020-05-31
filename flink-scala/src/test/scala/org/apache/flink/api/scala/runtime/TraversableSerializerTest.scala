@@ -55,6 +55,7 @@ class TraversableSerializerTest {
 
   @Test
   def testMap(): Unit = {
+    println("2222")
     val testData = Array(Map("Hello" -> 1, "World" -> 2), Map("Foo" -> 42))
     runTests(testData)
   }
@@ -151,6 +152,9 @@ class TraversableSerializerTest {
   private final def runTests[T : TypeInformation](instances: Array[T]) {
     try {
       val typeInfo = implicitly[TypeInformation[T]]
+
+      println("******type info is ", typeInfo);
+
       val serializer = typeInfo.createSerializer(new ExecutionConfig)
       val typeClass = typeInfo.getTypeClass
       val test = new TraversableSerializerTestInstance[T](serializer, typeClass, -1, instances)

@@ -59,7 +59,8 @@ class TupleTypeExtractor {
 	static TypeInformation<?> extract(
 		final Type type,
 		final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings,
-		final List<Class<?>> extractingClasses) {
+		final List<Class<?>> extractingClasses,
+		TypeExtractor.CustomizedHieraBuilder builder) {
 
 		if (!(isClassType(type) && Tuple.class.isAssignableFrom(typeToClass(type)))) {
 			return null;
@@ -99,7 +100,7 @@ class TupleTypeExtractor {
 		final TypeInformation<?>[] subTypesInfo = new TypeInformation<?>[typeArgumentsLength];
 
 		for (int i = 0; i < typeArgumentsLength; i++) {
-			subTypesInfo[i] = TypeExtractor.extract(resolvedType.getActualTypeArguments()[i], typeVariableBindings, extractingClasses);
+			subTypesInfo[i] = TypeExtractor.extractWithBuilder(resolvedType.getActualTypeArguments()[i], typeVariableBindings, extractingClasses, builder);
 		}
 		// return tuple info
 		return new TupleTypeInfo(typeToClass(type), subTypesInfo);
@@ -151,7 +152,8 @@ class TupleTypeExtractor {
 			return PojoTypeExtractor.extract(
 				value.getClass(),
 				Collections.emptyMap(),
-				Collections.emptyList());
+				Collections.emptyList(),
+				new TypeExtractor.DefaultHieraBuilder());
 		}
 
 		final TypeInformation<?>[] typeInformations = new TypeInformation[numFields];
