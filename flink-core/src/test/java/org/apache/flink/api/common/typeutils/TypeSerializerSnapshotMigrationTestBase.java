@@ -193,7 +193,7 @@ public abstract class TypeSerializerSnapshotMigrationTestBase<ElementT> extends 
 		return contentsOf(testSpecification.getTestDataLocation());
 	}
 
-	private void assertSerializerIsAbleToReadOldData(TypeSerializer<ElementT> serializer) throws IOException {
+	private void  assertSerializerIsAbleToReadOldData(TypeSerializer<ElementT> serializer) throws IOException {
 		DataInputView input = dataUnderTest();
 
 		final Matcher<ElementT> matcher = testSpecification.testDataElementMatcher;

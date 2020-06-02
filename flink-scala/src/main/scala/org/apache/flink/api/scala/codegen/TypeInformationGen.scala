@@ -69,6 +69,8 @@ private[flink] trait TypeInformationGen[C <: Context] {
   def extractType[T : c.WeakTypeTag](tpe: Type): c.Expr[java.lang.reflect.Type] = {
     // val tpe = weakTypeTag[T].tpe
     println("extracting 1", tpe, tpe.typeSymbol.isParameter)
+//    println("extracting 2.1", tpe, tpe.typeSymbol.asType.toType.dealias)
+//    println("extracting 2.1", tpe, tpe.typeSymbol.asClass.typeParams)
     println("extracting 3, alias: ", tpe.typeSymbol.asType)
     tpe.typeArgs.foreach(ta => {
       println(ta, ta.typeSymbol)
@@ -83,6 +85,7 @@ private[flink] trait TypeInformationGen[C <: Context] {
     val genericTypes = tpe match {
       case TypeRef(_, _, typeParams) =>
         val typeInfos = typeParams map { param => {
+          println("\t\t, type param: ", param)
           if (param.typeSymbol.isParameter) {
             extractTypeParameter(param, tpe)(c.WeakTypeTag(param), c.WeakTypeTag(tpe)).tree
           } else {
@@ -100,8 +103,10 @@ private[flink] trait TypeInformationGen[C <: Context] {
     // println("extracting 5", genericTypes)
 
     // First check if it is array. Array will be returned as ResolvedArrayType
-    if (tpe <:< typeOf[Array[_]]) {
+    if (tpe <:< typeOf[Array[_]] && tpe.typeArgs.nonEmpty) {
+      println("inside array, tpe is", tpe)
       return reify {
+        println("generic types", genericTypes.splice.mkString("generic types"))
         new ScalaResolvedGenericArray("", genericTypes.splice.head)
       }
     }
@@ -111,7 +116,7 @@ private[flink] trait TypeInformationGen[C <: Context] {
       val m = c.universe.rootMirror
       val fqn = tpe.dealias.toString.split('.')
       val moduleName = fqn.slice(0, fqn.size - 1).mkString(".")
-      println("new enum owner: ", moduleName)
+      println("Check is enum ? new enum owner: ", moduleName)
 
       val owner = m.staticModule(moduleName)
       val enumerationSymbol = typeOf[scala.Enumeration].typeSymbol
@@ -176,6 +181,69 @@ private[flink] trait TypeInformationGen[C <: Context] {
       }
     }
   }
+
+//  def mine[T <: Product : c.WeakTypeTag](
+//                                          desc: CaseClassDescriptor) : c.Expr[TypeInformation[T]] = {
+//    //    mkCaseClassTypeInfo(desc)(weakTypeTag[T])
+//    //      .asInstanceOf[c.Expr[TypeInformation[T]]]
+//
+//    val tpeClazz = c.Expr[Class[T]](Literal(Constant(weakTypeTag[T].tpe)))
+//
+//    val genericTypeInfos = desc.tpe match {
+//      case TypeRef(_, _, typeParams) =>
+//        val typeInfos = typeParams map { tpe => mkTypeInfo(c.WeakTypeTag[T](tpe)).tree }
+//        c.Expr[List[TypeInformation[_]]](mkList(typeInfos))
+//      case _ =>
+//        reify {
+//          List[TypeInformation[_]]()
+//        }
+//    }
+//
+//    val fields = desc.getters.toList map { field =>
+//      mkTypeInfo(field.desc)(c.WeakTypeTag(field.tpe)).tree
+//    }
+//    val fieldsExpr = c.Expr[Seq[TypeInformation[_]]](mkList(fields))
+//    val instance = mkCreateTupleInstance[T](desc)(c.WeakTypeTag(desc.tpe))
+//
+//    val fieldNames = desc.getters map { f => Literal(Constant(f.getter.name.toString)) } toList
+//    val fieldNamesExpr = c.Expr[Seq[String]](mkSeq(fieldNames))
+//
+//    reify {
+//      new CaseClassTypeInfo[T](tpeClazz.splice,
+//        genericTypeInfos.splice.toArray,
+//        fieldsExpr.splice,
+//        fieldNamesExpr.splice) {
+//        /**
+//         * Creates a serializer for the type. The serializer may use the ExecutionConfig
+//         * for parameterization.
+//         *
+//         * @param executionConfig The config used to parameterize the serializer.
+//         * @return A serializer for this type.
+//         */
+//        override def createSerializer(executionConfig: ExecutionConfig): TypeSerializer[T] = {
+//          val fieldSerializers: Array[TypeSerializer[_]] = new Array[TypeSerializer[_]](getArity)
+//          for (i <- 0 until getArity) {
+//            fieldSerializers(i) = types(i).createSerializer(executionConfig)
+//          }
+//
+//          // -------------------------------------------------------------------------------------
+//          // NOTE:
+//          // the following anonymous class is needed here, and should not be removed
+//          // (although appears to be unused) since it is required for backwards compatibility
+//          // with Flink versions pre 1.8, that were using Java deserialization.
+//          // -------------------------------------------------------------------------------------
+//          val unused = new ScalaCaseClassSerializer[T](getTypeClass(), fieldSerializers) {
+//
+//            override def createInstance(fields: Array[AnyRef]): T = {
+//              instance.splice
+//            }
+//          }
+//
+//          null
+//        }
+//      }
+//    }
+//  }
 
   def mkTypeInfo2[T: c.WeakTypeTag]: c.Expr[TypeInformation[T]] = {
     // iterate over all the parameters
@@ -271,71 +339,23 @@ private[flink] trait TypeInformationGen[C <: Context] {
     }
   }
 
-  def mine[T <: Product : c.WeakTypeTag](
-                                          desc: CaseClassDescriptor) : c.Expr[TypeInformation[T]] = {
-    val tpeClazz = c.Expr[Class[T]](Literal(Constant(weakTypeTag[T].tpe)))
-
-    val genericTypeInfos = desc.tpe match {
-      case TypeRef(_, _, typeParams) =>
-        val typeInfos = typeParams map { tpe => mkTypeInfo(c.WeakTypeTag[T](tpe)).tree }
-        c.Expr[List[TypeInformation[_]]](mkList(typeInfos))
-      case _ =>
-        reify {
-          List[TypeInformation[_]]()
-        }
-    }
-
-    val fields = desc.getters.toList map { field =>
-      mkTypeInfo(field.desc)(c.WeakTypeTag(field.tpe)).tree
-    }
-    val fieldsExpr = c.Expr[Seq[TypeInformation[_]]](mkList(fields))
-    val instance = mkCreateTupleInstance[T](desc)(c.WeakTypeTag(desc.tpe))
-
-    val fieldNames = desc.getters map { f => Literal(Constant(f.getter.name.toString)) } toList
-    val fieldNamesExpr = c.Expr[Seq[String]](mkSeq(fieldNames))
-
-    reify {
-      new CaseClassTypeInfo[T](tpeClazz.splice,
-        genericTypeInfos.splice.toArray,
-        fieldsExpr.splice,
-        fieldNamesExpr.splice) {
-        /**
-         * Creates a serializer for the type. The serializer may use the ExecutionConfig
-         * for parameterization.
-         *
-         * @param config The config used to parameterize the serializer.
-         * @return A serializer for this type.
-         */
-        override def createSerializer(config: ExecutionConfig): TypeSerializer[T] = null
-      }
-    }
-  }
-
   // This is for external calling by TypeUtils.createTypeInfo
   def mkTypeInfo[T: c.WeakTypeTag]: c.Expr[TypeInformation[T]] = {
     println("Start checking : ", weakTypeTag[T].tpe)
+
     val desc = getUDTDescriptor(weakTypeTag[T].tpe)
-//    val result: c.Expr[TypeInformation[T]] = mkTypeInfo(desc)(c.WeakTypeTag(desc.tpe))
+    val result: c.Expr[TypeInformation[T]] = mkTypeInfo(desc)(c.WeakTypeTag(desc.tpe))
+    result
 
 //    val unused = new Predef.Function[String, String] {
 //      override def apply(v1: String): String = null
 //    }
-
+//
 //    result
-    val first = mine(desc.asInstanceOf[CaseClassDescriptor])(c.WeakTypeTag(weakTypeTag[T].tpe).asInstanceOf[c.WeakTypeTag[Product]]).asInstanceOf[c.Expr[TypeInformation[T]]]
-    first
+//    mine(desc.asInstanceOf[CaseClassDescriptor])(c.WeakTypeTag(weakTypeTag[T].tpe).asInstanceOf[c.WeakTypeTag[Product]])
+//      .asInstanceOf[c.Expr[TypeInformation[T]]]
 //
-////     val result2: c.Expr[TypeInformation[T]] = mkTypeInfo2(c.weakTypeTag(weakTypeTag[T]))
-////     println("result 2: ", result2)
-////     println("result: ", result)
-//    val second = result
-//
-//    if (desc.id < 10) {
-//      first
-//    } else {
-//      second
-//    }
-
+//    val result2: c.Expr[TypeInformation[T]] = mkTypeInfo2(c.weakTypeTag(weakTypeTag[T]))
 //    result2
   }
 

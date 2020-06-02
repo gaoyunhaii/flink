@@ -130,6 +130,7 @@ class ScalaSpecialTypesSerializerTest {
   private final def runTests[T : TypeInformation](instances: Array[T]) {
     try {
       val typeInfo = implicitly[TypeInformation[T]]
+      println("t2ypeinfo2: " + typeInfo)
       val serializer = typeInfo.createSerializer(new ExecutionConfig)
       val typeClass = typeInfo.getTypeClass
       val test = new ScalaSpecialTypesSerializerTestInstance[T](

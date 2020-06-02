@@ -130,13 +130,26 @@ class ScalaTypeHieraBuilder extends CustomizedHieraBuilder {
 
 object ScalaTypeHieraBuilder {
 
-  class MyObject extends org.apache.flink.api.java.tuple.Tuple2[Double, String] {
-    /**
-     * Shallow tuple copy.
-     *
-     * @return A new Tuple with the same fields as this.
-     */
-    override def copy[T <: Tuple](): T = null.asInstanceOf[T]
+  trait MyTrait[T1] {
+    def a : T1
+    def b : String = "haha"
+
+    def c(i: Int): Int = i + 1
+  }
+
+  trait MyTrait2[T2] {
+    def d : T2
+    def e : String = "haha"
+
+    def f(i: Int): Int = i + 1
+  }
+
+  class MyObject extends MyTrait[String] with MyTrait2[Int] {
+    def h : String = "haha"
+
+    override def a: String = ""
+
+    override def d: Int = 0
   }
 
   def main(args: Array[String]): Unit = {

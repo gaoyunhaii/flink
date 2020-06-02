@@ -23,6 +23,7 @@ import java.util
 import org.apache.flink.api.scala._
 import org.apache.flink.api.scala.haha.MyEnum.MyEnum
 import org.apache.flink.api.scala.haha.{MyClassSub, MyEnum}
+import org.apache.flink.api.scala.types.MyObject
 import org.apache.flink.types.Nothing
 
 import scala.util.Try
@@ -30,58 +31,64 @@ import scala.util.Try
 object Test {
 
   def main(args: Array[String]): Unit = {
-
-    class MyObject(var a: Int, var b: String) {
-      def this() = this(0, "")
-    }
-
-    val env = ExecutionEnvironment.getExecutionEnvironment
-
-    val source = env.fromCollection(Array("test", "test2"))
-    // val ds = source.map(x => haha.MyClass[String, MyClassSub[List[Integer]]]("1", new MyClassSub[List[Integer]](List(5))))
-
-//    val ds = source.map(x => haha.MyClass[String, Integer]("5a", new MyClassSub[Integer](5)))
-
-    // val func: String => Either[Integer, String] = s => Either.cond(1 + 1 == 2, "5", 3)
-//     val func: String => MyEnum.Value = s => MyEnum.Fri
-//    val func : String => Int = s => 1
-
-    val func : String => MyObject = s => new MyObject(5, "")
-
-    val ds = source.map(func)
-
-//    val func: String => Try[Integer] = s => Try.apply(5)
+//
+//    class MyObject(var a: Int, var b: String) {
+//      def this() = this(0, "")
+//    }
+//
+//    val env = ExecutionEnvironment.getExecutionEnvironment
+//
+//    val source = env.fromCollection(Array("test", "test2"))
+//    // val ds = source.map(x => haha.MyClass[String, MyClassSub[List[Integer]]]("1", new MyClassSub[List[Integer]](List(5))))
+//
+//    //    val ds = source.map(x => haha.MyClass[String, Integer]("5a", new MyClassSub[Integer](5)))
+//
+//    val func: String => Either[Integer, String] = s => Either.cond(1 + 1 == 2, "5", 3)
+//    //     val func: String => MyEnum.Value = s => MyEnum.Fri
+//    //    val func : String => Int = s => 1
+//
+//    //    val func : String => MyObject = s => new MyObject(5, "")
+//
 //    val ds = source.map(func)
-
-//    val func: String => Option[Integer] = s => Option.empty
-//    val ds = source.map(func)
-
-    println(ds.getType(), ds.getType().getClass)
-//    println(MyEnum.Fri.getClass)
-    println("abcdedfghilmaaaaalaadb22aaaadaaaa2a22aa2aab2a2aa2a")
-
-//    System.out.println(classOf[MyEnum.Value])
-
-//    println(new haha.MyClassSub[String]("a").a)
-//    println(MyEnum.showAll)
 //
-//    val enum: Enumeration  = haha.MyEnum
+//    //    val func: String => Try[Integer] = s => Try.apply(5)
+//    //    val ds = source.map(func)
+//
+//    //    val func: String => Option[Integer] = s => Option.empty
+//    //    val ds = source.map(func)
+//
+//    println(ds.getType(), ds.getType().getClass)
+//    //    println(MyEnum.Fri.getClass)
+//    println("2")
 
-//    import scala.reflect.runtime.{universe => ru}
-//    val mirror = ru.runtimeMirror(getClass.getClassLoader)
-//
-//
-//    import scala.reflect.runtime.{universe => ru}
-//    println("222")
-//    val tpe = ru.typeOf[MyEnum.Value]
-//    println(tpe.typeSymbol.owner)
-//    val ru.TypeRef(_, sym, _) = tpe
-//    println(sym.owner)
+    val obj = new haha.MyObject()
+    obj.a = 5
+
+    println(classOf[Any])
+
+    //    System.out.println(classOf[MyEnum.Value])
+
+    //    println(new haha.MyClassSub[String]("a").a)
+    //    println(MyEnum.showAll)
+    //
+    //    val enum: Enumeration  = haha.MyEnum
+
+    //    import scala.reflect.runtime.{universe => ru}
+    //    val mirror = ru.runtimeMirror(getClass.getClassLoader)
+    //
+    //
+    //    import scala.reflect.runtime.{universe => ru}
+    //    println("222")
+    //    val tpe = ru.typeOf[MyEnum.Value]
+    //    println(tpe.typeSymbol.owner)
+    //    val ru.TypeRef(_, sym, _) = tpe
+    //    println(sym.owner)
   }
 }
 
 package haha {
-  case class MyClass[T1, T2](a: T1, b: MyClassSub[T2]){
+
+  case class MyClass[T1, T2](a: T1, b: MyClassSub[T2]) {
 
   }
 
@@ -91,9 +98,29 @@ package haha {
   }
 
   class MyClass2[T <: MyClassSub[String]]() {
-    def useEnum() : Unit = {
+    def useEnum(): Unit = {
 
     }
+  }
+
+  trait MyTrait[T1] {
+    var a: Int = 0
+
+    var b: String = "haha"
+
+    def c(i: T1): Int = 0
+  }
+
+  trait MyTrait2[T2] {
+    var d: Int = 2
+
+    var e: String = "haha"
+
+    def f(i: T2): Int = 1
+  }
+
+  class MyObject extends MyTrait[String] with MyTrait2[Int] {
+    def h: String = "haha"
   }
 
   object MyEnum extends Enumeration {
@@ -102,4 +129,5 @@ package haha {
 
     def showAll(): Unit = this.values.foreach(println)
   }
+
 }

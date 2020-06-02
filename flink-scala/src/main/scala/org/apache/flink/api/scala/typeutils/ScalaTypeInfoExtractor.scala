@@ -25,11 +25,11 @@ import java.util
 import org.apache.flink.annotation.Internal
 import org.apache.flink.api.common.ExecutionConfig
 import org.apache.flink.api.common.typeutils.TypeSerializer
-import org.apache.flink.api.java.typeutils.{GenericTypeInfo, ObjectArrayTypeInfo, PojoField, PojoTypeInfo, TypeExtractionUtils, TypeExtractor}
+import org.apache.flink.api.java.typeutils.{GenericTypeInfo, ObjectArrayTypeInfo, PojoField, PojoTypeInfo, TypeExtractionUtils, TypeExtractor, TypeResolver}
 import org.apache.flink.api.java.typeutils.TypeResolver.ResolvedParameterizedType
-import org.apache.flink.api.scala.codegen.{EnumParameterizedType, ScalaResolvedGenericArray, ScalaTypeVariable, TraversalOnceParameterizedType}
-import org.apache.flink.types.Nothing
+import org.apache.flink.api.scala.codegen.{EnumParameterizedType, ScalaResolvedGenericArray, ScalaTypeHieraBuilder, ScalaTypeVariable, TraversalOnceParameterizedType}
 import java.util.Map
+import java.util.function.Predicate
 
 import org.apache.flink.api.java.typeutils.TypeExtractor.CustomizedHieraBuilder
 
@@ -45,9 +45,9 @@ import scala.util.Try
 class ScalaTypeInfoExtractor {
 
   def createTypeInfo(
-    outputType: java.lang.reflect.Type,
-    bindings : Map[TypeVariable[_], TypeInformation[_]],
-    builder : CustomizedHieraBuilder): TypeInformation[_] = {
+                      outputType: java.lang.reflect.Type,
+                      bindings: Map[TypeVariable[_], TypeInformation[_]],
+                      builder: CustomizedHieraBuilder): TypeInformation[_] = {
 
     // check for array first
     if (outputType.isInstanceOf[ScalaResolvedGenericArray]) {
@@ -100,7 +100,7 @@ class ScalaTypeInfoExtractor {
 
     println()
     println("in create info, type is " + outputType + ", ", outputType.getClass, clazz.getName)
-    new RuntimeException("check path" + ("in create info, type is " + outputType + ", ", outputType.getClass, clazz.getName).toString()).printStackTrace()
+    //    new RuntimeException("check path" + ("in create info, type is " + outputType + ", ", outputType.getClass, clazz.getName).toString()).printStackTrace()
 
     if (!outputType.isInstanceOf[ScalaTypeVariable[_]] &&
       !outputType.isInstanceOf[EnumParameterizedType] &&
@@ -108,11 +108,6 @@ class ScalaTypeInfoExtractor {
 
       val mirror = ru.runtimeMirror(getClass.getClassLoader)
       val classSymbol = mirror.classSymbol(clazz)
-
-      println(classSymbol.baseClasses.exists(b => {
-        println("\t, base", b)
-        b.eq(ru.typeOf[Any].typeSymbol)
-      }))
 
       if (classSymbol.isJava) {
         println("is java, skip")
@@ -124,25 +119,26 @@ class ScalaTypeInfoExtractor {
     TypeExtractionUtils.hasSuperclass(clazz, "")
 
     if (isNothing(clazz)) {
-      new NothingTypeInfo().asInstanceOf[TypeInformation[_]]
+      new ScalaNothingTypeInfo().asInstanceOf[TypeInformation[_]]
     } else if (isUnit(clazz)) {
       new UnitTypeInfo().asInstanceOf[TypeInformation[_]]
     } else if (isEither(clazz)) {
-      val pt = outputType.asInstanceOf[ParameterizedType]
-      val leftTypeInfo = callExtract(pt.getActualTypeArguments()(0), bindings, builder)
-      val rightTypeInfo = callExtract(pt.getActualTypeArguments()(1), bindings, builder)
+      val genericTypes = parseArgumentType(outputType, classOf[Try[_]])
 
-      new EitherTypeInfo(pt.getRawType.asInstanceOf[Class[_ <: Either[Any, Any]]], leftTypeInfo.asInstanceOf[TypeInformation[Any]], rightTypeInfo.asInstanceOf[TypeInformation[Any]])
+      val leftTypeInfo = callExtract(genericTypes(0), bindings, builder)
+      val rightTypeInfo = callExtract(genericTypes(1), bindings, builder)
+
+      new EitherTypeInfo(clazz.asInstanceOf[Class[_ <: Either[Any, Any]]], leftTypeInfo.asInstanceOf[TypeInformation[Any]], rightTypeInfo.asInstanceOf[TypeInformation[Any]])
     } else if (isEnum(outputType)) {
       val moduleObj = parseEnumModule(outputType)
       new EnumValueTypeInfo[Enumeration](moduleObj, clazz.asInstanceOf[Class[Enumeration#Value]])
     } else if (isTry(clazz)) {
-      val pt = outputType.asInstanceOf[ParameterizedType]
-      val subTypeInfo = callExtract(pt.getActualTypeArguments()(0), bindings, builder)
+      val genericTypes = parseArgumentType(outputType, classOf[Try[_]])
+      val subTypeInfo = callExtract(genericTypes(0), bindings, builder)
       new TryTypeInfo[Any, Try[Any]](subTypeInfo.asInstanceOf[TypeInformation[Any]])
     } else if (isOption(clazz)) {
-      val pt = outputType.asInstanceOf[ParameterizedType]
-      val subTypeInfo = callExtract(pt.getActualTypeArguments()(0), bindings, builder)
+      val genericTypes = parseArgumentType(outputType, classOf[Option[_]])
+      val subTypeInfo = callExtract(genericTypes(0), bindings, builder)
       new OptionTypeInfo[Any, Option[Any]](subTypeInfo.asInstanceOf[TypeInformation[Any]])
     } else if (isCaseClass(clazz)) {
       //      val pt = outputType.asInstanceOf[ParameterizedType]
@@ -158,7 +154,7 @@ class ScalaTypeInfoExtractor {
       }
 
       val genericInfo = outputType match {
-        case pt : ParameterizedType => pt.getActualTypeArguments.map(ag => callExtract(ag, bindings, builder))
+        case pt: ParameterizedType => pt.getActualTypeArguments.map(ag => callExtract(ag, bindings, builder))
         case _ => Array[TypeInformation[_]]()
       }
 
@@ -184,13 +180,13 @@ class ScalaTypeInfoExtractor {
         }
       }
     } else if (isTraversalOnce(clazz)) {
-//      if (clazz.isInstance(BitSet)) {
+      //      if (clazz.isInstance(BitSet)) {
       ////        return TypeExtractor.callExtract(outputType)
       ////      }
 
-//      if (clazz.isInstance(SortedMap[Any, Any]) || clazz.isInstance(SortedSet[Any])) {
-//        return TypeExtractor.callExtract(outputType)
-//      }
+      //      if (clazz.isInstance(SortedMap[Any, Any]) || clazz.isInstance(SortedSet[Any])) {
+      //        return TypeExtractor.callExtract(outputType)
+      //      }
 
       // Get the cbf ?
       if (!outputType.isInstanceOf[TraversalOnceParameterizedType]) {
@@ -220,12 +216,34 @@ class ScalaTypeInfoExtractor {
     }
   }
 
-  def callExtract(t : Type, bindings : util.Map[TypeVariable[_], TypeInformation[_]], builder : CustomizedHieraBuilder): TypeInformation[_] = {
+  def callExtract(t: Type, bindings: util.Map[TypeVariable[_], TypeInformation[_]], builder: CustomizedHieraBuilder): TypeInformation[_] = {
     TypeExtractor.extractWithBuilder(
       t,
       bindings,
       new util.ArrayList[Class[_]](),
       builder)
+  }
+
+  def parseArgumentType(sub: Type, parent: Class[_]): Array[Type] = {
+    val builder = new ScalaTypeHieraBuilder
+    val hiera = builder.buildHiera(
+      sub,
+      new Predicate[Class[_]] {
+        override def test(t: Class[_]): Boolean = t.equals(parent)
+      },
+      new Predicate[Class[_]] {
+        override def test(t: Class[_]): Boolean = t.equals(parent)
+      })
+    println("heria is ", hiera.toString)
+    val pt = hiera.get(hiera.size() - 1)
+    pt.getActualTypeArguments.map{ag => {
+      ag match {
+        case typeVar: TypeVariable[_] =>
+          TypeResolver.materializeTypeVariable(hiera, typeVar)
+        case _ =>
+          ag
+      }
+    }}
   }
 
   def isNothing(clazz: Class[_]): Boolean = {
@@ -240,35 +258,50 @@ class ScalaTypeInfoExtractor {
     classSymbol.toType =:= ru.typeOf[Unit]
   }
 
+  def isEnum(outputType: Type): Boolean = {
+    //    val mirror = ru.runtimeMirror(getClass.getClassLoader)
+    //    val classSymbol = mirror.classSymbol(clazz)
+    //
+    //    println("name", clazz.getName)
+    //
+    //    val owner = classSymbol.owner
+    //    owner.isModule &&
+    //      owner.typeSignature.baseClasses.contains(ru.typeOf[scala.Enumeration].typeSymbol)
+
+    outputType.isInstanceOf[EnumParameterizedType]
+  }
+
   def isEither(clazz: Class[_]): Boolean = {
     val mirror = ru.runtimeMirror(getClass.getClassLoader)
     val classSymbol = mirror.classSymbol(clazz)
-    classSymbol.toType <:< ru.typeOf[Either[_, _]]
-  }
+    if (!(classSymbol.toType <:< ru.typeOf[Either[_, _]])) {
+      return false
+    }
 
-  def isEnum(outputType : Type): Boolean = {
-//    val mirror = ru.runtimeMirror(getClass.getClassLoader)
-//    val classSymbol = mirror.classSymbol(clazz)
-//
-//    println("name", clazz.getName)
-//
-//    val owner = classSymbol.owner
-//    owner.isModule &&
-//      owner.typeSignature.baseClasses.contains(ru.typeOf[scala.Enumeration].typeSymbol)
-
-    outputType.isInstanceOf[EnumParameterizedType]
+    val eitherType = classSymbol.toType.baseType(ru.typeOf[Either[_, _]].typeSymbol)
+    eitherType.typeArgs.nonEmpty
   }
 
   def isTry(clazz: Class[_]): Boolean = {
     val mirror = ru.runtimeMirror(getClass.getClassLoader)
     val classSymbol = mirror.classSymbol(clazz)
-    classSymbol.toType <:< ru.typeOf[Try[_]]
+    if (!(classSymbol.toType <:< ru.typeOf[Try[_]])) {
+      return false
+    }
+
+    val tryType = classSymbol.toType.baseType(ru.typeOf[Try[_]].typeSymbol)
+    tryType.typeArgs.nonEmpty
   }
 
   def isOption(clazz: Class[_]): Boolean = {
     val mirror = ru.runtimeMirror(getClass.getClassLoader)
     val classSymbol = mirror.classSymbol(clazz)
-    classSymbol.toType <:< ru.typeOf[Option[_]]
+    if (!(classSymbol.toType <:< ru.typeOf[Option[_]])) {
+      return false
+    }
+
+    val optionType = classSymbol.toType.baseType(ru.typeOf[Option[_]].typeSymbol)
+    optionType.typeArgs.nonEmpty
   }
 
   def isCaseClass(clazz: Class[_]): Boolean = {
@@ -291,27 +324,43 @@ class ScalaTypeInfoExtractor {
       !(classSymbol.toType <:< ru.typeOf[SortedSet[_]])
   }
 
-  def analyzePojo(clazz: Class[_], bindings : Map[TypeVariable[_], TypeInformation[_]], builder : CustomizedHieraBuilder): TypeInformation[_] = {
+  def analyzePojo(clazz: Class[_], bindings: Map[TypeVariable[_], TypeInformation[_]], builder: CustomizedHieraBuilder): TypeInformation[_] = {
     println("Analyze is pojo? ", clazz)
     val mirror = ru.runtimeMirror(getClass.getClassLoader)
     val classSymbol = mirror.classSymbol(clazz)
     val tpe = classSymbol.toType
 
-//    println(tpe, "decls", tpe.decls.mkString("\n\t"))
-//    println(tpe, "members", tpe.members.mkString("\n\t"))
+    //    println(tpe, "decls", tpe.decls.mkString("\n\t"))
+    //    println(tpe, "members", tpe.members.mkString("\n\t"))
 
-    val immutableFields = tpe.members filter { _.isTerm } map { _.asTerm } filter { _.isVal }
+    val immutableFields = tpe.members filter {
+      _.isTerm
+    } map {
+      _.asTerm
+    } filter {
+      _.isVal
+    }
     if (immutableFields.nonEmpty) {
       // We don't support POJOs with immutable fields
       return null
     }
 
     val fields = tpe.members
-      .filter { _.isTerm }
-      .map { _.asTerm }
-      .filter { _.isVar }
-      .filter { !_.isStatic }
-      .filterNot { _.annotations.exists( _.tpe <:< ru.typeOf[scala.transient]) }
+      .filter {
+        _.isTerm
+      }
+      .map {
+        _.asTerm
+      }
+      .filter {
+        _.isVar
+      }
+      .filter {
+        !_.isStatic
+      }
+      .filterNot {
+        _.annotations.exists(_.tpe <:< ru.typeOf[scala.transient])
+      }
 
     if (fields.isEmpty) {
       println("** no fields !!")
@@ -330,7 +379,7 @@ class ScalaTypeInfoExtractor {
     }
 
     // check whether we have a zero-parameter ctor
-    val hasZeroCtor = tpe.declarations exists  {
+    val hasZeroCtor = tpe.declarations exists {
       case m: ru.MethodSymbol
         if m.isConstructor && m.paramss.length == 1 && m.paramss(0).length == 0 => true
       case _ => false
@@ -367,17 +416,17 @@ class ScalaTypeInfoExtractor {
     if (error) {
       new GenericTypeInfo(clazz)
     } else {
-//      val pojoFields = fields flatMap {
-//        case (fName, fTpe) =>
-//          val field = clazzFields(fName)
-//          if (Modifier.isTransient(field.getModifiers) || Modifier.isStatic(field.getModifiers)) {
-//            // ignore transient and static fields
-//            // the TypeAnalyzer for some reason does not always detect transient fields
-//            None
-//          } else {
-//            Some(new PojoField(clazzFields(fName), fTpe))
-//          }
-//      }
+      //      val pojoFields = fields flatMap {
+      //        case (fName, fTpe) =>
+      //          val field = clazzFields(fName)
+      //          if (Modifier.isTransient(field.getModifiers) || Modifier.isStatic(field.getModifiers)) {
+      //            // ignore transient and static fields
+      //            // the TypeAnalyzer for some reason does not always detect transient fields
+      //            None
+      //          } else {
+      //            Some(new PojoField(clazzFields(fName), fTpe))
+      //          }
+      //      }
 
       val arrayList = new util.ArrayList[PojoField]()
 
@@ -398,7 +447,7 @@ class ScalaTypeInfoExtractor {
     null
   }
 
-  def parseEnumModule(output : Type): Enumeration = {
+  def parseEnumModule(output: Type): Enumeration = {
     val mirror = ru.runtimeMirror(getClass.getClassLoader)
     val moduleName = output.asInstanceOf[EnumParameterizedType].getEnumModule
     val owner = mirror.staticModule(moduleName)
@@ -463,7 +512,7 @@ class ScalaTypeInfoExtractor {
 
   def _help_resolve(t: Type, outputType: ParameterizedType): Type = {
     t match {
-      case pt : ParameterizedType => {
+      case pt: ParameterizedType => {
         val resolved = resolveFields(pt.getActualTypeArguments.map(t => (t.getTypeName, t)), outputType)
         val changed = (resolved zip pt.getActualTypeArguments).exists(p => {
           val ((_, rt), ot) = p
@@ -476,9 +525,9 @@ class ScalaTypeInfoExtractor {
           new ResolvedParameterizedType(pt.getRawType, pt.getOwnerType, resolved.map(p => p._2), pt.getTypeName)
         }
       }
-      case c : Class[_] => c
-      case gv : GenericArrayType => gv
-      case tv : TypeVariable[_] => {
+      case c: Class[_] => c
+      case gv: GenericArrayType => gv
+      case tv: TypeVariable[_] => {
         val typeParams = outputType.getRawType.asInstanceOf[Class[_]].getTypeParameters
         val actualArguments = outputType.getActualTypeArguments
 

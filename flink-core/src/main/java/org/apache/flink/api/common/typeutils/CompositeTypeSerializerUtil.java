@@ -49,7 +49,9 @@ public class CompositeTypeSerializerUtil {
 			TypeSerializerSnapshot<?>... legacyNestedSnapshots) {
 
 		checkArgument(legacyNestedSnapshots.length > 0);
-		return newCompositeSnapshot.internalResolveSchemaCompatibility(newSerializer, legacyNestedSnapshots);
+		TypeSerializerSchemaCompatibility result = newCompositeSnapshot.internalResolveSchemaCompatibility(newSerializer, legacyNestedSnapshots);
+		System.out.println(CompositeTypeSerializerUtil.class + ", " +  newSerializer + ", " + newCompositeSnapshot);
+		return result;
 	}
 
 	/**

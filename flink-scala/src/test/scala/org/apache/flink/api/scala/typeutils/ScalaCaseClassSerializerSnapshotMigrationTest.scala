@@ -65,7 +65,7 @@ object ScalaCaseClassSerializerSnapshotMigrationTest {
       classOf[ScalaCaseClassSerializerSnapshot[CustomCaseClass]],
       supplier
     )
-    println("sb")
+    println("sb2")
     spec.get()
   }
 }
