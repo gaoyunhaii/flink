@@ -16,24 +16,48 @@
  * limitations under the License.
  */
 
-package org.apache.flink.formats.hadoop.bulk;
+package org.apache.flink.formats.hadoop.bulk.committer;
 
-import org.apache.flink.formats.hadoop.bulk.committer.HadoopRenameFileCommitter;
+import org.apache.flink.formats.hadoop.bulk.AbstractFileCommitterTest;
+import org.apache.flink.formats.hadoop.bulk.HadoopFileCommitter;
+import org.apache.flink.formats.hadoop.bulk.committer.cluster.S3Cluster;
+import org.apache.flink.testutils.s3.S3TestCredentials;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.junit.BeforeClass;
 
 import java.io.IOException;
 
 /**
- * The default hadoop file committer factory which always use {@link HadoopRenameFileCommitter}.
+ * Tests the behaviors of {@link HadoopRenameFileCommitter} with S3 file system.
  */
-public class DefaultHadoopFileCommitterFactory implements HadoopFileCommitterFactory {
+public class HadoopRenameCommitterS3Test extends AbstractFileCommitterTest {
 
-	private static final long serialVersionUID = 1L;
+	private static S3Cluster s3Cluster;
+
+	@BeforeClass
+	public static void checkS3Credential() {
+		S3TestCredentials.assumeCredentialsAvailable();
+		s3Cluster = new S3Cluster();
+	}
+
+	public HadoopRenameCommitterS3Test(boolean override) throws IOException {
+		super(override);
+	}
 
 	@Override
-	public HadoopFileCommitter create(
+	protected Path getBasePath() {
+		return s3Cluster.newFolder();
+	}
+
+	@Override
+	protected Configuration getConfiguration() {
+		return s3Cluster.getConfiguration();
+	}
+
+	@Override
+	protected HadoopFileCommitter createNewCommitter(
 		Configuration configuration,
 		Path targetFilePath) throws IOException {
 
@@ -41,11 +65,16 @@ public class DefaultHadoopFileCommitterFactory implements HadoopFileCommitterFac
 	}
 
 	@Override
-	public HadoopFileCommitter recoverPending(
+	protected HadoopFileCommitter createPendingCommitter(
 		Configuration configuration,
 		Path targetFilePath,
 		Path inProgressPath) throws IOException {
 
 		return new HadoopRenameFileCommitter(configuration, targetFilePath, inProgressPath);
+	}
+
+	@Override
+	protected void cleanup(Configuration configuration, Path basePath) throws IOException {
+		basePath.getFileSystem(configuration).delete(basePath, true);
 	}
 }

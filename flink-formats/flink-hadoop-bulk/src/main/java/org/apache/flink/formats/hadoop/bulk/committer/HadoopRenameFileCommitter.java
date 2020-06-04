@@ -25,6 +25,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
+import java.util.UUID;
 
 import static org.apache.flink.util.Preconditions.checkArgument;
 
@@ -41,10 +42,20 @@ public class HadoopRenameFileCommitter implements HadoopFileCommitter {
 
 	private final Path inProgressFilePath;
 
-	public HadoopRenameFileCommitter(Configuration configuration, Path targetFilePath) {
+	public HadoopRenameFileCommitter(Configuration configuration, Path targetFilePath) throws IOException {
 		this.configuration = configuration;
 		this.targetFilePath = targetFilePath;
 		this.inProgressFilePath = generateInProgressFilePath();
+	}
+
+	public HadoopRenameFileCommitter(
+		Configuration configuration,
+		Path targetFilePath,
+		Path inProgressPath) throws IOException {
+
+		this.configuration = configuration;
+		this.targetFilePath = targetFilePath;
+		this.inProgressFilePath = inProgressPath;
 	}
 
 	@Override
@@ -96,12 +107,19 @@ public class HadoopRenameFileCommitter implements HadoopFileCommitter {
 		}
 	}
 
-	private Path generateInProgressFilePath() {
+	private Path generateInProgressFilePath() throws IOException {
 		checkArgument(targetFilePath.isAbsolute(), "Target file must be absolute");
+
+		FileSystem fileSystem = FileSystem.get(targetFilePath.toUri(), configuration);
 
 		Path parent = targetFilePath.getParent();
 		String name = targetFilePath.getName();
 
-		return new Path(parent, "." + name + ".inprogress");
+		while (true) {
+			Path candidate = new Path(parent, "." + name + ".inprogress" + UUID.randomUUID().toString());
+			if (!fileSystem.exists(candidate)) {
+				return candidate;
+			}
+		}
 	}
 }

@@ -103,7 +103,8 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 
 		public PendingFileRecoverable getRecoverable() {
 			return new HadoopPathBasedPendingFileRecoverable(
-				fileCommitter.getTargetFilePath());
+				fileCommitter.getTargetFilePath(),
+				fileCommitter.getInProgressFilePath());
 		}
 	}
 
@@ -111,12 +112,19 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 	static class HadoopPathBasedPendingFileRecoverable implements PendingFileRecoverable {
 		private final Path path;
 
-		public HadoopPathBasedPendingFileRecoverable(Path path) {
+		private final Path inProgressPath;
+
+		public HadoopPathBasedPendingFileRecoverable(Path path, Path inProgressPath) {
 			this.path = path;
+			this.inProgressPath = inProgressPath;
 		}
 
 		public Path getPath() {
 			return path;
+		}
+
+		public Path getInProgressPath() {
+			return inProgressPath;
 		}
 	}
 
@@ -142,14 +150,21 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 				throw new UnsupportedOperationException("Only HadoopPathBasedPendingFileRecoverable is supported.");
 			}
 
-			Path path = ((HadoopPathBasedPendingFileRecoverable) pendingFileRecoverable).getPath();
-			byte[] pathBytes = path.toUri().toString().getBytes(CHARSET);
+			HadoopPathBasedPendingFileRecoverable hadoopRecoverable =
+				(HadoopPathBasedPendingFileRecoverable) pendingFileRecoverable;
+			Path path = hadoopRecoverable.getPath();
+			Path inProgressPath = hadoopRecoverable.getInProgressPath();
 
-			byte[] targetBytes = new byte[8 + pathBytes.length];
+			byte[] pathBytes = path.toUri().toString().getBytes(CHARSET);
+			byte[] inProgressBytes = inProgressPath.toUri().toString().getBytes(CHARSET);
+
+			byte[] targetBytes = new byte[8 + pathBytes.length + 4 + inProgressBytes.length];
 			ByteBuffer bb = ByteBuffer.wrap(targetBytes).order(ByteOrder.LITTLE_ENDIAN);
 			bb.putInt(MAGIC_NUMBER);
 			bb.putInt(pathBytes.length);
 			bb.put(pathBytes);
+			bb.putInt(inProgressBytes.length);
+			bb.put(inProgressBytes);
 
 			return targetBytes;
 		}
@@ -175,7 +190,13 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 			bb.get(pathBytes);
 			String targetPath = new String(pathBytes, CHARSET);
 
-			return new HadoopPathBasedPendingFileRecoverable(new Path(targetPath));
+			byte[] inProgressPathBytes = new byte[bb.getInt()];
+			bb.get(inProgressPathBytes);
+			String inProgressPath = new String(inProgressPathBytes, CHARSET);
+
+			return new HadoopPathBasedPendingFileRecoverable(
+				new Path(targetPath),
+				new Path(inProgressPath));
 		}
 	}
 
@@ -241,8 +262,12 @@ public class HadoopPathBasedPartFileWriter<IN, BucketID> extends AbstractPartFil
 				throw new UnsupportedOperationException("Only HadoopPathBasedPendingFileRecoverable is supported.");
 			}
 
-			Path path = ((HadoopPathBasedPendingFileRecoverable) pendingFileRecoverable).getPath();
-			return new HadoopPathBasedPendingFile(fileCommitterFactory.create(configuration, path));
+			HadoopPathBasedPendingFileRecoverable hadoopRecoverable =
+				(HadoopPathBasedPendingFileRecoverable) pendingFileRecoverable;
+			return new HadoopPathBasedPendingFile(fileCommitterFactory.recoverPending(
+				configuration,
+				hadoopRecoverable.getPath(),
+				hadoopRecoverable.getInProgressPath()));
 		}
 
 		@Override
