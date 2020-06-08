@@ -26,6 +26,8 @@ import org.apache.flink.testutils.s3.S3TestCredentials;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.junit.BeforeClass;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
@@ -33,11 +35,13 @@ import java.io.IOException;
  * Tests the behaviors of {@link HadoopRenameFileCommitter} with S3 file system.
  */
 public class HadoopRenameCommitterS3Test extends AbstractFileCommitterTest {
+	private static final Logger LOG = LoggerFactory.getLogger(HadoopRenameCommitterS3Test.class);
 
 	private static S3Cluster s3Cluster;
 
 	@BeforeClass
 	public static void checkS3Credential() {
+		LOG.info("s3: {}, {}", S3TestCredentials.getS3AccessKey(), S3TestCredentials.getS3SecretKey());
 		S3TestCredentials.assumeCredentialsAvailable();
 		s3Cluster = new S3Cluster();
 	}
@@ -61,6 +65,7 @@ public class HadoopRenameCommitterS3Test extends AbstractFileCommitterTest {
 		Configuration configuration,
 		Path targetFilePath) throws IOException {
 
+		LOG.info("Create new committer for {}", targetFilePath);
 		return new HadoopRenameFileCommitter(configuration, targetFilePath);
 	}
 
