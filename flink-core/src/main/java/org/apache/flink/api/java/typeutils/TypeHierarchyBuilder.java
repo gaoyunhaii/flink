@@ -31,7 +31,7 @@ import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.typeToClas
 /**
  * This class is used to build the type hierarchy.
  */
-class TypeHierarchyBuilder {
+public class TypeHierarchyBuilder {
 
 	/**
 	 * Traverse the type hierarchy of the given {@code type} and record all the parameterized types until the base class.
@@ -66,7 +66,7 @@ class TypeHierarchyBuilder {
 	 * @param matcher add the parameterized type to the result if the type satisfied the matcher.
 	 * @return the parameterized type hierarchy.
 	 */
-	static List<ParameterizedType> buildParameterizedTypeHierarchy(
+	public static List<ParameterizedType> buildParameterizedTypeHierarchy(
 		final Type type,
 		final Predicate<Class<?>> stopCondition,
 		final Predicate<Class<?>> matcher) {
@@ -99,7 +99,7 @@ class TypeHierarchyBuilder {
 	 * @param baseClass the end type of the type hierarchy
 	 * @return the parameterized type hierarchy.
 	 */
-	static List<ParameterizedType> buildParameterizedTypeHierarchy(final Class<?> subClass, final Class<?> baseClass) {
+	public static List<ParameterizedType> buildParameterizedTypeHierarchy(final Class<?> subClass, final Class<?> baseClass) {
 		return buildParameterizedTypeHierarchy(
 			subClass,
 			isSameClass(baseClass).or(assignTo(baseClass).negate()), assignTo(baseClass),
@@ -113,7 +113,7 @@ class TypeHierarchyBuilder {
 	 * @param matcher add the parameterized type to the result if the type satisfied the matcher.
 	 * @return the parameterized type hierarchy.
 	 */
-	private static List<ParameterizedType> buildParameterizedTypeHierarchy(
+	public static List<ParameterizedType> buildParameterizedTypeHierarchy(
 		final Class<?> clazz,
 		final Predicate<Class<?>> stopCondition,
 		final Predicate<Class<?>> matcher,
@@ -155,11 +155,11 @@ class TypeHierarchyBuilder {
 		return Collections.emptyList();
 	}
 
-	private static Predicate<Class<?>> isSameClass(final Class<?> baseClass) {
+	public static Predicate<Class<?>> isSameClass(final Class<?> baseClass) {
 		return clazz -> clazz.equals(baseClass);
 	}
 
-	private static Predicate<Class<?>> assignTo(final Class<?> baseClass) {
+	public static Predicate<Class<?>> assignTo(final Class<?> baseClass) {
 		return baseClass::isAssignableFrom;
 	}
 }

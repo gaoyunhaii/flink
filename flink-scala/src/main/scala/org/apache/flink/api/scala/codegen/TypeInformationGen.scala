@@ -17,14 +17,16 @@
  */
 package org.apache.flink.api.scala.codegen
 
-import java.lang.reflect.{Field, Modifier}
+import java.lang.reflect.{Field, Modifier, TypeVariable}
 
 import org.apache.flink.annotation.Internal
 import org.apache.flink.api.common.ExecutionConfig
 import org.apache.flink.api.common.typeinfo._
 import org.apache.flink.api.common.typeutils._
+import org.apache.flink.api.java.typeutils.TypeResolver.{ResolvedGenericArrayType, ResolvedParameterizedType}
 import org.apache.flink.api.java.typeutils._
 import org.apache.flink.api.scala.typeutils._
+import org.apache.flink.api.scala.typeutils.analyzer.{ScalaEnumParameterizedType, ScalaTypeVariable}
 import org.apache.flink.types.Value
 
 import scala.collection.JavaConverters._
@@ -41,11 +43,145 @@ private[flink] trait TypeInformationGen[C <: Context] {
 
   import c.universe._
 
+  /**
+   * Resolve the unresolved Scala type parameter into the corresponding {@link TypeVariable}.
+   *
+   * @param tpe             The generic type.
+   * @param declarationType The location that the type parameter get declared.
+   * @return The expression of the corresponding TypeVariable.
+   */
+  def extractTypeParameter[T: c.WeakTypeTag, T2: c.WeakTypeTag](tpe: Type, declarationType: Type): c.Expr[java.lang.reflect.Type] = {
+    val result = c.inferImplicitValue(
+      c.weakTypeOf[TypeInformation[T]],
+      silent = true,
+      withMacrosDisabled = true,
+      pos = c.enclosingPosition)
+
+    val baseTpeClass = c.Expr[Class[T2]](Literal(Constant(declarationType)))
+    val nameTree = c.Expr[String](Literal(Constant(tpe.typeSymbol.name.toString)))
+
+    reify {
+      new ScalaTypeVariable[Class[T2]](baseTpeClass.splice, nameTree.splice, Array(), c.Expr[TypeInformation[T]](result).splice)
+    }
+  }
+
+  /**
+   *
+   * @param tpe
+   * @return
+   */
+  def extractType[T : c.WeakTypeTag](tpe: Type): c.Expr[java.lang.reflect.Type] = {
+    if (tpe.typeSymbol.isParameter) {
+      return extractTypeParameter(tpe, tpe)(c.WeakTypeTag(tpe), c.WeakTypeTag(tpe))
+    }
+
+    val tpeClazz = c.Expr[Class[T]](Literal(Constant(tpe)))
+    val genericTypes = tpe match {
+      case TypeRef(_, _, typeParams) =>
+        val typeInfos = typeParams map { param => {
+          if (param.typeSymbol.isParameter) {
+            extractTypeParameter(param, tpe)(c.WeakTypeTag(param), c.WeakTypeTag(tpe)).tree
+          } else {
+            extractType(param)(c.WeakTypeTag(param)).tree
+          }
+        }}
+        c.Expr[List[java.lang.reflect.Type]](mkList(typeInfos))
+      case _ =>
+        reify {
+          List[java.lang.reflect.Type]()
+        }
+    }
+
+    // Check if it is enum... If it is, will use a special type for the module name
+    try {
+      val m = c.universe.rootMirror
+      val fqn = tpe.dealias.toString.split('.')
+      val moduleName = fqn.slice(0, fqn.size - 1).mkString(".")
+
+      val owner = m.staticModule(moduleName)
+      val enumerationSymbol = typeOf[scala.Enumeration].typeSymbol
+      val ownerExpr = c.Expr[String](Literal(Constant(moduleName)))
+      if (owner.typeSignature.baseClasses.contains(enumerationSymbol)) {
+        return reify {
+          val tpe = tpeClazz.splice
+          val owner = ownerExpr.splice
+
+          new ScalaEnumParameterizedType(tpe, owner)
+        }
+      }
+    } catch {
+      // Do nothing
+      case e: Throwable => println("some error occurs", e)
+    }
+
+    reify {
+      val list = genericTypes.splice
+      if (list.isEmpty) {
+        tpeClazz.splice
+      } else {
+        new ResolvedParameterizedType(
+          tpeClazz.splice,
+          null,
+          genericTypes.splice.toArray,
+          tpeClazz.splice.getTypeName)
+      }
+    }
+  }
+
+  def mkTypeInfo2[T: c.WeakTypeTag]: c.Expr[TypeInformation[T]] = {
+    val tpe = weakTypeTag[T].tpe
+    val tpeJavaType = extractType(tpe)
+
+    reify {
+      val javaType = tpeJavaType.splice
+
+      // Compute the map required
+      val bindings = new java.util.HashMap[TypeVariable[_], TypeInformation[_]]
+      def checkTypeNeedBinding(javaTpe : java.lang.reflect.Type): Unit = {
+        javaTpe match {
+          case pt: ResolvedParameterizedType =>
+            pt.getActualTypeArguments.foreach {
+              checkTypeNeedBinding
+            }
+          case genericArray: ResolvedGenericArrayType =>
+            checkTypeNeedBinding(genericArray.getGenericComponentType)
+          case stv: ScalaTypeVariable[_] =>
+            bindings.put(stv, stv.getTypeInformation)
+          case _ =>
+        }
+      }
+
+      checkTypeNeedBinding(javaType)
+
+      TypeExtractor.extract(
+        javaType,
+        bindings).asInstanceOf[TypeInformation[T]]
+    }
+  }
+
   // This is for external calling by TypeUtils.createTypeInfo
   def mkTypeInfo[T: c.WeakTypeTag]: c.Expr[TypeInformation[T]] = {
     val desc = getUDTDescriptor(weakTypeTag[T].tpe)
     val result: c.Expr[TypeInformation[T]] = mkTypeInfo(desc)(c.WeakTypeTag(desc.tpe))
-    result
+
+    var result2: c.Expr[TypeInformation[T]] = null
+    try {
+      result2 = mkTypeInfo2
+    } catch {
+      case e: Throwable => {
+        println("some error happen", e.getMessage)
+        e.printStackTrace()
+      }
+    }
+
+    reify {
+      result2.splice
+    }
+
+//    reify {
+//      println("Another stack", result2.splice)
+//      result.splice
+//    }
   }
 
   // We have this for internal use so that we can use it to recursively generate a tree of

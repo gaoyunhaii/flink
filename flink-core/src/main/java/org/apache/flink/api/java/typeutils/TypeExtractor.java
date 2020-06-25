@@ -921,7 +921,7 @@ public class TypeExtractor {
 		return extract(returnType, typeVariableBindings);
 	}
 
-	private static TypeInformation<?> extract(final Type type, final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings) {
+	public static TypeInformation<?> extract(final Type type, final Map<TypeVariable<?>, TypeInformation<?>> typeVariableBindings) {
 		final List<Class<?>> currentExtractingClasses = isClassType(type) ? Collections.singletonList(typeToClass(type)) : Collections.emptyList();
 
 		return TypeExtractionUtils.extract(type, new TypeInfoExtractContext(typeVariableBindings, currentExtractingClasses));

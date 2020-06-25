@@ -24,6 +24,7 @@ import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.sameTypeVars;
@@ -31,7 +32,7 @@ import static org.apache.flink.api.java.typeutils.TypeExtractionUtils.sameTypeVa
 /**
  * This class is used to resolve the type from the type hierarchy.
  */
-class TypeResolver {
+public class TypeResolver {
 
 	/**
 	 * Resolve all {@link TypeVariable}s of the type from the type hierarchy.
@@ -43,7 +44,7 @@ class TypeResolver {
 	 *                               {@code testParameterizedArrays()})
 	 * @return resolved type
 	 */
-	static Type resolveTypeFromTypeHierarchy(
+	public static Type resolveTypeFromTypeHierarchy(
 		final Type type,
 		final List<ParameterizedType> typeHierarchy,
 		final boolean resolveGenericArray) {
@@ -142,13 +143,13 @@ class TypeResolver {
 		return inTypeTypeVar;
 	}
 
-	private static class ResolvedGenericArrayType implements GenericArrayType {
+	public static class ResolvedGenericArrayType implements GenericArrayType {
 
 		private final Type componentType;
 
 		private final String typeName;
 
-		ResolvedGenericArrayType(String typeName, Type componentType) {
+		public ResolvedGenericArrayType(String typeName, Type componentType) {
 			this.componentType = componentType;
 			this.typeName = typeName;
 		}
@@ -163,7 +164,7 @@ class TypeResolver {
 		}
 	}
 
-	private static class ResolvedParameterizedType implements ParameterizedType {
+	public static class ResolvedParameterizedType implements ParameterizedType {
 
 		private final Type rawType;
 
@@ -173,7 +174,7 @@ class TypeResolver {
 
 		private final String typeName;
 
-		ResolvedParameterizedType(Type rawType, Type ownerType, Type[] actualTypeArguments, String typeName) {
+		public ResolvedParameterizedType(Type rawType, Type ownerType, Type[] actualTypeArguments, String typeName) {
 			this.rawType = rawType;
 			this.ownerType = ownerType;
 			this.actualTypeArguments = actualTypeArguments;
@@ -197,6 +198,16 @@ class TypeResolver {
 
 		public String getTypeName() {
 			return typeName;
+		}
+
+		@Override
+		public String toString() {
+			return "ResolvedParameterizedType{" +
+				"rawType=" + rawType +
+				", ownerType=" + ownerType +
+				", actualTypeArguments=" + Arrays.toString(actualTypeArguments) +
+				", typeName='" + typeName + '\'' +
+				'}';
 		}
 	}
 
