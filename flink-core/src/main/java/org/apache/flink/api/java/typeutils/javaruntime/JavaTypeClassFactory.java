@@ -16,13 +16,18 @@
  * limitations under the License.
  */
 
-package org.apache.flink.api.java.typeutils.types;
+package org.apache.flink.api.java.typeutils.javaruntime;
 
-public class AbstractGenericType implements AbstractType {
+import org.apache.flink.api.java.typeutils.types.AbstractTypeClass;
 
-	private final AbstractType component;
+public class JavaTypeClassFactory implements AbstractTypeClassFactory {
 
-	public AbstractGenericType(AbstractType component) {
-		this.component = component;
+	@Override
+	public AbstractTypeClass forName(String name) {
+		try {
+			return new JavaTypeClass(Class.forName(name));
+		} catch (ClassNotFoundException e) {
+			return null;
+		}
 	}
 }

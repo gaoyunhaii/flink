@@ -16,12 +16,16 @@
  * limitations under the License.
  */
 
-package org.apache.flink.api.java.typeutils.types;
+package org.apache.flink.api.scala.typeutils.scala
 
-public interface AbstractTypeVariable extends AbstractType {
+import scala.reflect.api.{Types, Universe}
 
-	String getName();
+trait ScalaTypeProvider {
 
-	AbstractTypeClass getGenericDeclaration();
+  def getUniverse: Universe
+
+  def getMirror: Universe#Mirror
+
+  def getType: Types#Type
 
 }

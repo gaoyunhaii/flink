@@ -20,9 +20,11 @@ package org.apache.flink.api.java.typeutils;
 
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.api.java.typeutils.javaruntime.TypeClassFactoryFinder;
+import org.apache.flink.api.java.typeutils.types.AbstractType;
+import org.apache.flink.api.java.typeutils.types.AbstractTypeClass;
 import org.apache.flink.util.Preconditions;
 
-import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NavigableMap;
@@ -49,7 +51,7 @@ class TypeInformationExtractorFinder {
 	 *    extract the given type's {@link TypeInformation}. We want want list has a deterministic order.
 	 *
 	 */
-	private static final NavigableMap<Class<?>, TypeInformationExtractor> EXTRACTORS = new TreeMap<>((o1, o2) -> {
+	private static final NavigableMap<AbstractTypeClass, TypeInformationExtractor> EXTRACTORS = new TreeMap<>((o1, o2) -> {
 		Preconditions.checkArgument(o1 != null);
 		Preconditions.checkArgument(o2 != null);
 		boolean o2greater = o1.isAssignableFrom(o2);
@@ -71,8 +73,7 @@ class TypeInformationExtractorFinder {
 	 * @return {@link TypeInformationExtractor} or {@link Optional#empty()} if could not find any one.
 	 * @throws RuntimeException if can not find {@link TypeInformationExtractor} for the Hadoop writable or the Avro class.
 	 */
-	static List<TypeInformationExtractor> findTypeInfoExtractor(final Type type) {
-
+	static List<TypeInformationExtractor> findTypeInfoExtractor(final AbstractType type) {
 		loadExtractors();
 
 		final List<TypeInformationExtractor> typeInfoExtractors = new ArrayList<>();
@@ -80,7 +81,7 @@ class TypeInformationExtractorFinder {
 		typeInfoExtractors.add(TypeInfoFactoryExtractor.INSTANCE);
 
 		if (isClassType(type)) {
-			final Class<?> clazz = typeToClass(type);
+			final AbstractTypeClass clazz = typeToClass(type);
 			EXTRACTORS.descendingKeySet()
 				.stream()
 				.filter(c -> c.isAssignableFrom(clazz))
@@ -109,7 +110,7 @@ class TypeInformationExtractorFinder {
 	}
 
 	@VisibleForTesting
-	static NavigableMap<Class<?>, TypeInformationExtractor> getEXTRACTORS() {
+	static NavigableMap<AbstractTypeClass, TypeInformationExtractor> getEXTRACTORS() {
 		if (EXTRACTORS.size() == 0) {
 			loadExtractors();
 		}
@@ -120,9 +121,8 @@ class TypeInformationExtractorFinder {
 		if (EXTRACTORS.size() == 0) {
 			ServiceLoader
 				.load(TypeInformationExtractor.class, TypeExtractor.class.getClassLoader())
-				.forEach(typeInformationExtractor -> typeInformationExtractor.getClasses()
-					.forEach(c -> EXTRACTORS.put(c, typeInformationExtractor))
-				);
+				.forEach(typeInformationExtractor -> typeInformationExtractor.getClassNames()
+					.forEach(c -> EXTRACTORS.put(TypeClassFactoryFinder.forName(c), typeInformationExtractor)));
 		}
 	}
 }

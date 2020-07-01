@@ -48,7 +48,9 @@ private[flink] trait TypeInformationGen[C <: Context] {
     println("tpe", tpe, Math.random())
 
     val abs = new ScalaTypeBasedAbstractTypeClass(tpe)
-    abs.printMembers()
+//    abs.printMembers()
+//
+    println("ts", tpe.typeSymbol.typeSignature, Math.random())
 
     val desc = getUDTDescriptor(weakTypeTag[T].tpe)
     val result: c.Expr[TypeInformation[T]] = mkTypeInfo(desc)(c.WeakTypeTag(desc.tpe))

@@ -18,10 +18,8 @@
 
 package org.apache.flink.api.java.typeutils.types;
 
-public interface AbstractTypeVariable extends AbstractType {
+public interface AbstractGenericArray extends AbstractType {
 
-	String getName();
-
-	AbstractTypeClass getGenericDeclaration();
+	AbstractType getComponentType();
 
 }

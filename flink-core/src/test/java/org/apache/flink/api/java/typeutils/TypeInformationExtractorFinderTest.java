@@ -20,6 +20,7 @@ package org.apache.flink.api.java.typeutils;
 
 import org.apache.avro.Schema;
 import org.apache.avro.specific.SpecificRecordBase;
+import org.apache.flink.api.java.typeutils.javaruntime.JavaTypeClass;
 import org.apache.hadoop.io.Writable;
 import org.junit.Assert;
 import org.junit.Test;
@@ -29,6 +30,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 
 import static org.hamcrest.Matchers.is;
@@ -40,7 +42,7 @@ public class TypeInformationExtractorFinderTest {
 
 	@Test(expected = RuntimeException.class)
 	public void testThrowRuntimeExceptionForAvroClass() {
-		TypeInformationExtractorFinder.findTypeInfoExtractor(TestAvroClass.class);
+		TypeInformationExtractorFinder.findTypeInfoExtractor(new JavaTypeClass(TestAvroClass.class));
 	}
 
 	@Test(expected = RuntimeException.class)

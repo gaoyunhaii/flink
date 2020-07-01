@@ -21,12 +21,14 @@ package org.apache.flink.api.java.typeutils;
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.functions.InvalidTypesException;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.api.java.typeutils.types.AbstractTypeClass;
 
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * The class that implements this interface tells the type extractor stack which classes it could extract the
@@ -50,6 +52,10 @@ public interface TypeInformationExtractor {
 	 * @return the classes that the extractor could extract the{@link TypeInformationExtractor} corresponding to.
 	 */
 	List<Class<?>> getClasses();
+
+	default List<String> getClassNames() {
+		return getClasses().stream().map(Class::getName).collect(Collectors.toList());
+	}
 
 	/**
 	 * The extractor can use the interface to extract {@link TypeDescription} for the given type and get the information

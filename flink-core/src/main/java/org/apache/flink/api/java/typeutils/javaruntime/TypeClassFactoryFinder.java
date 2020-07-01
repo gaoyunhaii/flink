@@ -16,21 +16,32 @@
  * limitations under the License.
  */
 
-package org.apache.flink.api.scala.typeutils.types.scala
+package org.apache.flink.api.java.typeutils.javaruntime;
 
-import org.apache.flink.api.java.typeutils.types.AbstractTypeClass
+import org.apache.flink.api.java.typeutils.types.AbstractTypeClass;
 
-import scala.reflect.api.Types
+import java.util.ArrayList;
+import java.util.List;
+import java.util.ServiceLoader;
 
-class ScalaTypeBasedAbstractTypeClass(tpe: Types#Type) extends AbstractTypeClass {
+public class TypeClassFactoryFinder {
 
-  def hasSuperClass(name: String): Boolean = {
-    true
-  }
+	private static final List<AbstractTypeClassFactory> FACTORIES = new ArrayList<>();
 
-  def printMembers(): Unit = {
-    tpe.members foreach {m =>
-      println(m.fullName, Math.random())
-    }
-  }
+	static {
+		ServiceLoader.load(AbstractTypeClassFactory.class, TypeClassFactoryFinder.class.getClassLoader())
+			.forEach(FACTORIES::add);
+		FACTORIES.add(new JavaTypeClassFactory());
+	}
+
+	public static AbstractTypeClass forName(String name) {
+		for (AbstractTypeClassFactory factory : FACTORIES) {
+			AbstractTypeClass clazz = factory.forName(name);
+			if (clazz != null) {
+				return clazz;
+			}
+		}
+
+		throw new RuntimeException("Unable to create the clazz for " + name);
+	}
 }

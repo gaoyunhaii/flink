@@ -16,12 +16,34 @@
  * limitations under the License.
  */
 
-package org.apache.flink.api.java.typeutils.types;
+package org.apache.flink.api.java.typeutils.javaruntime;
 
-public interface AbstractTypeVariable extends AbstractType {
+import org.apache.flink.api.java.typeutils.types.AbstractGenericArray;
+import org.apache.flink.api.java.typeutils.types.AbstractType;
 
-	String getName();
+import java.lang.reflect.GenericArrayType;
+import java.lang.reflect.Type;
 
-	AbstractTypeClass getGenericDeclaration();
+public class JavaGenericArray implements AbstractGenericArray, JavaTypeProvider {
 
+	private final GenericArrayType raw;
+
+	public JavaGenericArray(GenericArrayType raw) {
+		this.raw = raw;
+	}
+
+	@Override
+	public AbstractType getComponentType() {
+		return JavaTypeConversion.convertToAbstractType(raw.getGenericComponentType());
+	}
+
+	@Override
+	public String getTypeName() {
+		return "[" + raw.getTypeName();
+	}
+
+	@Override
+	public Type getType() {
+		return raw;
+	}
 }

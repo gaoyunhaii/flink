@@ -16,19 +16,21 @@
  * limitations under the License.
  */
 
-package org.apache.flink.api.java.typeutils.types.javaruntime;
+package org.apache.flink.api.scala.typeutils.scalaruntime
 
-import org.apache.flink.api.java.typeutils.types.AbstractTypeClass;
-import org.apache.flink.api.java.typeutils.types.AbstractTypeClassFactory;
+import org.apache.flink.api.java.typeutils.javaruntime.AbstractTypeClassFactory
+import org.apache.flink.api.java.typeutils.types.AbstractTypeClass
 
-public class JavaRuntimeAbstractTypeFactory implements AbstractTypeClassFactory {
+class ScalaRuntimeTypeClassFactory extends AbstractTypeClassFactory {
 
-	public AbstractTypeClass forName(String name) {
-		try {
-			Class<?> clazz = Class.forName(name);
-			return new ClassBasedAbstractTypeClass(clazz);
-		} catch (ClassNotFoundException e) {
-			throw new RuntimeException(e);
-		}
-	}
+  override def forName(name: String): AbstractTypeClass = {
+    val clazz = Class.forName(name)
+    val scalaClazz = new ScalaRuntimeTypeClass(clazz)
+
+    if (scalaClazz.getType.typeSymbol.isJava) {
+      null
+    } else {
+      scalaClazz
+    }
+  }
 }

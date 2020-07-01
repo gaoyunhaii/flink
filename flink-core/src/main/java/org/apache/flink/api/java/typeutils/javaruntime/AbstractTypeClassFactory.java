@@ -16,17 +16,12 @@
  * limitations under the License.
  */
 
-package org.apache.flink.api.java.typeutils.types.javaruntime;
+package org.apache.flink.api.java.typeutils.javaruntime;
 
 import org.apache.flink.api.java.typeutils.types.AbstractTypeClass;
 
-public class ClassBasedAbstractTypeClass implements AbstractTypeClass {
+public interface AbstractTypeClassFactory {
 
-	private final Class<?> clazz;
-
-	public ClassBasedAbstractTypeClass(Class<?> clazz) {
-		this.clazz = clazz;
-	}
-
+	AbstractTypeClass forName(String name);
 
 }

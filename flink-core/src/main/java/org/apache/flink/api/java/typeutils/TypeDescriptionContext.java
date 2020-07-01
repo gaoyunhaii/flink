@@ -20,8 +20,16 @@ package org.apache.flink.api.java.typeutils;
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 
+import org.apache.flink.api.java.typeutils.javaruntime.AbstractTypeClassFactory;
+import org.apache.flink.api.java.typeutils.javaruntime.JavaGenericArray;
+import org.apache.flink.api.java.typeutils.javaruntime.JavaParameterizedType;
+import org.apache.flink.api.java.typeutils.javaruntime.JavaTypeVariable;
+import org.apache.flink.api.java.typeutils.types.AbstractType;
+import org.apache.flink.api.java.typeutils.types.AbstractTypeClass;
 import org.apache.flink.shaded.guava18.com.google.common.collect.ImmutableList;
 
+import java.lang.reflect.GenericArrayType;
+import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.util.List;

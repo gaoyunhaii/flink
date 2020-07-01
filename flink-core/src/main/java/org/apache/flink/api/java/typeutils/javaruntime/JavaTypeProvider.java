@@ -16,12 +16,12 @@
  * limitations under the License.
  */
 
-package org.apache.flink.api.java.typeutils.types;
+package org.apache.flink.api.java.typeutils.javaruntime;
 
-public interface AbstractTypeVariable extends AbstractType {
+import java.lang.reflect.Type;
 
-	String getName();
+public interface JavaTypeProvider {
 
-	AbstractTypeClass getGenericDeclaration();
+	Type getType();
 
 }

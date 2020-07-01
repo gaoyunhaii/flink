@@ -25,4 +25,15 @@ import java.io.Serializable;
  */
 public interface AbstractTypeClass extends AbstractType {
 
+	boolean isAssignableFrom(AbstractTypeClass o2);
+
+	default boolean isAssignableTo(AbstractTypeClass o2) {
+		return o2.isAssignableFrom(this);
+	}
+
+	boolean hasSuper(String className);
+
+	String getName();
+
+
 }

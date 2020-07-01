@@ -18,30 +18,10 @@
 
 package org.apache.flink.api.java.typeutils.types;
 
-public class AbstractParameterizedType implements AbstractType {
+public interface AbstractParameterizedType extends AbstractType {
 
-	private final AbstractType rawType;
+	AbstractTypeClass getRawType();
 
-	private final AbstractType[] actualArguments;
+	AbstractType[] getActualArguments();
 
-	private final String typeName;
-
-	public AbstractParameterizedType(AbstractType rawType, AbstractType[] actualArguments, String typeName) {
-		this.rawType = rawType;
-		this.actualArguments = actualArguments;
-		this.typeName = typeName;
-	}
-
-	public AbstractType getRawType() {
-		return rawType;
-	}
-
-	public AbstractType[] getActualArguments() {
-		return actualArguments;
-	}
-
-	@Override
-	public String getTypeName() {
-		return typeName;
-	}
 }

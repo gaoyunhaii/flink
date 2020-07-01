@@ -22,7 +22,10 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.functions.Function;
 import org.apache.flink.api.common.functions.InvalidTypesException;
+import org.apache.flink.api.java.typeutils.javaruntime.JavaParameterizedType;
+import org.apache.flink.api.java.typeutils.javaruntime.JavaTypeConversion;
 import org.apache.flink.api.java.typeutils.types.AbstractType;
+import org.apache.flink.api.java.typeutils.types.AbstractTypeClass;
 
 import java.lang.invoke.SerializedLambda;
 import java.lang.reflect.Array;
@@ -34,6 +37,7 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -71,6 +75,20 @@ public class TypeExtractionUtils {
 
 	public static boolean isAvroType(Class<?> typeClass) {
 		return hasSuperclass(typeClass, AVRO_SPECIFIC_RECORD_BASE_CLASS);
+	}
+
+	@VisibleForTesting
+	static boolean isHadoopWritable(AbstractTypeClass typeClass) {
+		// check if this is directly the writable interface
+		if (typeClass.getName().equals(HADOOP_WRITABLE_CLASS)) {
+			return false;
+		}
+
+		return typeClass.hasSuper(HADOOP_WRITABLE_CLASS);
+	}
+
+	public static boolean isAvroType(AbstractTypeClass typeClass) {
+		return typeClass.hasSuper(AVRO_SPECIFIC_RECORD_BASE_CLASS);
 	}
 
 	private static boolean hasHadoopWritableInterface(Class<?> clazz, HashSet<Class<?>> alreadySeen) {
@@ -318,6 +336,26 @@ public class TypeExtractionUtils {
 	}
 
 	/**
+	 * Convert ParameterizedType or Class to a Class.
+	 */
+	public static AbstractTypeClass typeToClass(AbstractType t) {
+		if (t instanceof AbstractTypeClass) {
+			return (AbstractTypeClass) t;
+		}
+		else if (t instanceof JavaParameterizedType) {
+			return ((AbstractTypeClass) ((JavaParameterizedType) t).getRawType());
+		}
+		throw new IllegalArgumentException("Cannot convert type to class");
+	}
+
+	/**
+	 * Checks if a type can be converted to a Class. This is true for ParameterizedType and Class.
+	 */
+	public static boolean isClassType(AbstractType t) {
+		return t instanceof AbstractTypeClass || t instanceof JavaParameterizedType;
+	}
+
+	/**
 	 * Checks whether two types are type variables describing the same.
 	 */
 	public static boolean sameTypeVars(Type t1, Type t2) {
@@ -404,7 +442,9 @@ public class TypeExtractionUtils {
 	 * @throws InvalidTypesException if no extractor could handle the type.
 	 */
 	static TypeDescription resolve(final Type type, final TypeInformationExtractor.Context context) {
-		return findTypeInfoExtractor(type)
+		AbstractType abstractType = JavaTypeConversion.convertToAbstractType(type);
+
+		return findTypeInfoExtractor(abstractType)
 			.stream()
 			.map(e -> e.resolve(type, context))
 			.filter(Optional::isPresent)

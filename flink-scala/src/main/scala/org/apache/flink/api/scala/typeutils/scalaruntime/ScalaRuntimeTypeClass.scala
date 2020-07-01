@@ -16,9 +16,21 @@
  * limitations under the License.
  */
 
-package org.apache.flink.api.java.typeutils.types;
+package org.apache.flink.api.scala.typeutils.scalaruntime
 
-public interface AbstractTypeClassFactory {
+import org.apache.flink.api.java.typeutils.javaruntime.JavaTypeClass
+import org.apache.flink.api.scala.typeutils.scala.ScalaTypeProvider
 
-	AbstractTypeClass forName(String name);
+import scala.reflect.api.{Types, Universe}
+import scala.reflect.runtime.{universe => ru}
+
+class ScalaRuntimeTypeClass(clazz: Class[_]) extends JavaTypeClass(clazz) with ScalaTypeProvider {
+
+  override def getUniverse: Universe = ru
+
+  override def getMirror: Universe#Mirror = ru.runtimeMirror(getClass.getClassLoader)
+
+  override def getType: Types#Type = {
+    ru.runtimeMirror(getClass.getClassLoader).classSymbol(clazz).toType
+  }
 }

@@ -20,6 +20,7 @@ package org.apache.flink.api.scala
 
 import org.apache.flink.api.java.tuple._
 import org.apache.flink.api.scala.MacroTest.MyEnum.MyEnum
+import org.apache.flink.api.scala.codegen.TypeInformationGen
 import org.apache.flink.api.scala.typeutils.types.scala.ScalaTypeBasedAbstractTypeClass
 
 object MacroTest {
@@ -67,25 +68,56 @@ object MacroTest {
   }
 
   def main(args: Array[String]): Unit = {
-    import scala.reflect.runtime.{universe => ru}
-
-    val mirror = ru.runtimeMirror(getClass.getClassLoader)
-    val tpe = ru.typeOf[MyClass]
-    println(tpe)
-    val abs = new ScalaTypeBasedAbstractTypeClass(tpe)
-    abs.printMembers()
-
-    val env = ExecutionEnvironment.getExecutionEnvironment
-    val source = env.fromElements("a", "b", "f", "ab")
-//    val ds = source.map((_: String) => 0)
-    val ds = source.map((_: String) => new MyClass)
-    println(ds.getType())
-    println(ds.getType().getTypeClass)
-
+//    import scala.reflect.runtime.universe._
 //    import scala.reflect.runtime.{universe => ru}
-//    val mirror = ru.runtimeMirror(getClass.getClassLoader)
-//    val array = Array(Left(5), Right("test"))
-//    val tpe = mirror.reflect(array).symbol.asType.toType
-//    println(tpe.typeArgs)
+//    import scala.tools.reflect.ToolBox
+//    val mirror = ru.runtimeMirror(MacroTest.getClass.getClassLoader)
+//
+//    val tb = mirror.mkToolBox()
+//    println(tb)
+//
+//    val sourceClass = tb.compile(
+//      tb.parse(
+//        s"""
+//           | case class Employee(_id: Int, _name: String) {
+//           |    def id = _id
+//           |    def name = _name
+//           | }
+//           | scala.reflect.classTag[Employee].runtimeClass
+//       """.stripMargin))
+//    println(mirror.classSymbol(sourceClass().asInstanceOf[Class[_]]).asType.toType.members)
+//
+//    val code =
+//      q"""
+//       (sourceClass: Class[_], sourceObject: Any, targetClass: Class[_]) => {
+//          val id = sourceClass.getMethod("id").invoke(sourceObject)
+//          if (id.toString().equals("1")) {
+//            val targetConstructor = targetClass.getConstructors()(0)
+//            Some(targetConstructor.newInstance(Seq(true.asInstanceOf[Object]): _*))
+//          } else None
+//       }
+//     """
+//
+//    val compiledCode = tb.compile(code)
+//    val compiledFunc = compiledCode().asInstanceOf[(Class[_], Any, Class[_]) => Option[Any]]
+//    println(compiledFunc)
+
+//    val tpe = ru.typeOf[MyClass]
+//    println(tpe)
+//    val abs = new ScalaTypeBasedAbstractTypeClass(tpe)
+//    abs.printMembers()
+//
+//    val env = ExecutionEnvironment.getExecutionEnvironment
+//    val source = env.fromElements("a", "b", "f", "abcdefg")
+////    val ds = source.map((_: String) => 0)
+//    val ds = source.map((_: String) => new MyClass)
+//    println(ds.getType())
+//    println(ds.getType().getTypeClass)
+
+    import scala.reflect.runtime.{universe => ru}
+    val mirror = ru.runtimeMirror(getClass.getClassLoader)
+    val array = Array(Left(5), Right("test"))
+    val tpe = mirror.reflect(array).symbol.asType.toType
+    println(tpe.typeArgs)
   }
 }
