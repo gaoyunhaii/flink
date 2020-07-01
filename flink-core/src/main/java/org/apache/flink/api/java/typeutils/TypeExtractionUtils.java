@@ -22,6 +22,7 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.functions.Function;
 import org.apache.flink.api.common.functions.InvalidTypesException;
+import org.apache.flink.api.java.typeutils.types.AbstractType;
 
 import java.lang.invoke.SerializedLambda;
 import java.lang.reflect.Array;
