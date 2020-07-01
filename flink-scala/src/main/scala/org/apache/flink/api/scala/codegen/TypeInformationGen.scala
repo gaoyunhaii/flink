@@ -25,6 +25,7 @@ import org.apache.flink.api.common.typeinfo._
 import org.apache.flink.api.common.typeutils._
 import org.apache.flink.api.java.typeutils._
 import org.apache.flink.api.scala.typeutils._
+import org.apache.flink.api.scala.typeutils.types.scala.ScalaTypeBasedAbstractTypeClass
 import org.apache.flink.types.Value
 
 import scala.collection.JavaConverters._
@@ -43,9 +44,17 @@ private[flink] trait TypeInformationGen[C <: Context] {
 
   // This is for external calling by TypeUtils.createTypeInfo
   def mkTypeInfo[T: c.WeakTypeTag]: c.Expr[TypeInformation[T]] = {
+    val tpe = weakTypeTag[T].tpe
+    println("tpe", tpe, Math.random())
+
+    val abs = new ScalaTypeBasedAbstractTypeClass(tpe)
+    abs.printMembers()
+
     val desc = getUDTDescriptor(weakTypeTag[T].tpe)
     val result: c.Expr[TypeInformation[T]] = mkTypeInfo(desc)(c.WeakTypeTag(desc.tpe))
-    result
+    reify {
+      result.splice
+    }
   }
 
   // We have this for internal use so that we can use it to recursively generate a tree of
