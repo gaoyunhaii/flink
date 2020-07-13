@@ -818,7 +818,12 @@ public abstract class SchedulerBase implements SchedulerNG {
 		if (checkpointCoordinator != null) {
 			ioExecutor.execute(() -> {
 				try {
-					checkpointCoordinator.receiveAcknowledgeMessage(ackMessage, taskManagerLocationInfo);
+					if (ackMessage.isFinalCheckpoint()) {
+						// TODO: Finally we will fully decouple the final snapshot process with the normal checkpoint
+						checkpointCoordinator.receivedFinalSnapshot(ackMessage, taskManagerLocationInfo);
+					} else{
+						checkpointCoordinator.receiveAcknowledgeMessage(ackMessage, taskManagerLocationInfo);
+					}
 				} catch (Throwable t) {
 					log.warn("Error while processing checkpoint acknowledgement message", t);
 				}

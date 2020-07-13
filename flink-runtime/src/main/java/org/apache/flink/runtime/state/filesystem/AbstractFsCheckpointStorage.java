@@ -59,6 +59,9 @@ public abstract class AbstractFsCheckpointStorage implements CheckpointStorage {
 	/** The name of the metadata files in checkpoints / savepoints. */
 	public static final String METADATA_FILE_NAME = "_metadata";
 
+	/** The name of final snapshot directory */
+	public static final String FINAL_SNAPSHOT_DIR = "final";
+
 	/** The magic number that is put in front of any reference. */
 	private static final byte[] REFERENCE_MAGIC_NUMBER = new byte[] { 0x05, 0x5F, 0x3F, 0x18 };
 
@@ -277,6 +280,19 @@ public abstract class AbstractFsCheckpointStorage implements CheckpointStorage {
 				checkpointDir,
 				metaDataFileHandle,
 				pointer);
+	}
+
+	// ------------------------------------------------------------------------
+	//  Creating and resolving paths for the final snapshots
+	// ------------------------------------------------------------------------
+
+	/**
+	 * Creates the directory path for the data exclusive to the final snapshots.
+	 *
+	 * @param baseDirectory The base directory into which the job checkpoints.
+	 */
+	protected static Path createFinalSnapshotDirectory(Path baseDirectory) {
+		return new Path(baseDirectory, FINAL_SNAPSHOT_DIR);
 	}
 
 	// ------------------------------------------------------------------------

@@ -88,6 +88,8 @@ public class PendingCheckpoint {
 
 	private final long checkpointTimestamp;
 
+	private final boolean isFinalizedCheckpoint;
+
 	private final Map<OperatorID, OperatorState> operatorStates;
 
 	private final Map<ExecutionAttemptID, ExecutionVertex> notYetAcknowledgedTasks;
@@ -131,6 +133,7 @@ public class PendingCheckpoint {
 			JobID jobId,
 			long checkpointId,
 			long checkpointTimestamp,
+			boolean isFinalizedCheckpoint,
 			Map<ExecutionAttemptID, ExecutionVertex> verticesToConfirm,
 			Collection<OperatorID> operatorCoordinatorsToConfirm,
 			Collection<String> masterStateIdentifiers,
@@ -145,6 +148,7 @@ public class PendingCheckpoint {
 		this.jobId = checkNotNull(jobId);
 		this.checkpointId = checkpointId;
 		this.checkpointTimestamp = checkpointTimestamp;
+		this.isFinalizedCheckpoint = isFinalizedCheckpoint;
 		this.notYetAcknowledgedTasks = checkNotNull(verticesToConfirm);
 		this.props = checkNotNull(props);
 		this.targetLocation = checkNotNull(targetLocation);
@@ -172,6 +176,10 @@ public class PendingCheckpoint {
 
 	public long getCheckpointId() {
 		return checkpointId;
+	}
+
+	public boolean isFinalizedCheckpoint() {
+		return isFinalizedCheckpoint;
 	}
 
 	public CheckpointStorageLocation getCheckpointStorageLocation() {

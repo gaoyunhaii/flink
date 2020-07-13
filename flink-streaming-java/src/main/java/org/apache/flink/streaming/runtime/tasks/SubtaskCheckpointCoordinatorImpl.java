@@ -35,6 +35,7 @@ import org.apache.flink.runtime.io.network.api.writer.ResultPartitionWriter;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.partition.ResultSubpartition;
 import org.apache.flink.runtime.jobgraph.OperatorID;
+import org.apache.flink.runtime.state.CheckpointStorageLocation;
 import org.apache.flink.runtime.state.CheckpointStorageLocationReference;
 import org.apache.flink.runtime.state.CheckpointStorageWorkerView;
 import org.apache.flink.runtime.state.CheckpointStreamFactory;
@@ -64,7 +65,9 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -249,9 +252,11 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 		operatorChain.prepareSnapshotPreBarrier(metadata.getCheckpointId());
 
 		// Step (2): Send the checkpoint barrier downstream
-		operatorChain.broadcastEvent(
-			new CheckpointBarrier(metadata.getCheckpointId(), metadata.getTimestamp(), options),
-			options.isUnalignedCheckpoint());
+		if (metadata.getCheckpointId() != Long.MAX_VALUE) {
+			operatorChain.broadcastEvent(
+				new CheckpointBarrier(metadata.getCheckpointId(), metadata.getTimestamp(), options),
+				options.isUnalignedCheckpoint());
+		}
 
 		// Step (3): Prepare to spill the in-flight buffers for input and output
 		if (options.isUnalignedCheckpoint()) {
@@ -261,12 +266,47 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 		// Step (4): Take the state snapshot. This should be largely asynchronous, to not impact progress of the
 		// streaming topology
 
+		CheckpointStreamFactory storage = checkpointStorage.resolveCheckpointStorageLocation(metadata.getCheckpointId(), options.getTargetLocation());
 		Map<OperatorID, OperatorSnapshotFutures> snapshotFutures = new HashMap<>(operatorChain.getNumberOfOperators());
 		try {
-			if (takeSnapshotSync(snapshotFutures, metadata, metrics, options, operatorChain, isCanceled)) {
+			if (takeSnapshotSync(snapshotFutures, metadata, metrics, options, storage, operatorChain, isCanceled)) {
 				finishAndReportAsync(snapshotFutures, metadata, metrics, options);
 			} else {
 				cleanup(snapshotFutures, metadata, metrics, new Exception("Checkpoint declined"));
+			}
+		} catch (Exception ex) {
+			cleanup(snapshotFutures, metadata, metrics, ex);
+			throw ex;
+		}
+	}
+
+	@Override
+	public void snapshotFinalState(
+			CheckpointMetaData metadata,
+			CheckpointOptions options,
+			CheckpointMetrics metrics,
+			OperatorChain<?, ?> operatorChain,
+			Supplier<Boolean> isCanceled) throws Exception {
+
+		// Step (1): Prepare the checkpoint, allow operators to do some pre-barrier work.
+		//           The pre-barrier work should be nothing or minimal in the common case.
+		operatorChain.prepareSnapshotPreBarrier(metadata.getCheckpointId());
+
+		// Step (2): Take the state snapshot. This should be largely asynchronous, to not impact progress of the
+		// streaming topology
+
+		CheckpointStreamFactory storage = checkpointStorage.resolveLocationForFinalSnapshots();
+		Map<OperatorID, OperatorSnapshotFutures> snapshotFutures = new HashMap<>(operatorChain.getNumberOfOperators());
+		try {
+			if (takeSnapshotSync(snapshotFutures, metadata, metrics, options, storage, operatorChain, isCanceled)) {
+				Future<?> result = finishAndReportAsync(snapshotFutures, metadata, metrics, options);
+
+				// Wait till the snapshot and report finished
+				result.get();
+			} else {
+				Exception ex = new Exception("The synchronous step of the final snapshot failed");
+				cleanup(snapshotFutures, metadata, metrics, ex);
+				throw ex;
 			}
 		} catch (Exception ex) {
 			cleanup(snapshotFutures, metadata, metrics, ex);
@@ -327,6 +367,11 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 		if (checkpointOptions.isUnalignedCheckpoint()) {
 			channelStateWriter.start(id, checkpointOptions);
 		}
+	}
+
+	@Override
+	public CheckpointStorageLocation resolveFinalSnapshotsLocation() throws IOException {
+		return checkpointStorage.resolveLocationForFinalSnapshots();
 	}
 
 	@Override
@@ -446,9 +491,9 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 			});
 	}
 
-	private void finishAndReportAsync(Map<OperatorID, OperatorSnapshotFutures> snapshotFutures, CheckpointMetaData metadata, CheckpointMetrics metrics, CheckpointOptions options) {
+	private Future<?> finishAndReportAsync(Map<OperatorID, OperatorSnapshotFutures> snapshotFutures, CheckpointMetaData metadata, CheckpointMetrics metrics, CheckpointOptions options) {
 		// we are transferring ownership over snapshotInProgressList for cleanup to the thread, active on submit
-		executorService.execute(new AsyncCheckpointRunnable(
+		return executorService.submit(new AsyncCheckpointRunnable(
 			snapshotFutures,
 			metadata,
 			metrics,
@@ -479,6 +524,7 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 			CheckpointMetaData checkpointMetaData,
 			CheckpointMetrics checkpointMetrics,
 			CheckpointOptions checkpointOptions,
+			CheckpointStreamFactory storage,
 			OperatorChain<?, ?> operatorChain,
 			Supplier<Boolean> isCanceled) throws Exception {
 
@@ -496,8 +542,6 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 		ChannelStateWriteResult channelStateWriteResult = checkpointOptions.isUnalignedCheckpoint() ?
 								channelStateWriter.getAndRemoveWriteResult(checkpointId) :
 								ChannelStateWriteResult.EMPTY;
-
-		CheckpointStreamFactory storage = checkpointStorage.resolveCheckpointStorageLocation(checkpointId, checkpointOptions.getTargetLocation());
 
 		try {
 			for (StreamOperatorWrapper<?, ?> operatorWrapper : operatorChain.getAllOperators(true)) {
@@ -601,6 +645,11 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 		@Override
 		public CheckpointStreamFactory.CheckpointStateOutputStream createTaskOwnedStateStream() throws IOException {
 			return delegate.createTaskOwnedStateStream();
+		}
+
+		@Override
+		public CheckpointStorageLocation resolveLocationForFinalSnapshots() throws IOException {
+			return delegate.resolveLocationForFinalSnapshots();
 		}
 	}
 

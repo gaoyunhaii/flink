@@ -29,6 +29,7 @@ import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
+import org.apache.flink.runtime.checkpoint.CheckpointType;
 import org.apache.flink.runtime.checkpoint.channel.ChannelStateReader;
 import org.apache.flink.runtime.checkpoint.channel.ChannelStateWriter;
 import org.apache.flink.runtime.concurrent.FutureUtils;
@@ -48,6 +49,8 @@ import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
 import org.apache.flink.runtime.metrics.groups.OperatorMetricGroup;
 import org.apache.flink.runtime.operators.coordination.OperatorEvent;
 import org.apache.flink.runtime.plugable.SerializationDelegate;
+import org.apache.flink.runtime.state.CheckpointStorageLocation;
+import org.apache.flink.runtime.state.CheckpointStorageLocationReference;
 import org.apache.flink.runtime.state.CheckpointStorageWorkerView;
 import org.apache.flink.runtime.state.StateBackend;
 import org.apache.flink.runtime.state.StateBackendLoader;
@@ -563,12 +566,15 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 	protected void afterInvoke() throws Exception {
 		LOG.debug("Finished task {}", getName());
 
+		// Here we will try to get a snapshot for the finished tasks & Commit it to master.
+		snapshotFinalStates();
+
 		final CompletableFuture<Void> timersFinishedFuture = new CompletableFuture<>();
 
 		// close all operators in a chain effect way
 		operatorChain.closeOperators(actionExecutor);
 
-		// make sure no further checkpoint and notification actions happen.
+		// make sure no further checkpoint and notification actions happen
 		// at the same time, this makes sure that during any "regular" exit where still
 		actionExecutor.runThrowing(() -> {
 
@@ -832,6 +838,23 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 				return false;
 			}
 		}
+	}
+
+	private void snapshotFinalStates() throws Exception {
+		// Here we will try to get a snapshot for the finished tasks & Commit it to master.
+		CheckpointStorageLocation location = subtaskCheckpointCoordinator.resolveFinalSnapshotsLocation();
+		CheckpointMetaData checkpointMetaData = new CheckpointMetaData(Long.MAX_VALUE, Long.MAX_VALUE);
+		CheckpointOptions checkpointOptions = new CheckpointOptions(
+			CheckpointType.CHECKPOINT,
+			location.getLocationReference());
+
+		CheckpointMetrics checkpointMetrics = new CheckpointMetrics().setAlignmentDurationNanos(0L);
+		subtaskCheckpointCoordinator.snapshotFinalState(
+			checkpointMetaData,
+			checkpointOptions,
+			checkpointMetrics,
+			operatorChain,
+			this::isCanceled);
 	}
 
 	@Override

@@ -21,9 +21,11 @@ import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.channel.ChannelStateWriter;
+import org.apache.flink.runtime.state.CheckpointStorageLocation;
 import org.apache.flink.runtime.state.CheckpointStorageWorkerView;
 import org.apache.flink.runtime.state.TestCheckpointStorageWorkerView;
 
+import java.io.IOException;
 import java.util.function.Supplier;
 
 /**
@@ -57,6 +59,11 @@ public class TestSubtaskCheckpointCoordinator implements SubtaskCheckpointCoordi
 	}
 
 	@Override
+	public CheckpointStorageLocation resolveFinalSnapshotsLocation() throws IOException {
+		return null;
+	}
+
+	@Override
 	public ChannelStateWriter getChannelStateWriter() {
 		return channelStateWriter;
 	}
@@ -73,6 +80,11 @@ public class TestSubtaskCheckpointCoordinator implements SubtaskCheckpointCoordi
 
 	@Override
 	public void checkpointState(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions, CheckpointMetrics checkpointMetrics, OperatorChain<?, ?> operatorChain, Supplier<Boolean> isCanceled) {
+	}
+
+	@Override
+	public void snapshotFinalState(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions, CheckpointMetrics checkpointMetrics, OperatorChain<?, ?> operatorChain, Supplier<Boolean> isCanceled) throws Exception {
+
 	}
 
 	@Override

@@ -211,11 +211,11 @@ public class CheckpointRequestDeciderTest {
 	}
 
 	private static CheckpointTriggerRequest savepointRequest(boolean force, boolean periodic) {
-		return new CheckpointTriggerRequest(CheckpointProperties.forSavepoint(force), null, periodic, false);
+		return new CheckpointTriggerRequest(CheckpointProperties.forSavepoint(force), null, periodic, false, false,false);
 	}
 
 	private static CheckpointTriggerRequest checkpointRequest(boolean periodic) {
-		return new CheckpointTriggerRequest(CheckpointProperties.forCheckpoint(NEVER_RETAIN_AFTER_TERMINATION), null, periodic, false);
+		return new CheckpointTriggerRequest(CheckpointProperties.forCheckpoint(NEVER_RETAIN_AFTER_TERMINATION), null, periodic, false, false,false);
 	}
 
 }
