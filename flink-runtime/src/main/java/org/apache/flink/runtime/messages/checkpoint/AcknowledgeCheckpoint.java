@@ -43,11 +43,11 @@ public class AcknowledgeCheckpoint extends AbstractCheckpointMessage {
 	// ------------------------------------------------------------------------
 
 	public AcknowledgeCheckpoint(
-			JobID job,
-			ExecutionAttemptID taskExecutionId,
-			long checkpointId,
-			CheckpointMetrics checkpointMetrics,
-			TaskStateSnapshot subtaskState) {
+		JobID job,
+		ExecutionAttemptID taskExecutionId,
+		long checkpointId,
+		CheckpointMetrics checkpointMetrics,
+		TaskStateSnapshot subtaskState) {
 
 		super(job, taskExecutionId, checkpointId);
 
@@ -70,6 +70,10 @@ public class AcknowledgeCheckpoint extends AbstractCheckpointMessage {
 
 	public CheckpointMetrics getCheckpointMetrics() {
 		return checkpointMetrics;
+	}
+
+	public boolean isFinalCheckpoint() {
+		return getCheckpointId() == Long.MAX_VALUE;
 	}
 
 	// --------------------------------------------------------------------------------------------

@@ -141,6 +141,19 @@ public class MemoryBackendCheckpointStorage extends AbstractFsCheckpointStorage 
 	}
 
 	@Override
+	public void initializeLocationForFinalSnapshots() throws IOException {
+		if (checkpointsDirectory != null) {
+			// configured for durable metadata
+			// prepare all the paths needed for the checkpoints
+			checkState(fileSystem != null);
+
+			Path finalSnapshotsPath = createFinalSnapshotDirectory(checkpointsDirectory);
+
+			fileSystem.mkdirs(finalSnapshotsPath);
+		}
+	}
+
+	@Override
 	public CheckpointStreamFactory resolveCheckpointStorageLocation(
 			long checkpointId,
 			CheckpointStorageLocationReference reference) {
@@ -153,6 +166,22 @@ public class MemoryBackendCheckpointStorage extends AbstractFsCheckpointStorage 
 	@Override
 	public CheckpointStateOutputStream createTaskOwnedStateStream() {
 		return new MemoryCheckpointOutputStream(maxStateSize);
+	}
+
+	@Override
+	public CheckpointStorageLocation resolveLocationForFinalSnapshots() throws IOException {
+		if (checkpointsDirectory != null) {
+			// configured for durable metadata
+			// prepare all the paths needed for the checkpoints
+			checkState(fileSystem != null);
+
+			Path finalSnapshotsPath = createFinalSnapshotDirectory(checkpointsDirectory);
+
+			return new PersistentMetadataCheckpointStorageLocation(fileSystem, finalSnapshotsPath, maxStateSize);
+		} else {
+			// no durable metadata - typical in IDE or test setup case
+			return new NonPersistentMetadataCheckpointStorageLocation(maxStateSize);
+		}
 	}
 
 	@Override

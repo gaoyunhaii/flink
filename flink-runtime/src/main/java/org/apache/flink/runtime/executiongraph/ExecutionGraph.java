@@ -1152,6 +1152,8 @@ public class ExecutionGraph implements AccessExecutionGraph {
 				checkpointCoordinator.restoreLatestCheckpointedState(getAllVertices(), false, false);
 			}
 
+			// Here we need to check if it is finalized checkpoint. If so, we do not need to restart the task, but directly get to end
+
 			scheduleForExecution();
 		}
 		// TODO remove the catch block if we align the schematics to not fail global within the restarter.
@@ -1300,10 +1302,27 @@ public class ExecutionGraph implements AccessExecutionGraph {
 					return;
 				}
 
-				// if we do not make this state transition, then a concurrent
-				// cancellation or failure happened
-				if (transitionState(JobStatus.RUNNING, JobStatus.FINISHED)) {
-					onTerminalState(JobStatus.FINISHED);
+				// Now we first wait till we finish the finalize checkpoint
+				if (checkpointCoordinator != null) {
+					checkpointCoordinator.getFinalizeCheckpointFuture()
+						.whenCompleteAsync((result, ex) -> {
+							if (ex != null) {
+								failGlobal(ex);
+								return;
+							}
+
+							// if we do not make this state transition, then a concurrent
+							// cancellation or failure happened
+							if (transitionState(JobStatus.RUNNING, JobStatus.FINISHED)) {
+								onTerminalState(JobStatus.FINISHED);
+							}
+						}, getJobMasterMainThreadExecutor());
+				} else {
+					// if we do not make this state transition, then a concurrent
+					// cancellation or failure happened
+					if (transitionState(JobStatus.RUNNING, JobStatus.FINISHED)) {
+						onTerminalState(JobStatus.FINISHED);
+					}
 				}
 			}
 		}

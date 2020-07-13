@@ -284,6 +284,8 @@ public class CheckpointCoordinatorTriggeringTest extends TestLogger {
 			CheckpointProperties.forCheckpoint(CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION),
 			null,
 			false,
+			false,
+			false,
 			false);
 		manuallyTriggeredScheduledExecutor.triggerAll();
 		assertFalse(onCompletionPromise2.isCompletedExceptionally());
@@ -599,6 +601,8 @@ checkpointCoordinator.startCheckpointScheduler();
 			CheckpointProperties.forCheckpoint(CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION),
 			null,
 			true,
+			false,
+			false,
 			false);
 	}
 
@@ -608,6 +612,8 @@ checkpointCoordinator.startCheckpointScheduler();
 		return checkpointCoordinator.triggerCheckpoint(
 			CheckpointProperties.forCheckpoint(CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION),
 			null,
+			false,
+			false,
 			false,
 			false);
 	}

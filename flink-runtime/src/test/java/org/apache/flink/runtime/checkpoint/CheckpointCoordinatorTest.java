@@ -2198,6 +2198,8 @@ public class CheckpointCoordinatorTest extends TestLogger {
 						.forCheckpoint(CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION),
 					null,
 					true,
+					false,
+					false,
 					false);
 			manuallyTriggeredScheduledExecutor.triggerAll();
 			try {

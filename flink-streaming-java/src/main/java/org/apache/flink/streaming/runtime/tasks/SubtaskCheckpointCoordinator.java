@@ -22,6 +22,7 @@ import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.channel.ChannelStateWriter;
+import org.apache.flink.runtime.state.CheckpointStorageLocation;
 import org.apache.flink.runtime.state.CheckpointStorageWorkerView;
 
 import java.io.Closeable;
@@ -46,6 +47,8 @@ public interface SubtaskCheckpointCoordinator extends Closeable {
 	 */
 	void initCheckpoint(long id, CheckpointOptions checkpointOptions);
 
+	CheckpointStorageLocation resolveFinalSnapshotsLocation() throws IOException;
+
 	ChannelStateWriter getChannelStateWriter();
 
 	CheckpointStorageWorkerView getCheckpointStorage();
@@ -56,6 +59,13 @@ public interface SubtaskCheckpointCoordinator extends Closeable {
 	 * Must be called after {@link #initCheckpoint(long, CheckpointOptions)}.
 	 */
 	void checkpointState(
+		CheckpointMetaData checkpointMetaData,
+		CheckpointOptions checkpointOptions,
+		CheckpointMetrics checkpointMetrics,
+		OperatorChain<?, ?> operatorChain,
+		Supplier<Boolean> isCanceled) throws Exception;
+
+	void snapshotFinalState(
 		CheckpointMetaData checkpointMetaData,
 		CheckpointOptions checkpointOptions,
 		CheckpointMetrics checkpointMetrics,

@@ -44,6 +44,7 @@ import org.apache.flink.runtime.state.ttl.TtlTimeProvider;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import java.io.IOException;
 import java.util.Collection;
 
 /** mack state backend. */
@@ -110,12 +111,22 @@ public class MockStateBackend extends AbstractStateBackend {
 			}
 
 			@Override
+			public void initializeLocationForFinalSnapshots() throws IOException {
+
+			}
+
+			@Override
 			public CheckpointStreamFactory resolveCheckpointStorageLocation(long checkpointId, CheckpointStorageLocationReference reference) {
 				return null;
 			}
 
 			@Override
 			public CheckpointStreamFactory.CheckpointStateOutputStream createTaskOwnedStateStream() {
+				return null;
+			}
+
+			@Override
+			public CheckpointStorageLocation resolveLocationForFinalSnapshots() throws IOException {
 				return null;
 			}
 		};

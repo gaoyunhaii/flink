@@ -68,4 +68,6 @@ public interface CheckpointStorageWorkerView {
 	 * @throws IOException Thrown, if the stream cannot be opened.
 	 */
 	CheckpointStreamFactory.CheckpointStateOutputStream createTaskOwnedStateStream() throws IOException;
+
+	CheckpointStorageLocation resolveLocationForFinalSnapshots() throws IOException;
 }
