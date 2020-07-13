@@ -1300,6 +1300,17 @@ public class ExecutionGraph implements AccessExecutionGraph {
 					return;
 				}
 
+				// Now we first wait till we finish the finalize checkpoint
+				try {
+					while (checkpointCoordinator.getFinalizeCheckpointResult() == null) {
+						Thread.sleep(1000);
+					}
+
+					checkpointCoordinator.getFinalizeCheckpointResult().get();
+				} catch (InterruptedException | ExecutionException e) {
+					ExceptionUtils.rethrow(e);
+				}
+
 				// if we do not make this state transition, then a concurrent
 				// cancellation or failure happened
 				if (transitionState(JobStatus.RUNNING, JobStatus.FINISHED)) {

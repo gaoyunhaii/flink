@@ -811,7 +811,8 @@ public abstract class SchedulerBase implements SchedulerNG {
 			executionAttemptID,
 			checkpointId,
 			checkpointMetrics,
-			checkpointState);
+			checkpointState,
+			checkpointId == Long.MAX_VALUE);
 
 		final String taskManagerLocationInfo = retrieveTaskManagerLocation(executionAttemptID);
 

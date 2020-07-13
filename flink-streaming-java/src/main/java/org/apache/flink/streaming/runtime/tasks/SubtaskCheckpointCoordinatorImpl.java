@@ -64,7 +64,9 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -249,9 +251,11 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 		operatorChain.prepareSnapshotPreBarrier(metadata.getCheckpointId());
 
 		// Step (2): Send the checkpoint barrier downstream
-		operatorChain.broadcastEvent(
-			new CheckpointBarrier(metadata.getCheckpointId(), metadata.getTimestamp(), options),
-			options.isUnalignedCheckpoint());
+		if (metadata.getCheckpointId() != Long.MAX_VALUE) {
+			operatorChain.broadcastEvent(
+				new CheckpointBarrier(metadata.getCheckpointId(), metadata.getTimestamp(), options),
+				options.isUnalignedCheckpoint());
+		}
 
 		// Step (3): Prepare to spill the in-flight buffers for input and output
 		if (options.isUnalignedCheckpoint()) {
@@ -448,7 +452,7 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 
 	private void finishAndReportAsync(Map<OperatorID, OperatorSnapshotFutures> snapshotFutures, CheckpointMetaData metadata, CheckpointMetrics metrics, CheckpointOptions options) {
 		// we are transferring ownership over snapshotInProgressList for cleanup to the thread, active on submit
-		executorService.execute(new AsyncCheckpointRunnable(
+		Future<?> result = executorService.submit(new AsyncCheckpointRunnable(
 			snapshotFutures,
 			metadata,
 			metrics,
@@ -458,6 +462,14 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 			unregisterConsumer(),
 			env,
 			asyncExceptionHandler));
+
+		if (metadata.getCheckpointId() == Long.MAX_VALUE) {
+			try {
+				result.get();
+			} catch (InterruptedException | ExecutionException e) {
+				throw new RuntimeException("failed to get wait till last checkpoint finished", e);
+			}
+		}
 	}
 
 	private Consumer<AsyncCheckpointRunnable> registerConsumer() {

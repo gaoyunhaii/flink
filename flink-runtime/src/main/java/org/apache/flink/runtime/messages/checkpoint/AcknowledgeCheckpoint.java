@@ -40,6 +40,8 @@ public class AcknowledgeCheckpoint extends AbstractCheckpointMessage {
 
 	private final CheckpointMetrics checkpointMetrics;
 
+	private final boolean isFinalSnapshot;
+
 	// ------------------------------------------------------------------------
 
 	public AcknowledgeCheckpoint(
@@ -49,10 +51,22 @@ public class AcknowledgeCheckpoint extends AbstractCheckpointMessage {
 			CheckpointMetrics checkpointMetrics,
 			TaskStateSnapshot subtaskState) {
 
+		this(job, taskExecutionId, checkpointId, checkpointMetrics, subtaskState, false);
+	}
+
+	public AcknowledgeCheckpoint(
+		JobID job,
+		ExecutionAttemptID taskExecutionId,
+		long checkpointId,
+		CheckpointMetrics checkpointMetrics,
+		TaskStateSnapshot subtaskState,
+		boolean isFinalSnapshot) {
+
 		super(job, taskExecutionId, checkpointId);
 
 		this.subtaskState = subtaskState;
 		this.checkpointMetrics = checkpointMetrics;
+		this.isFinalSnapshot = isFinalSnapshot;
 	}
 
 	@VisibleForTesting
@@ -70,6 +84,10 @@ public class AcknowledgeCheckpoint extends AbstractCheckpointMessage {
 
 	public CheckpointMetrics getCheckpointMetrics() {
 		return checkpointMetrics;
+	}
+
+	public boolean isFinalSnapshot() {
+		return isFinalSnapshot;
 	}
 
 	// --------------------------------------------------------------------------------------------

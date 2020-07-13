@@ -18,6 +18,8 @@
 
 package org.apache.flink.runtime.checkpoint;
 
+import com.esotericsoftware.minlog.Log;
+import com.sun.xml.internal.ws.util.CompletedFuture;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
@@ -36,6 +38,7 @@ import org.apache.flink.runtime.jobgraph.tasks.CheckpointCoordinatorConfiguratio
 import org.apache.flink.runtime.messages.checkpoint.AcknowledgeCheckpoint;
 import org.apache.flink.runtime.messages.checkpoint.DeclineCheckpoint;
 import org.apache.flink.runtime.operators.coordination.OperatorInfo;
+import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.state.CheckpointStorageCoordinatorView;
 import org.apache.flink.runtime.state.CheckpointStorageLocation;
 import org.apache.flink.runtime.state.CompletedCheckpointStorageLocation;
@@ -70,6 +73,7 @@ import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
@@ -80,6 +84,7 @@ import java.util.function.Predicate;
 
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
+import static org.apache.flink.util.Preconditions.checkState;
 
 /**
  * The checkpoint coordinator coordinates the distributed snapshots of operators and state.
@@ -203,6 +208,10 @@ public class CheckpointCoordinator {
 
 	private final CheckpointRequestDecider requestDecider;
 
+	private final FinalizeSnapshotsManager finalizeSnapshotsManager;
+
+	private CompletableFuture<CompletedCheckpoint> finalizeCheckpointResult;
+
 	// --------------------------------------------------------------------------------------------
 
 	public CheckpointCoordinator(
@@ -318,6 +327,12 @@ public class CheckpointCoordinator {
 			this.minPauseBetweenCheckpoints,
 			this.pendingCheckpoints::size,
 			this.lock);
+
+		this.finalizeSnapshotsManager = new FinalizeSnapshotsManager(tasksToCommitTo);
+	}
+
+	public CompletableFuture<CompletedCheckpoint> getFinalizeCheckpointResult() {
+		return finalizeCheckpointResult;
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -518,9 +533,10 @@ public class CheckpointCoordinator {
 
 			final long timestamp = System.currentTimeMillis();
 			final CompletableFuture<PendingCheckpoint> pendingCheckpointCompletableFuture =
-				initializeCheckpoint(request.props, request.externalSavepointLocation)
+				initializeCheckpoint(null, request.props, request.externalSavepointLocation)
 					.thenApplyAsync(
 						(checkpointIdAndStorageLocation) -> createPendingCheckpoint(
+							true,
 							timestamp,
 							request.props,
 							ackTasks,
@@ -608,6 +624,7 @@ public class CheckpointCoordinator {
 	 * @return the future of initialized result, checkpoint id and checkpoint location
 	 */
 	private CompletableFuture<CheckpointIdAndStorageLocation> initializeCheckpoint(
+		@Nullable Long preDefinedCheckpointID,
 		CheckpointProperties props,
 		@Nullable String externalSavepointLocation) {
 
@@ -615,7 +632,9 @@ public class CheckpointCoordinator {
 			try {
 				// this must happen outside the coordinator-wide lock, because it communicates
 				// with external services (in HA mode) and may block for a while.
-				long checkpointID = checkpointIdCounter.getAndIncrement();
+				long checkpointID = preDefinedCheckpointID == null ?
+					checkpointIdCounter.getAndIncrement() :
+					preDefinedCheckpointID;
 
 				CheckpointStorageLocation checkpointStorageLocation = props.isSavepoint() ?
 					checkpointStorage
@@ -630,6 +649,7 @@ public class CheckpointCoordinator {
 	}
 
 	private PendingCheckpoint createPendingCheckpoint(
+		boolean hasTimeout,
 		long timestamp,
 		CheckpointProperties props,
 		Map<ExecutionAttemptID, ExecutionVertex> ackTasks,
@@ -673,13 +693,15 @@ public class CheckpointCoordinator {
 
 			pendingCheckpoints.put(checkpointID, checkpoint);
 
-			ScheduledFuture<?> cancellerHandle = timer.schedule(
-				new CheckpointCanceller(checkpoint),
-				checkpointTimeout, TimeUnit.MILLISECONDS);
+			if (hasTimeout) {
+				ScheduledFuture<?> cancellerHandle = timer.schedule(
+					new CheckpointCanceller(checkpoint),
+					checkpointTimeout, TimeUnit.MILLISECONDS);
 
-			if (!checkpoint.setCancellerHandle(cancellerHandle)) {
-				// checkpoint is already disposed!
-				cancellerHandle.cancel(false);
+				if (!checkpoint.setCancellerHandle(cancellerHandle)) {
+					// checkpoint is already disposed!
+					cancellerHandle.cancel(false);
+				}
 			}
 		}
 
@@ -753,6 +775,28 @@ public class CheckpointCoordinator {
 		CheckpointProperties props,
 		Execution[] executions,
 		boolean advanceToEndOfTime) {
+
+		if (finalizeSnapshotsManager.isOk()) {
+			Log.info("In fact, we have collected all the final snapshots...");
+
+			// Here we will try to directly finish the checkpoint
+			for (ExecutionVertex task : tasksToCommitTo) {
+				AcknowledgeCheckpoint acknowledgeCheckpoint = new AcknowledgeCheckpoint(
+					job,
+					task.getCurrentExecutionAttempt().getAttemptId(),
+					checkpointID,
+					new CheckpointMetrics(),
+					finalizeSnapshotsManager.getSnapshot(task.getID()),
+					false);
+				try {
+					receiveAcknowledgeMessage(acknowledgeCheckpoint, finalizeSnapshotsManager.getLocation(task.getID()));
+				} catch (CheckpointException e) {
+					e.printStackTrace();
+				}
+			}
+
+			return;
+		}
 
 		final CheckpointOptions checkpointOptions = new CheckpointOptions(
 			props.getCheckpointType(),
@@ -932,6 +976,25 @@ public class CheckpointCoordinator {
 			// we need to check inside the lock for being shutdown as well, otherwise we
 			// get races and invalid error log messages
 			if (shutdown) {
+				return false;
+			}
+
+			if (message.isFinalSnapshot()) {
+				ExecutionVertexID executionVertexId = null;
+				for (ExecutionVertex vertex : tasksToCommitTo) {
+					if (vertex.getCurrentExecutionAttempt().getAttemptId().equals(message.getTaskExecutionId())) {
+						executionVertexId = vertex.getID();
+						break;
+					}
+				}
+
+				checkState(executionVertexId != null, "The execution vertex is not found");
+
+				boolean allReceived = finalizeSnapshotsManager.addSnapshot(executionVertexId, message.getSubtaskState(), taskManagerLocationInfo);
+				if (allReceived) {
+					finalizeCheckpointResult = triggerCheckpoint(false);
+				}
+
 				return false;
 			}
 
