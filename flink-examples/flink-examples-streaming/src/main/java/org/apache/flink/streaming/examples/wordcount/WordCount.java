@@ -85,7 +85,7 @@ public class WordCount {
 		env.setRestartStrategy(RestartStrategies.fixedDelayRestart(Integer.MAX_VALUE, Time.of(10L, TimeUnit.SECONDS)));
 
 		final FileSink<Tuple2<Integer, Integer>, String> sink = StreamingFileSink
-			.forRowFormat(new Path("/Users/maguowei/tmp"), (Encoder<Tuple2<Integer, Integer>>) (element, stream) -> {
+			.forRowFormat(new Path("/tmp/test3"), (Encoder<Tuple2<Integer, Integer>>) (element, stream) -> {
 				PrintStream out = new PrintStream(stream);
 				out.println(element.f1);
 			})

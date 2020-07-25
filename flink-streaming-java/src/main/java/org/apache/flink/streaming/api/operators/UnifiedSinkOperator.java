@@ -121,9 +121,9 @@ class UnifiedSinkOperator<IN> extends AbstractStreamOperator<Object> implements
 		unifiedSinkWriterContext.currentSinkEvents = new ArrayList<>();
 		sinkEventsState.clear();
 		for (List<SinkEvent> sinkEventList : eventSentToSinkManager.values()) {
-			for (SinkEvent sinkEvent : sinkEventList) {
-				sinkEventsState.add(sinkEventSimpleVersionedSerializer.serialize(sinkEvent));
-			}
+//			for (SinkEvent sinkEvent : sinkEventList) {
+//				sinkEventsState.add(sinkEventSimpleVersionedSerializer.serialize(sinkEvent));
+//			}
 		}
 	}
 

@@ -20,6 +20,8 @@ package org.apache.flink.streaming.api.functions.splitsink;
 
 import org.apache.flink.api.connector.sink.SinkEvent;
 import org.apache.flink.api.connector.sink.SinkManager;
+import org.apache.flink.runtime.sink.coordinator.SinkCoordinator;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -68,6 +70,7 @@ public class SplitSinkManager<SplitT> implements SinkManager<List<SplitT>> {
 
 	@Override
 	public void checkpointComplete(long checkpointId) throws IOException {
+		LoggerFactory.getLogger(SinkCoordinator.class).info("Checkpoint complete: {}, split = {}", checkpointId, allFinalSplits);
 		for (List<SplitT> splitList : allFinalSplits.values()) {
 			splitCommitter.commit(splitList);
 		}
