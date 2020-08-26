@@ -22,6 +22,7 @@ import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.channel.InputChannelInfo;
 import org.apache.flink.runtime.io.network.api.CancelCheckpointMarker;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
@@ -69,6 +70,16 @@ public abstract class CheckpointBarrierHandler implements Closeable {
 	public void close() throws IOException {
 	}
 
+	/**
+	 * After all the precedents are finished, the checkpoint would be trigger directly to this handler.
+	 *
+	 * @param checkpointMetaData
+	 * @param checkpointOptions
+	 */
+	public abstract void processPartialCheckpointTrigger(
+		CheckpointMetaData checkpointMetaData,
+		CheckpointOptions checkpointOptions) throws IOException;
+
 	public abstract void processBarrier(CheckpointBarrier receivedBarrier, InputChannelInfo channelInfo) throws Exception;
 
 	public abstract void processCancellationBarrier(CancelCheckpointMarker cancelBarrier) throws Exception;
@@ -102,9 +113,14 @@ public abstract class CheckpointBarrierHandler implements Closeable {
 		return CompletableFuture.completedFuture(null);
 	}
 
-	protected void notifyCheckpoint(CheckpointBarrier checkpointBarrier, long alignmentDurationNanos) throws IOException {
+	protected void notifyCheckpoint(
+		long checkpointId,
+		long checkpointTimestamp,
+		CheckpointOptions checkpointOptions,
+		long alignmentDurationNanos) throws IOException {
+
 		CheckpointMetaData checkpointMetaData =
-			new CheckpointMetaData(checkpointBarrier.getId(), checkpointBarrier.getTimestamp());
+			new CheckpointMetaData(checkpointId, checkpointTimestamp);
 
 		CheckpointMetrics checkpointMetrics = new CheckpointMetrics()
 			.setAlignmentDurationNanos(alignmentDurationNanos)
@@ -112,7 +128,7 @@ public abstract class CheckpointBarrierHandler implements Closeable {
 
 		toNotifyOnCheckpoint.triggerCheckpointOnBarrier(
 			checkpointMetaData,
-			checkpointBarrier.getCheckpointOptions(),
+			checkpointOptions,
 			checkpointMetrics);
 	}
 

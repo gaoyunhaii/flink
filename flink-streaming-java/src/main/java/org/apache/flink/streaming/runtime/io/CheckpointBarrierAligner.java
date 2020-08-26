@@ -20,8 +20,11 @@ package org.apache.flink.streaming.runtime.io;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.channel.InputChannelInfo;
 import org.apache.flink.runtime.io.network.api.CancelCheckpointMarker;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
@@ -32,8 +35,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.Map;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -60,6 +67,8 @@ public class CheckpointBarrierAligner extends CheckpointBarrierHandler {
 	/** The ID of the checkpoint for which we expect barriers. */
 	private long currentCheckpointId = -1L;
 
+	private CheckpointOptions currentCheckpointOptions;
+
 	/**
 	 * The number of received barriers (= number of blocked/buffered channels) IMPORTANT: A canceled
 	 * checkpoint must always have 0 barriers.
@@ -76,6 +85,10 @@ public class CheckpointBarrierAligner extends CheckpointBarrierHandler {
 	private long latestAlignmentDurationNanos;
 
 	private final InputGate[] inputGates;
+
+	private boolean hasReceivedPartialCheckpointTriggers = false;
+
+	private final SortedMap<Long, Tuple2<CheckpointMetaData, CheckpointOptions>> partialCheckpointTriggers = new TreeMap<>();
 
 	CheckpointBarrierAligner(
 			String taskName,
@@ -125,8 +138,35 @@ public class CheckpointBarrierAligner extends CheckpointBarrierHandler {
 	}
 
 	@Override
+	public void processPartialCheckpointTrigger(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) throws IOException {
+		LOG.info("Processing partial checkpoint trigger {}", checkpointMetaData.getCheckpointId());
+		hasReceivedPartialCheckpointTriggers = true;
+
+		// Skip repeat notification
+		if (partialCheckpointTriggers.containsKey(checkpointMetaData.getCheckpointId())) {
+			return;
+		}
+
+		if (numClosedChannels == totalNumberOfInputChannels) {
+			checkState(
+				partialCheckpointTriggers.isEmpty(),
+				"All the previous partial checkpoint triggers should be finished previously, but current is " + partialCheckpointTriggers);
+			triggerPartialCheckpoint(checkpointMetaData, checkpointOptions);
+		} else {
+			if (checkpointMetaData.getCheckpointId() > currentCheckpointId) {
+				// Only register the checkpoint if it is not in-progress yet. Otherwise the aligner are already aware of it.
+				partialCheckpointTriggers.put(checkpointMetaData.getCheckpointId(), new Tuple2<>(checkpointMetaData, checkpointOptions));
+			}
+		}
+	}
+
+	@Override
 	public void processBarrier(CheckpointBarrier receivedBarrier, InputChannelInfo channelInfo) throws Exception {
+		LOG.info("Processing barrier {}", receivedBarrier.getId());
 		final long barrierId = receivedBarrier.getId();
+
+		// if we notify it as a partial checkpoint, we could remove the information now
+		partialCheckpointTriggers.remove(barrierId);
 
 		// fast path for single channel cases
 		if (totalNumberOfInputChannels == 1) {
@@ -134,7 +174,11 @@ public class CheckpointBarrierAligner extends CheckpointBarrierHandler {
 			if (barrierId > currentCheckpointId) {
 				// new checkpoint
 				currentCheckpointId = barrierId;
-				notifyCheckpoint(receivedBarrier, latestAlignmentDurationNanos);
+				notifyCheckpoint(
+					receivedBarrier.getId(),
+					receivedBarrier.getTimestamp(),
+					receivedBarrier.getCheckpointOptions(),
+					latestAlignmentDurationNanos);
 			}
 			return;
 		}
@@ -166,7 +210,7 @@ public class CheckpointBarrierAligner extends CheckpointBarrierHandler {
 				releaseBlocksAndResetBarriers();
 
 				// begin a new checkpoint
-				beginNewAlignment(barrierId, channelInfo, receivedBarrier.getTimestamp());
+				beginNewAlignment(barrierId, receivedBarrier.getCheckpointOptions(), channelInfo, receivedBarrier.getTimestamp());
 			}
 			else {
 				// ignore trailing barrier from an earlier checkpoint (obsolete now)
@@ -175,7 +219,7 @@ public class CheckpointBarrierAligner extends CheckpointBarrierHandler {
 		}
 		else if (barrierId > currentCheckpointId) {
 			// first barrier of a new checkpoint
-			beginNewAlignment(barrierId, channelInfo, receivedBarrier.getTimestamp());
+			beginNewAlignment(barrierId, receivedBarrier.getCheckpointOptions(), channelInfo, receivedBarrier.getTimestamp());
 		}
 		else {
 			// either the current checkpoint was canceled (numBarriers == 0) or
@@ -195,16 +239,22 @@ public class CheckpointBarrierAligner extends CheckpointBarrierHandler {
 			}
 
 			releaseBlocksAndResetBarriers();
-			notifyCheckpoint(receivedBarrier, latestAlignmentDurationNanos);
+			notifyCheckpoint(
+				receivedBarrier.getId(),
+				receivedBarrier.getTimestamp(),
+				receivedBarrier.getCheckpointOptions(),
+				latestAlignmentDurationNanos);
 		}
 	}
 
 	protected void beginNewAlignment(
 			long checkpointId,
+			CheckpointOptions checkpointOptions,
 			InputChannelInfo channelInfo,
 			long checkpointTimestamp) throws IOException {
 		markCheckpointStart(checkpointTimestamp);
 		currentCheckpointId = checkpointId;
+		currentCheckpointOptions = checkpointOptions;
 		onBarrier(channelInfo);
 
 		startOfAlignmentTimestamp = System.nanoTime();
@@ -243,6 +293,7 @@ public class CheckpointBarrierAligner extends CheckpointBarrierHandler {
 			if (barrierId > currentCheckpointId) {
 				// new checkpoint
 				currentCheckpointId = barrierId;
+				currentCheckpointOptions = null;
 				notifyAbortOnCancellationBarrier(barrierId);
 			}
 			return;
@@ -275,6 +326,7 @@ public class CheckpointBarrierAligner extends CheckpointBarrierHandler {
 
 				// the next checkpoint starts as canceled
 				currentCheckpointId = barrierId;
+				currentCheckpointOptions = null;
 				startOfAlignmentTimestamp = 0L;
 				latestAlignmentDurationNanos = 0L;
 
@@ -290,6 +342,7 @@ public class CheckpointBarrierAligner extends CheckpointBarrierHandler {
 			// by setting the currentCheckpointId to this checkpoint while keeping the numBarriers
 			// at zero means that no checkpoint barrier can start a new alignment
 			currentCheckpointId = barrierId;
+			currentCheckpointOptions = null;
 
 			startOfAlignmentTimestamp = 0L;
 			latestAlignmentDurationNanos = 0L;
@@ -309,14 +362,46 @@ public class CheckpointBarrierAligner extends CheckpointBarrierHandler {
 	@Override
 	public void processEndOfPartition() throws Exception {
 		numClosedChannels++;
+		LOG.info("Process end of partition, num close = {}, pending = {}, current = {}, total = {}",
+			numClosedChannels,
+			isCheckpointPending(),
+			currentCheckpointId,
+			totalNumberOfInputChannels);
 
-		if (isCheckpointPending()) {
-			// let the task know we skip a checkpoint
-			notifyAbort(currentCheckpointId,
-				new CheckpointException(CheckpointFailureReason.CHECKPOINT_DECLINED_INPUT_END_OF_STREAM));
-			// no chance to complete this checkpoint
-			releaseBlocksAndResetBarriers();
+		if (numClosedChannels < totalNumberOfInputChannels) {
+			if (isCheckpointPending()) {
+				if (numBarriersReceived + numClosedChannels == totalNumberOfInputChannels) {
+					// actually trigger checkpoint
+					if (LOG.isDebugEnabled()) {
+						LOG.debug("{}: Received all barriers or EOF, triggering checkpoint {} at {}.",
+							taskName,
+							currentCheckpointId,
+							System.currentTimeMillis());
+					}
+
+					releaseBlocksAndResetBarriers();
+					notifyCheckpoint(
+						currentCheckpointId,
+						System.currentTimeMillis(),
+						currentCheckpointOptions,
+						latestAlignmentDurationNanos);
+				}
+			}
+		} else {
+			checkState(numClosedChannels == totalNumberOfInputChannels, "Changing state");
+
+			for (Tuple2<CheckpointMetaData, CheckpointOptions> partialCheckpoint : partialCheckpointTriggers.values()) {
+				triggerPartialCheckpoint(partialCheckpoint.f0, partialCheckpoint.f1);
+			}
 		}
+	}
+
+	private void triggerPartialCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) throws IOException {
+		notifyCheckpoint(
+			checkpointMetaData.getCheckpointId(),
+			checkpointMetaData.getCheckpointId(),
+			checkpointOptions,
+			0L);
 	}
 
 	@Override

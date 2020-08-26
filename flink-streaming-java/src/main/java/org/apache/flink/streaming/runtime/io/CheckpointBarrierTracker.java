@@ -21,6 +21,8 @@ package org.apache.flink.streaming.runtime.io;
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.channel.InputChannelInfo;
 import org.apache.flink.runtime.io.network.api.CancelCheckpointMarker;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
@@ -76,12 +78,21 @@ public class CheckpointBarrierTracker extends CheckpointBarrierHandler {
 		this.pendingCheckpoints = new ArrayDeque<>();
 	}
 
+	@Override
+	public void processPartialCheckpointTrigger(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) {
+		throw new UnsupportedOperationException("Not implemented yet.");
+	}
+
 	public void processBarrier(CheckpointBarrier receivedBarrier, InputChannelInfo channelInfo) throws Exception {
 		final long barrierId = receivedBarrier.getId();
 
 		// fast path for single channel trackers
 		if (totalNumberOfInputChannels == 1) {
-			notifyCheckpoint(receivedBarrier, 0);
+			notifyCheckpoint(
+				receivedBarrier.getId(),
+				receivedBarrier.getTimestamp(),
+				receivedBarrier.getCheckpointOptions(),
+				0);
 			return;
 		}
 
@@ -119,7 +130,11 @@ public class CheckpointBarrierTracker extends CheckpointBarrierHandler {
 						LOG.debug("Received all barriers for checkpoint {}", barrierId);
 					}
 
-					notifyCheckpoint(receivedBarrier, 0);
+					notifyCheckpoint(
+						receivedBarrier.getId(),
+						receivedBarrier.getTimestamp(),
+						receivedBarrier.getCheckpointOptions(),
+						0);
 				}
 			}
 		}

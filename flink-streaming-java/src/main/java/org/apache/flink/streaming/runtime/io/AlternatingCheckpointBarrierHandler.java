@@ -18,6 +18,8 @@
 package org.apache.flink.streaming.runtime.io;
 
 import org.apache.flink.runtime.checkpoint.CheckpointException;
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.channel.InputChannelInfo;
 import org.apache.flink.runtime.io.network.api.CancelCheckpointMarker;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
@@ -76,6 +78,11 @@ class AlternatingCheckpointBarrierHandler extends CheckpointBarrierHandler {
 	@Override
 	public void processCancellationBarrier(CancelCheckpointMarker cancelBarrier) throws Exception {
 		activeHandler.processCancellationBarrier(cancelBarrier);
+	}
+
+	@Override
+	public void processPartialCheckpointTrigger(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) throws IOException {
+		activeHandler.processPartialCheckpointTrigger(checkpointMetaData, checkpointOptions);
 	}
 
 	@Override
