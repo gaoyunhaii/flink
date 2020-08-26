@@ -144,7 +144,7 @@ public interface TaskManagerGateway extends TaskExecutorOperatorEventGateway {
 	 * @param advanceToEndOfEventTime Flag indicating if the source should inject a {@code MAX_WATERMARK} in the pipeline
 	 *                              to fire any registered event-time timers
 	 */
-	void triggerCheckpoint(
+	CompletableFuture<Acknowledge> triggerCheckpoint(
 		ExecutionAttemptID executionAttemptID,
 		JobID jobId,
 		long checkpointId,

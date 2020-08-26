@@ -33,9 +33,11 @@ import org.apache.flink.runtime.executiongraph.JobStatusListener;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobgraph.tasks.CheckpointCoordinatorConfiguration;
+import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.messages.checkpoint.AcknowledgeCheckpoint;
 import org.apache.flink.runtime.messages.checkpoint.DeclineCheckpoint;
 import org.apache.flink.runtime.operators.coordination.OperatorInfo;
+import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.state.CheckpointStorageCoordinatorView;
 import org.apache.flink.runtime.state.CheckpointStorageLocation;
 import org.apache.flink.runtime.state.CompletedCheckpointStorageLocation;
@@ -58,8 +60,11 @@ import javax.annotation.concurrent.GuardedBy;
 
 import java.io.IOException;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -81,6 +86,7 @@ import java.util.function.Predicate;
 import static org.apache.flink.util.ExceptionUtils.findThrowable;
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
+import static org.apache.flink.util.Preconditions.checkState;
 
 /**
  * The checkpoint coordinator coordinates the distributed snapshots of operators and state.
@@ -204,6 +210,8 @@ public class CheckpointCoordinator {
 
 	private final CheckpointRequestDecider requestDecider;
 
+	private final FinalSnapshotManager finalSnapshotManager;
+
 	// --------------------------------------------------------------------------------------------
 
 	public CheckpointCoordinator(
@@ -318,6 +326,8 @@ public class CheckpointCoordinator {
 			this.clock,
 			this.minPauseBetweenCheckpoints,
 			this.pendingCheckpoints::size);
+
+		this.finalSnapshotManager = new FinalSnapshotManager();
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -403,6 +413,14 @@ public class CheckpointCoordinator {
 
 	public boolean isShutdown() {
 		return shutdown;
+	}
+
+	// --------------------------------------------------------------------------------------------
+	//  LifeCycle
+	// --------------------------------------------------------------------------------------------
+
+	public void onTaskRestarting(Set<ExecutionVertexID> verticesToRestart) throws Exception {
+		finalSnapshotManager.onTaskRestarting(verticesToRestart);
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -507,7 +525,7 @@ public class CheckpointCoordinator {
 				preCheckGlobalState(request.isPeriodic);
 			}
 
-			final Execution[] executions = getTriggerExecutions();
+			checkAllSourcesAreStarted();
 			final Map<ExecutionAttemptID, ExecutionVertex> ackTasks = getAckTasks();
 
 			// we will actually trigger this checkpoint!
@@ -565,13 +583,16 @@ public class CheckpointCoordinator {
 								} else {
 									// no exception, no discarding, everything is OK
 									final long checkpointId = checkpoint.getCheckpointId();
-									snapshotTaskState(
-										timestamp,
-										checkpointId,
-										checkpoint.getCheckpointStorageLocation(),
-										request.props,
-										executions,
-										request.advanceToEndOfTime);
+									try {
+										snapshotTaskState(
+											timestamp,
+											checkpointId,
+											checkpoint.getCheckpointStorageLocation(),
+											request.props,
+											request.advanceToEndOfTime);
+									} catch (CheckpointException e) {
+										onTriggerFailure(checkpoint, throwable);
+									}
 
 									coordinatorsToCheckpoint.forEach((ctx) -> ctx.afterSourceBarrierInjection(checkpointId));
 
@@ -619,6 +640,7 @@ public class CheckpointCoordinator {
 					checkpointStorage
 						.initializeLocationForSavepoint(checkpointID, externalSavepointLocation) :
 					checkpointStorage.initializeLocationForCheckpoint(checkpointID);
+				checkpointStorage.initializeLocationForFinalSnapshots(checkpointID);
 
 				return new CheckpointIdAndStorageLocation(checkpointID, checkpointStorageLocation);
 			} catch (Throwable throwable) {
@@ -740,7 +762,6 @@ public class CheckpointCoordinator {
 	 * @param checkpointID the checkpoint id
 	 * @param checkpointStorageLocation the checkpoint location
 	 * @param props the checkpoint properties
-	 * @param executions the executions which should be triggered
 	 * @param advanceToEndOfTime Flag indicating if the source should inject a {@code MAX_WATERMARK}
 	 *                               in the pipeline to fire any registered event-time timers.
 	 */
@@ -749,8 +770,7 @@ public class CheckpointCoordinator {
 		long checkpointID,
 		CheckpointStorageLocation checkpointStorageLocation,
 		CheckpointProperties props,
-		Execution[] executions,
-		boolean advanceToEndOfTime) {
+		boolean advanceToEndOfTime) throws CheckpointException {
 
 		final CheckpointOptions checkpointOptions = new CheckpointOptions(
 			props.getCheckpointType(),
@@ -758,14 +778,102 @@ public class CheckpointCoordinator {
 			isExactlyOnceMode,
 			props.getCheckpointType() == CheckpointType.CHECKPOINT && unalignedCheckpointsEnabled);
 
-		// send the messages to the tasks that trigger their checkpoint
-		for (Execution execution: executions) {
-			if (props.isSynchronous()) {
-				execution.triggerSynchronousSavepoint(checkpointID, timestamp, checkpointOptions, advanceToEndOfTime);
+
+		/**
+		 * Here we decide the tasks to trigger dynamically.
+		 *
+		 * One change here is that we would not seek to trigger exactly leaf tasks. For example,
+		 *
+		 * A --> B |
+		 *         | --> E
+		 * C --> D |
+		 *
+		 * If A and B are finished, we would trigger C & E. In fact, only C is the pure leaf nodes.
+		 *
+		 * The choice here is due to the computational complexity. If we want to verify E is not connected from any
+		 * running sources, we will have to traver the whole graph. To make thing worse, there are cases that C is
+		 * detected to be running initially, but when we trigger it on the taskexecutor it may already finished.
+		 * In this case we will need to trigger its descendants instead, if we want to only trigger pure leaf nodes,
+		 * we have to traver the graph again to verify which descendants has no other running sources connected.
+		 *
+		 * Another block for using graph traversal to decide pure leaf nodes is that we could not get the accurate
+		 * state of whether a task is finished. Since we are not in JM main thread, the task state may change during
+		 * this process. If we think a source is running but it end up finished, we might miss some nodes.
+		 */
+		Deque<ExecutionVertex> executionsToTrigger = new ArrayDeque<>();
+
+		Map<ExecutionVertexID, FinalSnapshotManager.SnapshotAndLocation> finalSnapshots = finalSnapshotManager.getCurrentFinalSnapshots();
+		Set<ExecutionVertexID> accessedVertexIds = new HashSet<>();
+		Deque<ExecutionVertex> pendingVertices = new ArrayDeque<>(Arrays.asList(tasksToTrigger));
+
+		LOG.info("Final snapshots = {}", finalSnapshots);
+
+		while (!pendingVertices.isEmpty()) {
+			ExecutionVertex current = pendingVertices.poll();
+
+			if (accessedVertexIds.contains(current.getID())) {
+				continue;
+			}
+
+			accessedVertexIds.add(current.getID());
+
+			Execution currentExecution = current.getCurrentExecutionAttempt();
+			if (currentExecution.getState() == ExecutionState.FINISHED) {
+				FinalSnapshotManager.SnapshotAndLocation snapshotAndLocation = finalSnapshots.get(current.getID());
+				checkState(snapshotAndLocation != null, "Finished execution must has final snapshots");
+
+				pendingVertices.addAll(getDescendantVertex(current));
+				receiveAcknowledgeMessage(new AcknowledgeCheckpoint(
+						job,
+						current.getCurrentExecutionAttempt().getAttemptId(),
+						checkpointID,
+						new CheckpointMetrics(),
+						snapshotAndLocation.snapshot),
+					snapshotAndLocation.location);
 			} else {
-				execution.triggerCheckpoint(checkpointID, timestamp, checkpointOptions);
+				executionsToTrigger.add(current);
 			}
 		}
+
+		while (!executionsToTrigger.isEmpty()) {
+			ExecutionVertex current = executionsToTrigger.poll();
+			LOG.info("Triggering {} for checkpoint {}", current, checkpointID);
+
+			Execution execution = current.getCurrentExecutionAttempt();
+
+			CompletableFuture<Acknowledge> triggerResult = props.isSynchronous() ?
+				execution.triggerSynchronousSavepoint(checkpointID, timestamp, checkpointOptions, advanceToEndOfTime) :
+				execution.triggerCheckpoint(checkpointID, timestamp, checkpointOptions);
+
+			triggerResult.whenComplete((acknowledge, throwable) -> {
+				if (throwable instanceof CheckpointException &&
+					((CheckpointException) throwable).getCheckpointFailureReason() == CheckpointFailureReason.TASK_CHECKPOINT_FAILURE) {
+					executionsToTrigger.addAll(getDescendantVertex(current));
+					finalSnapshotManager.retrieveFinalSnapshot(current.getID())
+						.whenCompleteAsync((snapshotAndLocation, innerThrowable) -> {
+							try {
+								receiveAcknowledgeMessage(new AcknowledgeCheckpoint(
+										job,
+										current.getCurrentExecutionAttempt().getAttemptId(),
+										checkpointID,
+										new CheckpointMetrics(),
+										snapshotAndLocation.snapshot),
+									snapshotAndLocation.location);
+							} catch (CheckpointException e) {
+								//TODO handle e
+								e.printStackTrace();
+							}
+						}, timer);
+				}
+			});
+		}
+	}
+
+	private List<ExecutionVertex> getDescendantVertex(ExecutionVertex vertex) {
+		List<ExecutionVertex> result = new ArrayList<>();
+		vertex.getProducedPartitions().values().forEach(partition ->
+			partition.getConsumers().get(0).forEach(edge -> result.add(edge.getTarget())));
+		return result;
 	}
 
 	/**
@@ -927,6 +1035,8 @@ public class CheckpointCoordinator {
 	 * @throws CheckpointException If the checkpoint cannot be added to the completed checkpoint store.
 	 */
 	public boolean receiveAcknowledgeMessage(AcknowledgeCheckpoint message, String taskManagerLocationInfo) throws CheckpointException {
+		ExecutionVertex vertex = getExecutionVertex(message.getTaskExecutionId());
+		LOG.info("Received AcknowledgeCheckpoint {} of {}, is final = {}", message.getCheckpointId(), vertex.getTaskNameWithSubtaskIndex(), message.getSubtaskState().isFinal());
 		if (shutdown || message == null) {
 			return false;
 		}
@@ -943,6 +1053,12 @@ public class CheckpointCoordinator {
 			// get races and invalid error log messages
 			if (shutdown) {
 				return false;
+			}
+
+			// We will first try to see if it is final
+			if (message.getSubtaskState().isFinal()) {
+				// TODO: Currently we do handle the call from trigger checkpoint specially since underlying we have deduplication and for lazy...
+				finalSnapshotManager.addFinalSnapshot(vertex.getID(), message.getSubtaskState(), taskManagerLocationInfo);
 			}
 
 			final PendingCheckpoint checkpoint = pendingCheckpoints.get(checkpointId);
@@ -1009,6 +1125,17 @@ public class CheckpointCoordinator {
 			}
 		}
 	}
+
+	private ExecutionVertex getExecutionVertex(ExecutionAttemptID executionAttemptID) {
+		for (ExecutionVertex vertex : tasksToCommitTo) {
+			if (vertex.getCurrentExecutionAttempt().getAttemptId().equals(executionAttemptID)) {
+				return vertex;
+			}
+		}
+
+		return null;
+	}
+
 
 	/**
 	 * Try to complete the given pending checkpoint.
@@ -1658,6 +1785,20 @@ public class CheckpointCoordinator {
 		// Don't allow periodic checkpoint if scheduling has been disabled
 		if (isPeriodic && !periodicScheduling) {
 			throw new CheckpointException(CheckpointFailureReason.PERIODIC_SCHEDULER_SHUTDOWN);
+		}
+	}
+
+	private void checkAllSourcesAreStarted() throws CheckpointException {
+		// Check at least all sources are started
+		for (ExecutionVertex source : tasksToTrigger) {
+			Execution ee = source.getCurrentExecutionAttempt();
+			if (ee == null) {
+				throw new CheckpointException(
+					CheckpointFailureReason.NOT_ALL_REQUIRED_TASKS_RUNNING);
+			} else if (ee.getState() != ExecutionState.RUNNING && ee.getState() != ExecutionState.FINISHED) {
+				throw new CheckpointException(
+					CheckpointFailureReason.NOT_ALL_REQUIRED_TASKS_RUNNING);
+			}
 		}
 	}
 

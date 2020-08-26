@@ -26,6 +26,8 @@ import org.apache.flink.api.common.time.Time;
 import org.apache.flink.core.io.InputSplit;
 import org.apache.flink.runtime.JobException;
 import org.apache.flink.runtime.accumulators.StringifiedAccumulatorResult;
+import org.apache.flink.runtime.checkpoint.CheckpointException;
+import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.CheckpointType;
 import org.apache.flink.runtime.checkpoint.JobManagerTaskRestore;
@@ -1021,8 +1023,8 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 	 * @param timestamp of the checkpoint to trigger
 	 * @param checkpointOptions of the checkpoint to trigger
 	 */
-	public void triggerCheckpoint(long checkpointId, long timestamp, CheckpointOptions checkpointOptions) {
-		triggerCheckpointHelper(checkpointId, timestamp, checkpointOptions, false);
+	public CompletableFuture<Acknowledge> triggerCheckpoint(long checkpointId, long timestamp, CheckpointOptions checkpointOptions) {
+		return triggerCheckpointHelper(checkpointId, timestamp, checkpointOptions, false);
 	}
 
 	/**
@@ -1034,11 +1036,11 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 	 * @param advanceToEndOfEventTime Flag indicating if the source should inject a {@code MAX_WATERMARK} in the pipeline
 	 *                              to fire any registered event-time timers
 	 */
-	public void triggerSynchronousSavepoint(long checkpointId, long timestamp, CheckpointOptions checkpointOptions, boolean advanceToEndOfEventTime) {
-		triggerCheckpointHelper(checkpointId, timestamp, checkpointOptions, advanceToEndOfEventTime);
+	public CompletableFuture<Acknowledge> triggerSynchronousSavepoint(long checkpointId, long timestamp, CheckpointOptions checkpointOptions, boolean advanceToEndOfEventTime) {
+		return triggerCheckpointHelper(checkpointId, timestamp, checkpointOptions, advanceToEndOfEventTime);
 	}
 
-	private void triggerCheckpointHelper(long checkpointId, long timestamp, CheckpointOptions checkpointOptions, boolean advanceToEndOfEventTime) {
+	private CompletableFuture<Acknowledge> triggerCheckpointHelper(long checkpointId, long timestamp, CheckpointOptions checkpointOptions, boolean advanceToEndOfEventTime) {
 
 		final CheckpointType checkpointType = checkpointOptions.getCheckpointType();
 		if (advanceToEndOfEventTime && !(checkpointType.isSynchronous() && checkpointType.isSavepoint())) {
@@ -1050,9 +1052,13 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 		if (slot != null) {
 			final TaskManagerGateway taskManagerGateway = slot.getTaskManagerGateway();
 
-			taskManagerGateway.triggerCheckpoint(attemptId, getVertex().getJobId(), checkpointId, timestamp, checkpointOptions, advanceToEndOfEventTime);
+			return taskManagerGateway.triggerCheckpoint(attemptId, getVertex().getJobId(), checkpointId, timestamp, checkpointOptions, advanceToEndOfEventTime);
 		} else {
 			LOG.debug("The execution has no slot assigned. This indicates that the execution is no longer running.");
+
+			return FutureUtils.completedExceptionally(new CheckpointException(
+				"The execution has no slot assigned. This indicates that the execution is no longer running.",
+				CheckpointFailureReason.TASK_CHECKPOINT_FAILURE));
 		}
 	}
 

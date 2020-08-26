@@ -254,6 +254,13 @@ public class DefaultScheduler extends SchedulerBase implements SchedulerOperatio
 		return () -> {
 			final Set<ExecutionVertexID> verticesToRestart = executionVertexVersioner.getUnmodifiedExecutionVertices(executionVertexVersions);
 
+			try {
+				onTaskRestarting(verticesToRestart);
+			} catch (Exception e) {
+				handleGlobalFailure(e);
+				return;
+			}
+
 			removeVerticesFromRestartPending(verticesToRestart);
 
 			resetForNewExecutions(verticesToRestart);
