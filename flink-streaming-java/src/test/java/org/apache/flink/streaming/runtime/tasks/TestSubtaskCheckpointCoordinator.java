@@ -72,7 +72,7 @@ public class TestSubtaskCheckpointCoordinator implements SubtaskCheckpointCoordi
 	}
 
 	@Override
-	public void checkpointState(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions, CheckpointMetrics checkpointMetrics, OperatorChain<?, ?> operatorChain, Supplier<Boolean> isCanceled) {
+	public void checkpointState(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions, CheckpointMetrics checkpointMetrics, OperatorChain<?, ?> operatorChain, Supplier<Boolean> isCanceled, boolean isFinal) {
 	}
 
 	@Override

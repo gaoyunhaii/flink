@@ -55,6 +55,8 @@ public class TaskStateSnapshot implements CompositeStateHandle {
 	 */
 	private final Map<OperatorID, OperatorSubtaskState> subtaskStatesByOperatorID;
 
+	private final boolean isFinal;
+
 	public TaskStateSnapshot() {
 		this(10);
 	}
@@ -63,8 +65,17 @@ public class TaskStateSnapshot implements CompositeStateHandle {
 		this(new HashMap<>(size));
 	}
 
+	public TaskStateSnapshot(int size, boolean isFinal) {
+		this(new HashMap<>(size), isFinal);
+	}
+
 	public TaskStateSnapshot(Map<OperatorID, OperatorSubtaskState> subtaskStatesByOperatorID) {
+		this(subtaskStatesByOperatorID, false);
+	}
+
+	public TaskStateSnapshot(Map<OperatorID, OperatorSubtaskState> subtaskStatesByOperatorID, boolean isFinal) {
 		this.subtaskStatesByOperatorID = Preconditions.checkNotNull(subtaskStatesByOperatorID);
+		this.isFinal = isFinal;
 	}
 
 	/**
@@ -73,6 +84,10 @@ public class TaskStateSnapshot implements CompositeStateHandle {
 	@Nullable
 	public OperatorSubtaskState getSubtaskStateByOperatorID(OperatorID operatorID) {
 		return subtaskStatesByOperatorID.get(operatorID);
+	}
+
+	public boolean isFinal() {
+		return isFinal;
 	}
 
 	/**

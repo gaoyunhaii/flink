@@ -60,7 +60,8 @@ public interface SubtaskCheckpointCoordinator extends Closeable {
 		CheckpointOptions checkpointOptions,
 		CheckpointMetrics checkpointMetrics,
 		OperatorChain<?, ?> operatorChain,
-		Supplier<Boolean> isCanceled) throws Exception;
+		Supplier<Boolean> isCanceled,
+		boolean isFinal) throws Exception;
 
 	/**
 	 * Notified on the task side once a distributed checkpoint has been completed.

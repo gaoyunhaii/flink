@@ -105,6 +105,11 @@ public class BackendForTestStream extends MemoryStateBackend {
 		}
 
 		@Override
+		public void initializeLocationForFinalSnapshots(long checkpointId) throws IOException {
+
+		}
+
+		@Override
 		public CheckpointStreamFactory resolveCheckpointStorageLocation(long checkpointId, CheckpointStorageLocationReference reference) {
 			return streamFactory;
 		}
@@ -112,6 +117,11 @@ public class BackendForTestStream extends MemoryStateBackend {
 		@Override
 		public CheckpointStateOutputStream createTaskOwnedStateStream() {
 			throw new UnsupportedOperationException();
+		}
+
+		@Override
+		public CheckpointStorageLocation resolveLocationForFinalSnapshots(long checkpointId) throws IOException {
+			return null;
 		}
 	}
 

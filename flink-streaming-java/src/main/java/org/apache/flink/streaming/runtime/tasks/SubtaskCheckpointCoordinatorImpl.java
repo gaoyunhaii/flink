@@ -35,6 +35,7 @@ import org.apache.flink.runtime.io.network.api.writer.ResultPartitionWriter;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.partition.ResultSubpartition;
 import org.apache.flink.runtime.jobgraph.OperatorID;
+import org.apache.flink.runtime.state.CheckpointStorageLocation;
 import org.apache.flink.runtime.state.CheckpointStorageLocationReference;
 import org.apache.flink.runtime.state.CheckpointStorageWorkerView;
 import org.apache.flink.runtime.state.CheckpointStreamFactory;
@@ -218,7 +219,8 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 			CheckpointOptions options,
 			CheckpointMetrics metrics,
 			OperatorChain<?, ?> operatorChain,
-			Supplier<Boolean> isCanceled) throws Exception {
+			Supplier<Boolean> isCanceled,
+			boolean isFinal) throws Exception {
 
 		checkNotNull(options);
 		checkNotNull(metrics);
@@ -264,7 +266,7 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 		Map<OperatorID, OperatorSnapshotFutures> snapshotFutures = new HashMap<>(operatorChain.getNumberOfOperators());
 		try {
 			if (takeSnapshotSync(snapshotFutures, metadata, metrics, options, operatorChain, isCanceled)) {
-				finishAndReportAsync(snapshotFutures, metadata, metrics, options);
+				finishAndReportAsync(snapshotFutures, metadata, metrics, options, isFinal);
 			} else {
 				cleanup(snapshotFutures, metadata, metrics, new Exception("Checkpoint declined"));
 			}
@@ -446,7 +448,13 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 			});
 	}
 
-	private void finishAndReportAsync(Map<OperatorID, OperatorSnapshotFutures> snapshotFutures, CheckpointMetaData metadata, CheckpointMetrics metrics, CheckpointOptions options) {
+	private void finishAndReportAsync(
+		Map<OperatorID, OperatorSnapshotFutures> snapshotFutures,
+		CheckpointMetaData metadata,
+		CheckpointMetrics metrics,
+		CheckpointOptions options,
+		boolean isFinal) {
+
 		// we are transferring ownership over snapshotInProgressList for cleanup to the thread, active on submit
 		executorService.execute(new AsyncCheckpointRunnable(
 			snapshotFutures,
@@ -457,7 +465,8 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 			registerConsumer(),
 			unregisterConsumer(),
 			env,
-			asyncExceptionHandler));
+			asyncExceptionHandler,
+			isFinal));
 	}
 
 	private Consumer<AsyncCheckpointRunnable> registerConsumer() {
@@ -601,6 +610,11 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 		@Override
 		public CheckpointStreamFactory.CheckpointStateOutputStream createTaskOwnedStateStream() throws IOException {
 			return delegate.createTaskOwnedStateStream();
+		}
+
+		@Override
+		public CheckpointStorageLocation resolveLocationForFinalSnapshots(long checkpointId) throws IOException {
+			return delegate.resolveLocationForFinalSnapshots(checkpointId);
 		}
 	}
 

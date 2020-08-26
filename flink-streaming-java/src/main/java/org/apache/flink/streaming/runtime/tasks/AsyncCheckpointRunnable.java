@@ -61,6 +61,7 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 	private final CheckpointMetrics checkpointMetrics;
 	private final long asyncStartNanos;
 	private final AtomicReference<AsyncCheckpointState> asyncCheckpointState = new AtomicReference<>(AsyncCheckpointState.RUNNING);
+	private final boolean isFinal;
 
 	AsyncCheckpointRunnable(
 			Map<OperatorID, OperatorSnapshotFutures> operatorSnapshotsInProgress,
@@ -71,7 +72,8 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 			Consumer<AsyncCheckpointRunnable> register,
 			Consumer<AsyncCheckpointRunnable> unregister,
 			Environment taskEnvironment,
-			AsyncExceptionHandler asyncExceptionHandler) {
+			AsyncExceptionHandler asyncExceptionHandler,
+			boolean isFinal) {
 
 		this.operatorSnapshotsInProgress = checkNotNull(operatorSnapshotsInProgress);
 		this.checkpointMetaData = checkNotNull(checkpointMetaData);
@@ -82,6 +84,7 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 		this.unregisterConsumer = unregister;
 		this.taskEnvironment = checkNotNull(taskEnvironment);
 		this.asyncExceptionHandler = checkNotNull(asyncExceptionHandler);
+		this.isFinal = isFinal;
 	}
 
 	@Override
@@ -90,8 +93,8 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 		try {
 			registerConsumer.accept(this);
 
-			TaskStateSnapshot jobManagerTaskOperatorSubtaskStates = new TaskStateSnapshot(operatorSnapshotsInProgress.size());
-			TaskStateSnapshot localTaskOperatorSubtaskStates = new TaskStateSnapshot(operatorSnapshotsInProgress.size());
+			TaskStateSnapshot jobManagerTaskOperatorSubtaskStates = new TaskStateSnapshot(operatorSnapshotsInProgress.size(), isFinal);
+			TaskStateSnapshot localTaskOperatorSubtaskStates = new TaskStateSnapshot(operatorSnapshotsInProgress.size(), isFinal);
 
 			for (Map.Entry<OperatorID, OperatorSnapshotFutures> entry : operatorSnapshotsInProgress.entrySet()) {
 
