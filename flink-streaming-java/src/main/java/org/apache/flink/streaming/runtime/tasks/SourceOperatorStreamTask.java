@@ -19,11 +19,15 @@
 package org.apache.flink.streaming.runtime.tasks;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.streaming.api.operators.Output;
 import org.apache.flink.streaming.api.operators.SourceOperator;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.io.AbstractDataOutput;
+import org.apache.flink.streaming.runtime.io.EmptyCheckpointBarrierHandler;
 import org.apache.flink.streaming.runtime.io.PushingAsyncDataInput.DataOutput;
 import org.apache.flink.streaming.runtime.io.StreamOneInputProcessor;
 import org.apache.flink.streaming.runtime.io.StreamTaskInput;
@@ -54,7 +58,34 @@ public class SourceOperatorStreamTask<T> extends StreamTask<T, SourceOperator<T,
 		inputProcessor = new StreamOneInputProcessor<>(
 			input,
 			output,
-			operatorChain);
+			operatorChain,
+			new EmptyCheckpointBarrierHandler(this));
+	}
+
+	@Override
+	protected boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions, boolean advanceToEndOfEventTime) throws Exception {
+		try {
+			// No alignment if we inject a checkpoint
+			CheckpointMetrics checkpointMetrics = new CheckpointMetrics().setAlignmentDurationNanos(0L);
+
+			subtaskCheckpointCoordinator.initCheckpoint(checkpointMetaData.getCheckpointId(), checkpointOptions);
+
+			boolean success = performCheckpoint(checkpointMetaData, checkpointOptions, checkpointMetrics, advanceToEndOfEventTime);
+			if (!success) {
+				declineCheckpoint(checkpointMetaData.getCheckpointId());
+			}
+			return success;
+		} catch (Exception e) {
+			// propagate exceptions only if the task is still in "running" state
+			if (isRunning()) {
+				throw new Exception("Could not perform checkpoint " + checkpointMetaData.getCheckpointId() +
+					" for operator " + getName() + '.', e);
+			} else {
+				LOG.debug("Could not perform checkpoint {} for operator {} while the " +
+					"invokable was not in state running.", checkpointMetaData.getCheckpointId(), getName(), e);
+				return false;
+			}
+		}
 	}
 
 	/**

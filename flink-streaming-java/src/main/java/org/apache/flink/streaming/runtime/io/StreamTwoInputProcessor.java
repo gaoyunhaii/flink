@@ -22,6 +22,8 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.core.io.InputStatus;
 import org.apache.flink.metrics.Counter;
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.channel.ChannelStateWriter;
 import org.apache.flink.runtime.io.disk.iomanager.IOManager;
 import org.apache.flink.streaming.api.operators.InputSelection;
@@ -63,6 +65,8 @@ public final class StreamTwoInputProcessor<IN1, IN2> implements StreamInputProce
 	private final DataOutput<IN1> output1;
 	private final DataOutput<IN2> output2;
 
+	private final CheckpointBarrierHandler checkpointBarrierHandler;
+
 	/** Input status to keep track for determining whether the input is finished or not. */
 	private InputStatus firstInputStatus = InputStatus.MORE_AVAILABLE;
 	private InputStatus secondInputStatus = InputStatus.MORE_AVAILABLE;
@@ -90,7 +94,8 @@ public final class StreamTwoInputProcessor<IN1, IN2> implements StreamInputProce
 			WatermarkGauge input1WatermarkGauge,
 			WatermarkGauge input2WatermarkGauge,
 			OperatorChain<?, ?> operatorChain,
-			Counter numRecordsIn) {
+			Counter numRecordsIn,
+			CheckpointBarrierHandler checkpointBarrierHandler) {
 
 		this.inputSelectionHandler = checkNotNull(inputSelectionHandler);
 
@@ -121,6 +126,8 @@ public final class StreamTwoInputProcessor<IN1, IN2> implements StreamInputProce
 			1);
 
 		this.operatorChain = checkNotNull(operatorChain);
+
+		this.checkpointBarrierHandler = checkNotNull(checkpointBarrierHandler);
 	}
 
 	private void processRecord1(
@@ -193,6 +200,12 @@ public final class StreamTwoInputProcessor<IN1, IN2> implements StreamInputProce
 		return CompletableFuture.allOf(
 			input1.prepareSnapshot(channelStateWriter, checkpointId),
 			input2.prepareSnapshot(channelStateWriter, checkpointId));
+	}
+
+	@Override
+	public boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) throws IOException {
+		checkpointBarrierHandler.processPartialCheckpointTrigger(checkpointMetaData, checkpointOptions);
+		return true;
 	}
 
 	private int selectFirstReadingInputIndex() throws IOException {

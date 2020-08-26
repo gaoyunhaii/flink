@@ -23,12 +23,14 @@ import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.metrics.Counter;
 import org.apache.flink.runtime.execution.Environment;
+import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
 import org.apache.flink.runtime.io.network.partition.consumer.IndexedInputGate;
 import org.apache.flink.runtime.metrics.MetricNames;
 import org.apache.flink.streaming.api.graph.StreamConfig;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.io.AbstractDataOutput;
+import org.apache.flink.streaming.runtime.io.CheckpointBarrierHandler;
 import org.apache.flink.streaming.runtime.io.CheckpointedInputGate;
 import org.apache.flink.streaming.runtime.io.InputProcessorUtil;
 import org.apache.flink.streaming.runtime.io.PushingAsyncDataInput.DataOutput;
@@ -42,6 +44,8 @@ import org.apache.flink.streaming.runtime.streamstatus.StatusWatermarkValve;
 import org.apache.flink.streaming.runtime.streamstatus.StreamStatusMaintainer;
 
 import javax.annotation.Nullable;
+
+import java.util.Arrays;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -85,29 +89,39 @@ public class OneInputStreamTask<IN, OUT> extends StreamTask<OUT, OneInputStreamO
 		int numberOfInputs = configuration.getNumberOfInputs();
 
 		if (numberOfInputs > 0) {
-			CheckpointedInputGate inputGate = createCheckpointedInputGate();
+			CheckpointBarrierHandler barrierHandler = createCheckpointBarrierHandler();
+			CheckpointedInputGate inputGate = createCheckpointedInputGate(barrierHandler);
 			DataOutput<IN> output = createDataOutput();
 			StreamTaskInput<IN> input = createTaskInput(inputGate, output);
 			inputProcessor = new StreamOneInputProcessor<>(
 				input,
 				output,
-				operatorChain);
+				operatorChain,
+				barrierHandler);
 		}
 		headOperator.getMetricGroup().gauge(MetricNames.IO_CURRENT_INPUT_WATERMARK, this.inputWatermarkGauge);
 		// wrap watermark gauge since registered metrics must be unique
 		getEnvironment().getMetricGroup().gauge(MetricNames.IO_CURRENT_INPUT_WATERMARK, this.inputWatermarkGauge::getValue);
 	}
 
-	private CheckpointedInputGate createCheckpointedInputGate() {
+	private CheckpointBarrierHandler createCheckpointBarrierHandler() {
+		IndexedInputGate[] inputGates = getEnvironment().getAllInputGates();
+
+		return InputProcessorUtil.createCheckpointBarrierHandler(
+			configuration,
+			getCheckpointCoordinator(),
+			getTaskNameWithSubtaskAndId(),
+			this,
+			Arrays.asList(inputGates));
+	}
+
+	private CheckpointedInputGate createCheckpointedInputGate(CheckpointBarrierHandler barrierHandler) {
 		IndexedInputGate[] inputGates = getEnvironment().getAllInputGates();
 
 		return InputProcessorUtil.createCheckpointedInputGate(
-			this,
-			configuration,
-			getCheckpointCoordinator(),
 			inputGates,
 			getEnvironment().getMetricGroup().getIOMetricGroup(),
-			getTaskNameWithSubtaskAndId());
+			barrierHandler);
 	}
 
 	private DataOutput<IN> createDataOutput() {

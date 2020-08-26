@@ -802,6 +802,16 @@ public abstract class SchedulerBase implements SchedulerNG {
 		}
 	}
 
+	public void onTaskRestarting(Set<ExecutionVertexID> verticesToRestart) throws Exception {
+		mainThreadExecutor.assertRunningInMainThread();
+
+		CheckpointCoordinator checkpointCoordinator = executionGraph.getCheckpointCoordinator();
+		if (checkpointCoordinator != null) {
+			// For this action, we must do it synchronously before we did restart the tasks
+			checkpointCoordinator.onTaskRestarting(verticesToRestart);
+		}
+	}
+
 	@Override
 	public void acknowledgeCheckpoint(final JobID jobID, final ExecutionAttemptID executionAttemptID, final long checkpointId, final CheckpointMetrics checkpointMetrics, final TaskStateSnapshot checkpointState) {
 		mainThreadExecutor.assertRunningInMainThread();

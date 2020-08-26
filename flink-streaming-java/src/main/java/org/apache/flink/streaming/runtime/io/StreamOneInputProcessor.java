@@ -20,6 +20,8 @@ package org.apache.flink.streaming.runtime.io;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.core.io.InputStatus;
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.channel.ChannelStateWriter;
 import org.apache.flink.streaming.runtime.io.PushingAsyncDataInput.DataOutput;
 import org.apache.flink.streaming.runtime.tasks.OperatorChain;
@@ -47,14 +49,18 @@ public final class StreamOneInputProcessor<IN> implements StreamInputProcessor {
 
 	private final OperatorChain<?, ?> operatorChain;
 
+	private final CheckpointBarrierHandler checkpointBarrierHandler;
+
 	public StreamOneInputProcessor(
 			StreamTaskInput<IN> input,
 			DataOutput<IN> output,
-			OperatorChain<?, ?> operatorChain) {
+			OperatorChain<?, ?> operatorChain,
+			CheckpointBarrierHandler checkpointBarrierHandler) {
 
 		this.input = checkNotNull(input);
 		this.output = checkNotNull(output);
 		this.operatorChain = checkNotNull(operatorChain);
+		this.checkpointBarrierHandler = checkNotNull(checkpointBarrierHandler);
 	}
 
 	@Override
@@ -78,6 +84,12 @@ public final class StreamOneInputProcessor<IN> implements StreamInputProcessor {
 			ChannelStateWriter channelStateWriter,
 			long checkpointId) throws IOException {
 		return input.prepareSnapshot(channelStateWriter, checkpointId);
+	}
+
+	@Override
+	public boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) throws IOException {
+		checkpointBarrierHandler.processPartialCheckpointTrigger(checkpointMetaData, checkpointOptions);
+		return true;
 	}
 
 	@Override

@@ -26,6 +26,7 @@ import org.apache.flink.streaming.api.graph.StreamConfig;
 import org.apache.flink.streaming.api.graph.StreamEdge;
 import org.apache.flink.streaming.api.operators.InputSelectable;
 import org.apache.flink.streaming.api.operators.MultipleInputStreamOperator;
+import org.apache.flink.streaming.runtime.io.CheckpointBarrierHandler;
 import org.apache.flink.streaming.runtime.io.CheckpointedInputGate;
 import org.apache.flink.streaming.runtime.io.InputProcessorUtil;
 import org.apache.flink.streaming.runtime.io.MultipleInputSelectionHandler;
@@ -90,12 +91,15 @@ public class MultipleInputStreamTask<OUT> extends StreamTask<OUT, MultipleInputS
 			headOperator instanceof InputSelectable ? (InputSelectable) headOperator : null,
 			inputGates.length);
 
-		CheckpointedInputGate[] checkpointedInputGates = InputProcessorUtil.createCheckpointedMultipleInputGate(
-			this,
+		CheckpointBarrierHandler checkpointBarrierHandler = InputProcessorUtil.createCheckpointBarrierHandler(
 			getConfiguration(),
 			getCheckpointCoordinator(),
-			getEnvironment().getMetricGroup().getIOMetricGroup(),
 			getTaskNameWithSubtaskAndId(),
+			this,
+			inputGates);
+		CheckpointedInputGate[] checkpointedInputGates = InputProcessorUtil.createCheckpointedMultipleInputGate(
+			getEnvironment().getMetricGroup().getIOMetricGroup(),
+			checkpointBarrierHandler,
 			inputGates);
 		checkState(checkpointedInputGates.length == inputGates.length);
 
@@ -108,6 +112,7 @@ public class MultipleInputStreamTask<OUT> extends StreamTask<OUT, MultipleInputS
 			selectionHandler,
 			inputWatermarkGauges,
 			operatorChain,
-			setupNumRecordsInCounter(headOperator));
+			setupNumRecordsInCounter(headOperator),
+			checkpointBarrierHandler);
 	}
 }

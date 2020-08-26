@@ -1394,6 +1394,11 @@ public class StreamTaskTest extends TestLogger {
 		}
 
 		@Override
+		public boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) throws IOException {
+			return true;
+		}
+
+		@Override
 		public void close() throws IOException {
 		}
 
@@ -1561,6 +1566,11 @@ public class StreamTaskTest extends TestLogger {
 		@Override
 		public CompletableFuture<Void> prepareSnapshot(ChannelStateWriter channelStateWriter, long checkpointId) {
 			return FutureUtils.completedVoidFuture();
+		}
+
+		@Override
+		public boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) throws IOException {
+			return true;
 		}
 
 		@Override

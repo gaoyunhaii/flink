@@ -62,12 +62,15 @@ public class InputProcessorUtilTest {
 				Collections.singletonList(new MockIndexedInputGate(0, 2)),
 			};
 
-			CheckpointedInputGate[] checkpointedMultipleInputGate = InputProcessorUtil.createCheckpointedMultipleInputGate(
-				streamTask,
+			CheckpointBarrierHandler createdBarrierHandler = InputProcessorUtil.createCheckpointBarrierHandler(
 				streamConfig,
 				new TestSubtaskCheckpointCoordinator(new MockChannelStateWriter()),
-				environment.getMetricGroup().getIOMetricGroup(),
 				streamTask.getName(),
+				streamTask,
+				inputGates);
+			CheckpointedInputGate[] checkpointedMultipleInputGate = InputProcessorUtil.createCheckpointedMultipleInputGate(
+				environment.getMetricGroup().getIOMetricGroup(),
+				createdBarrierHandler,
 				inputGates);
 			for (CheckpointedInputGate checkpointedInputGate : checkpointedMultipleInputGate) {
 				registry.registerCloseable(checkpointedInputGate);

@@ -23,6 +23,7 @@ import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.runtime.io.network.partition.consumer.IndexedInputGate;
 import org.apache.flink.streaming.api.operators.InputSelectable;
 import org.apache.flink.streaming.api.operators.TwoInputStreamOperator;
+import org.apache.flink.streaming.runtime.io.CheckpointBarrierHandler;
 import org.apache.flink.streaming.runtime.io.CheckpointedInputGate;
 import org.apache.flink.streaming.runtime.io.InputProcessorUtil;
 import org.apache.flink.streaming.runtime.io.StreamTwoInputProcessor;
@@ -50,16 +51,21 @@ public class TwoInputStreamTask<IN1, IN2, OUT> extends AbstractTwoInputStreamTas
 		TypeSerializer<IN1> inputDeserializer1,
 		TypeSerializer<IN2> inputDeserializer2) {
 
+		CheckpointBarrierHandler checkpointBarrierHandler = InputProcessorUtil.createCheckpointBarrierHandler(
+			getConfiguration(),
+			getCheckpointCoordinator(),
+			getTaskNameWithSubtaskAndId(),
+			this,
+			inputGates1,
+			inputGates2);
+
 		TwoInputSelectionHandler twoInputSelectionHandler = new TwoInputSelectionHandler(
 			headOperator instanceof InputSelectable ? (InputSelectable) headOperator : null);
 
 		// create an input instance for each input
 		CheckpointedInputGate[] checkpointedInputGates = InputProcessorUtil.createCheckpointedMultipleInputGate(
-			this,
-			getConfiguration(),
-			getCheckpointCoordinator(),
 			getEnvironment().getMetricGroup().getIOMetricGroup(),
-			getTaskNameWithSubtaskAndId(),
+			checkpointBarrierHandler,
 			inputGates1,
 			inputGates2);
 		checkState(checkpointedInputGates.length == 2);
@@ -75,6 +81,7 @@ public class TwoInputStreamTask<IN1, IN2, OUT> extends AbstractTwoInputStreamTas
 			input1WatermarkGauge,
 			input2WatermarkGauge,
 			operatorChain,
-			setupNumRecordsInCounter(headOperator));
+			setupNumRecordsInCounter(headOperator),
+			checkpointBarrierHandler);
 	}
 }

@@ -22,6 +22,8 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.core.io.InputStatus;
 import org.apache.flink.metrics.Counter;
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.channel.ChannelStateWriter;
 import org.apache.flink.runtime.io.disk.iomanager.IOManager;
 import org.apache.flink.streaming.api.operators.Input;
@@ -64,6 +66,8 @@ public final class StreamMultipleInputProcessor implements StreamInputProcessor 
 
 	private final Counter numRecordsIn;
 
+	private final CheckpointBarrierHandler checkpointBarrierHandler;
+
 	/** Always try to read from the first input. */
 	private int lastReadInputIndex = 1;
 
@@ -78,7 +82,8 @@ public final class StreamMultipleInputProcessor implements StreamInputProcessor 
 			MultipleInputSelectionHandler inputSelectionHandler,
 			WatermarkGauge[] inputWatermarkGauges,
 			OperatorChain<?, ?> operatorChain,
-			Counter numRecordsIn) {
+			Counter numRecordsIn,
+			CheckpointBarrierHandler checkpointBarrierHandler) {
 
 		this.inputSelectionHandler = checkNotNull(inputSelectionHandler);
 
@@ -108,6 +113,7 @@ public final class StreamMultipleInputProcessor implements StreamInputProcessor 
 		}
 
 		this.operatorChain = checkNotNull(operatorChain);
+		this.checkpointBarrierHandler = checkNotNull(checkpointBarrierHandler);
 	}
 
 	@Override
@@ -187,6 +193,12 @@ public final class StreamMultipleInputProcessor implements StreamInputProcessor 
 			inputFutures[index] = inputProcessors[index].prepareSnapshot(channelStateWriter, checkpointId);
 		}
 		return CompletableFuture.allOf(inputFutures);
+	}
+
+	@Override
+	public boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) throws IOException {
+		checkpointBarrierHandler.processPartialCheckpointTrigger(checkpointMetaData, checkpointOptions);
+		return true;
 	}
 
 	private int selectNextReadingInputIndex() {

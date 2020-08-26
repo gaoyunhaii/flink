@@ -29,6 +29,7 @@ import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
+import org.apache.flink.runtime.checkpoint.CheckpointType;
 import org.apache.flink.runtime.checkpoint.channel.ChannelStateReader;
 import org.apache.flink.runtime.checkpoint.channel.ChannelStateWriter;
 import org.apache.flink.runtime.concurrent.FutureUtils;
@@ -48,6 +49,7 @@ import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
 import org.apache.flink.runtime.metrics.groups.OperatorMetricGroup;
 import org.apache.flink.runtime.operators.coordination.OperatorEvent;
 import org.apache.flink.runtime.plugable.SerializationDelegate;
+import org.apache.flink.runtime.state.CheckpointStorageLocation;
 import org.apache.flink.runtime.state.CheckpointStorageWorkerView;
 import org.apache.flink.runtime.state.StateBackend;
 import org.apache.flink.runtime.state.StateBackendLoader;
@@ -91,6 +93,7 @@ import java.util.Map;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -177,7 +180,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 	/** Our state backend. We use this to create checkpoint streams and a keyed state backend. */
 	protected final StateBackend stateBackend;
 
-	private final SubtaskCheckpointCoordinator subtaskCheckpointCoordinator;
+	protected final SubtaskCheckpointCoordinator subtaskCheckpointCoordinator;
 
 	/**
 	 * The internal {@link TimerService} used to define the current
@@ -222,6 +225,13 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 	private Long syncSavepointId = null;
 
 	private long latestAsyncCheckpointStartDelayNanos;
+
+	// Flags indicating the progress of the final checkpoint.
+	private volatile boolean hasEndOfInput;
+
+	private final ConcurrentHashMap<Long, Boolean> waitingFinalCheckpoints = new ConcurrentHashMap<>();
+
+	private volatile boolean hasNotifiedFinalCheckpointComplete;
 
 	// ------------------------------------------------------------------------
 
@@ -334,6 +344,25 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 	protected void cancelTask() throws Exception {
 	}
 
+	protected void endOfInput() throws Exception {
+		LOG.info("Task {} end of input", getTaskNameWithSubtaskAndId());
+		// Here we will try to wait till we receive the last checkpoint or last checkpoint complete
+		hasEndOfInput = true;
+
+		MailboxExecutor mailboxExecutor = mailboxProcessor.getMailboxExecutor(TaskMailbox.MIN_PRIORITY);
+		if (mailboxProcessor.isMailboxThread()) {
+			while (!hasNotifiedFinalCheckpointComplete) {
+				mailboxExecutor.yield();
+			}
+		} else {
+			// Since we are not in mailbox thread, we could do blocking wait...
+			// TODO Sophiscated blocking method
+			while (!hasNotifiedFinalCheckpointComplete) {
+				Thread.sleep(100);
+			}
+		}
+	}
+
 	protected void cleanup() throws Exception {
 		if (inputProcessor != null) {
 			inputProcessor.close();
@@ -353,6 +382,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 			return;
 		}
 		if (status == InputStatus.END_OF_INPUT) {
+			endOfInput();
 			controller.allActionsCompleted();
 			return;
 		}
@@ -813,6 +843,8 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 			CheckpointOptions checkpointOptions,
 			boolean advanceToEndOfEventTime) {
 
+		LOG.info("Task {} triggering {}", getTaskNameWithSubtaskAndId(), checkpointMetaData.getCheckpointId());
+
 		CompletableFuture<Boolean> result = new CompletableFuture<>();
 		mainMailboxExecutor.execute(
 				() -> {
@@ -834,32 +866,31 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 		return result;
 	}
 
-	private boolean triggerCheckpoint(
+	/**
+	 * Triggers a checkpoint.
+	 *
+	 * @param checkpointMetaData
+	 * @param checkpointOptions
+	 * @param advanceToEndOfEventTime
+	 * @return
+	 * @throws Exception
+	 */
+	protected boolean triggerCheckpoint(
 			CheckpointMetaData checkpointMetaData,
 			CheckpointOptions checkpointOptions,
 			boolean advanceToEndOfEventTime) throws Exception {
-		try {
-			// No alignment if we inject a checkpoint
-			CheckpointMetrics checkpointMetrics = new CheckpointMetrics().setAlignmentDurationNanos(0L);
 
-			subtaskCheckpointCoordinator.initCheckpoint(checkpointMetaData.getCheckpointId(), checkpointOptions);
+		mainMailboxExecutor.execute(
+				() -> {
+					// By default, we only notifies the input about the checkpoint.
+					if (inputProcessor != null) {
+						inputProcessor.triggerCheckpoint(checkpointMetaData, checkpointOptions);
+					}
+				}, "checkpoint %s with %s",
+			checkpointMetaData,
+			checkpointOptions);
 
-			boolean success = performCheckpoint(checkpointMetaData, checkpointOptions, checkpointMetrics, advanceToEndOfEventTime);
-			if (!success) {
-				declineCheckpoint(checkpointMetaData.getCheckpointId());
-			}
-			return success;
-		} catch (Exception e) {
-			// propagate exceptions only if the task is still in "running" state
-			if (isRunning) {
-				throw new Exception("Could not perform checkpoint " + checkpointMetaData.getCheckpointId() +
-					" for operator " + getName() + '.', e);
-			} else {
-				LOG.debug("Could not perform checkpoint {} for operator {} while the " +
-					"invokable was not in state running.", checkpointMetaData.getCheckpointId(), getName(), e);
-				return false;
-			}
-		}
+		return true;
 	}
 
 	@Override
@@ -903,19 +934,33 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 		subtaskCheckpointCoordinator.abortCheckpointOnBarrier(checkpointId, cause, operatorChain);
 	}
 
-	private boolean performCheckpoint(
-			CheckpointMetaData checkpointMetaData,
-			CheckpointOptions checkpointOptions,
-			CheckpointMetrics checkpointMetrics,
-			boolean advanceToEndOfTime) throws Exception {
+	protected boolean performCheckpoint(
+		CheckpointMetaData checkpointMetaData,
+		CheckpointOptions checkpointOptions,
+		CheckpointMetrics checkpointMetrics,
+		boolean advanceToEndOfTime) throws Exception {
 
+		CheckpointType checkpointType = checkpointOptions.getCheckpointType();
+		boolean isFinalCheckpoint = !checkpointType.isSavepoint() && hasEndOfInput;
+		LOG.info("{} perform checkpoint, type = {}, has = {}, is final = {}", getTaskNameWithSubtaskAndId(), checkpointType, hasEndOfInput, isFinalCheckpoint);
+		if (isFinalCheckpoint) {
+			// Modify the checkpoint options
+			CheckpointStorageLocation location =
+				subtaskCheckpointCoordinator.getCheckpointStorage().resolveLocationForFinalSnapshots(checkpointMetaData.getCheckpointId());
+			checkpointOptions = new CheckpointOptions(
+				checkpointType,
+				location.getLocationReference());
+			waitingFinalCheckpoints.put(checkpointMetaData.getCheckpointId(), false);
+		}
+
+		CheckpointOptions finalCheckpointOptions = checkpointOptions;
 		LOG.debug("Starting checkpoint ({}) {} on task {}",
-			checkpointMetaData.getCheckpointId(), checkpointOptions.getCheckpointType(), getName());
+			checkpointMetaData.getCheckpointId(), finalCheckpointOptions.getCheckpointType(), getName());
 
 		if (isRunning) {
 			actionExecutor.runThrowing(() -> {
 
-				if (checkpointOptions.getCheckpointType().isSynchronous()) {
+				if (finalCheckpointOptions.getCheckpointType().isSynchronous()) {
 					setSynchronousSavepointId(checkpointMetaData.getCheckpointId());
 
 					if (advanceToEndOfTime) {
@@ -925,10 +970,11 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 
 				subtaskCheckpointCoordinator.checkpointState(
 					checkpointMetaData,
-					checkpointOptions,
+					finalCheckpointOptions,
 					checkpointMetrics,
 					operatorChain,
-					this::isCanceled);
+					this::isCanceled,
+					isFinalCheckpoint);
 			});
 
 			return true;
@@ -990,6 +1036,11 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 
 	private void notifyCheckpointComplete(long checkpointId) throws Exception {
 		subtaskCheckpointCoordinator.notifyCheckpointComplete(checkpointId, operatorChain, this::isRunning);
+
+		if (waitingFinalCheckpoints.containsKey(checkpointId)) {
+			hasNotifiedFinalCheckpointComplete = true;
+		}
+
 		if (isRunning && isSynchronousSavepointId(checkpointId)) {
 			finishTask();
 			// Reset to "notify" the internal synchronous savepoint mailbox loop.
