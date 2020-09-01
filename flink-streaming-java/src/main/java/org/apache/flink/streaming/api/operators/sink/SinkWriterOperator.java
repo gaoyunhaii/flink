@@ -73,6 +73,11 @@ public class SinkWriterOperator<IN, CommittableT> extends AbstractStreamOperator
 			}
 
 			@Override
+			public int getParallelism() {
+				return getRuntimeContext().getNumberOfParallelSubtasks();
+			}
+
+			@Override
 			public <S> ListState<S> getListState(ListStateDescriptor<S> stateDescriptor) throws Exception {
 				return context.getOperatorStateStore().getListState(stateDescriptor);
 			}
@@ -90,10 +95,16 @@ public class SinkWriterOperator<IN, CommittableT> extends AbstractStreamOperator
 	}
 
 	@Override
-	public void snapshotState(StateSnapshotContext context) throws Exception {
-		super.snapshotState(context);
+	public void prepareSnapshotPreBarrier(long checkpointId) throws Exception {
+		super.prepareSnapshotPreBarrier(checkpointId);
 		writer.persistent(collector);
 	}
+
+	//@Override
+//	public void snapshotState(StateSnapshotContext context) throws Exception {
+//		super.snapshotState(context);
+//		writer.persistent(collector);
+//	}
 
 	@Override
 	public void processElement(StreamRecord<IN> element) throws Exception {
@@ -133,7 +144,7 @@ public class SinkWriterOperator<IN, CommittableT> extends AbstractStreamOperator
 		if (!allManagedCommittablesHasDone) {
 			if (writer instanceof CleanUpUnmanagedCommittable) {
 				final CleanUpUnmanagedCommittable cleanUpUnmangedCommittable = (CleanUpUnmanagedCommittable) writer;
-				cleanUpUnmangedCommittable.cleanUp(new AbstractID());
+				cleanUpUnmangedCommittable.cleanUp();
 				allManagedCommittablesHasDone = true;
 			}
 		}

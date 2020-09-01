@@ -106,6 +106,7 @@ public class FlinkKafkaInternalProducerITCase extends KafkaTestBase {
 			long producerId = kafkaProducer.getProducerId();
 			short epoch = kafkaProducer.getEpoch();
 
+			kafkaProducer.close(Duration.ofSeconds(0));
 			FlinkKafkaInternalProducer<String, String> resumeProducer = new FlinkKafkaInternalProducer<>(extraProperties);
 			try {
 				resumeProducer.resumeTransaction(producerId, epoch);
@@ -117,18 +118,18 @@ public class FlinkKafkaInternalProducerITCase extends KafkaTestBase {
 			assertRecord(topicName, "42", "42");
 
 			// this shouldn't throw - in case of network split, old producer might attempt to commit it's transaction
-			kafkaProducer.commitTransaction();
+//			kafkaProducer.commitTransaction();
 
 			// this shouldn't fail also, for same reason as above
-			resumeProducer = new FlinkKafkaInternalProducer<>(extraProperties);
-			try {
-				resumeProducer.resumeTransaction(producerId, epoch);
-				resumeProducer.commitTransaction();
-			} finally {
-				resumeProducer.close(Duration.ofSeconds(5));
-			}
+//			resumeProducer = new FlinkKafkaInternalProducer<>(extraProperties);
+//			try {
+//				resumeProducer.resumeTransaction(producerId, epoch);
+//				resumeProducer.commitTransaction();
+//			} finally {
+//				resumeProducer.close(Duration.ofSeconds(5));
+//			}
 		} finally {
-			kafkaProducer.close(Duration.ofSeconds(5));
+//			kafkaProducer.close(Duration.ofSeconds(5));
 		}
 		deleteTestTopic(topicName);
 	}

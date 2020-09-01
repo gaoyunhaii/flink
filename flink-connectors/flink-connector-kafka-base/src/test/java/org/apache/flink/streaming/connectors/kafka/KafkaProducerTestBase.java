@@ -46,8 +46,10 @@ import org.apache.flink.test.util.SuccessException;
 import org.apache.flink.test.util.TestUtils;
 import org.apache.flink.util.Preconditions;
 
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.Test;
 
+import javax.annotation.Nullable;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -67,7 +69,7 @@ import static org.junit.Assert.fail;
 @SuppressWarnings("serial")
 public abstract class KafkaProducerTestBase extends KafkaTestBaseWithFlink {
 
-	private static final long KAFKA_READ_TIMEOUT = 60_000L;
+	protected static final long KAFKA_READ_TIMEOUT = 60_000L;
 
 	/**
 	 * This tests verifies that custom partitioning works correctly, with a default topic
@@ -378,7 +380,7 @@ public abstract class KafkaProducerTestBase extends KafkaTestBaseWithFlink {
 		}
 	}
 
-	private List<Integer> getIntegersSequence(int size) {
+	protected List<Integer> getIntegersSequence(int size) {
 		List<Integer> result = new ArrayList<>(size);
 		for (int i = 0; i < size; i++) {
 			result.add(i);
@@ -561,3 +563,4 @@ public abstract class KafkaProducerTestBase extends KafkaTestBaseWithFlink {
 		}
 	}
 }
+

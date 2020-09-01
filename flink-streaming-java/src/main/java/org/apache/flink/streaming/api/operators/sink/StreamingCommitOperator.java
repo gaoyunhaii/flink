@@ -22,7 +22,6 @@ import org.apache.flink.api.common.functions.CommitFunction;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
-import org.apache.flink.runtime.state.CheckpointListener;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
@@ -30,7 +29,12 @@ import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.operators.StreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.TreeMap;
 
 /**
  * A {@link StreamOperator} for executing a {@link org.apache.flink.api.dag.CommitTransformation}.
@@ -38,7 +42,7 @@ import java.util.*;
 @Internal
 public class StreamingCommitOperator<CommitT>
 		extends AbstractStreamOperator<Void>
-		implements OneInputStreamOperator<CommitT, Void>, CheckpointListener {
+		implements OneInputStreamOperator<CommitT, Void> {
 
 	private static final long serialVersionUID = 1L;
 
@@ -67,12 +71,11 @@ public class StreamingCommitOperator<CommitT>
 				"commits",
 				commitSerializer);
 
-		// I don't like using operator state here, if this goes past POC stage we need to
-		// have something better
 		this.commits = context.getOperatorStateStore().getListState(commitStateDescriptor);
 
 		if (context.isRestored()) {
 			for (CommitT commit : commits.get()) {
+				LOG.info("[USK] restore ................ :" + commit);
 				commitFunction.commit(commit);
 			}
 		}
@@ -81,6 +84,7 @@ public class StreamingCommitOperator<CommitT>
 	@Override
 	public void processElement(StreamRecord<CommitT> element) throws Exception {
 		currentCommittables.add(element.getValue());
+		LOG.info("[USK] Process ................ :" + element.getValue());
 	}
 
 	@Override
@@ -88,20 +92,32 @@ public class StreamingCommitOperator<CommitT>
 		super.snapshotState(context);
 
 		committablesPerCheckpoint.put(context.getCheckpointId(), currentCommittables);
-
 		currentCommittables = new ArrayList<>();
+		commits.clear();
 
+		Iterator<Map.Entry<Long, List<CommitT>>> it = committablesPerCheckpoint.entrySet().iterator();
+
+		while (it.hasNext()) {
+			Map.Entry<Long, List<CommitT>> item = it.next();
+			for (CommitT commit : item.getValue()) {
+				commits.add(commit);
+				LOG.info("[USK] checkpoint ................ :" + commit);
+
+			}
+		}
 		return;
 	}
 
 	@Override
 	public void notifyCheckpointComplete(long checkpointId) throws Exception {
+		super.notifyCheckpointComplete(checkpointId);
 		Iterator<Map.Entry<Long, List<CommitT>>> it =
 			committablesPerCheckpoint.headMap(checkpointId, true).entrySet().iterator();
 
 		while (it.hasNext()) {
 			Map.Entry<Long, List<CommitT>> item = it.next();
 			for (CommitT commit : item.getValue()) {
+				LOG.info("[USK] commit ................ :" + commit);
 				commitFunction.commit(commit);
 			}
 			it.remove();

@@ -52,6 +52,8 @@ public interface USink<T, CommittableT> extends Function, Serializable {
 
 		int getSubtaskIndex();
 
+		int getParallelism();
+
 		//TODO :: key or non-key does the sink developer knows? TBV
 		<S> ListState<S> getListState(ListStateDescriptor<S> stateDescriptor) throws Exception;
 

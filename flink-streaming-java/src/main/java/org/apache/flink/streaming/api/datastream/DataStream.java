@@ -64,15 +64,7 @@ import org.apache.flink.streaming.api.functions.sink.OutputFormatSinkFunction;
 import org.apache.flink.streaming.api.functions.sink.PrintSinkFunction;
 import org.apache.flink.streaming.api.functions.sink.SinkFunction;
 import org.apache.flink.streaming.api.functions.sink.SocketClientSink;
-import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
-import org.apache.flink.streaming.api.operators.OneInputStreamOperatorFactory;
-import org.apache.flink.streaming.api.operators.ProcessOperator;
-import org.apache.flink.streaming.api.operators.SimpleOperatorFactory;
-import org.apache.flink.streaming.api.operators.StreamFilter;
-import org.apache.flink.streaming.api.operators.StreamFlatMap;
-import org.apache.flink.streaming.api.operators.StreamMap;
-import org.apache.flink.streaming.api.operators.StreamOperatorFactory;
-import org.apache.flink.streaming.api.operators.StreamSink;
+import org.apache.flink.streaming.api.operators.*;
 import org.apache.flink.streaming.api.operators.sink.SinkWriterOperatorFactory;
 import org.apache.flink.streaming.api.transformations.OneInputTransformation;
 import org.apache.flink.streaming.api.transformations.PartitionTransformation;
@@ -1316,10 +1308,12 @@ public class DataStream<T> {
 		final OneInputTransformation sinkWriterTransformation =
 			new OneInputTransformation(
 				getTransformation(),
-				"Split Sink Writer",
+				"Committable Sink Writer",
 				new SinkWriterOperatorFactory(uSink),
 				splitTypeInformation,
 				environment.getParallelism());
+
+		sinkWriterTransformation.setChainingStrategy(ChainingStrategy.NEVER);
 
 		final CommitTransformation commitTransformation =
 			new CommitTransformation(

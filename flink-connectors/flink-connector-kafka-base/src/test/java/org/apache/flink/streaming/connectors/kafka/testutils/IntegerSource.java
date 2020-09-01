@@ -92,10 +92,12 @@ public class IntegerSource
 		}
 
 		synchronized (this.blocker) {
-			while (this.lastCheckpointConfirmed <= lastCheckpoint + 1) {
+			while (this.lastCheckpointConfirmed <= lastCheckpoint + 2) {
 				this.blocker.wait();
 			}
 		}
+
+		Thread.sleep(10_000);
 	}
 
 	@Override

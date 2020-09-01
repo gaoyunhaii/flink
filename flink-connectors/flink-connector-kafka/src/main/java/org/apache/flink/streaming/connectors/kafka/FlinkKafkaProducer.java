@@ -1352,6 +1352,8 @@ public class FlinkKafkaProducer<IN>
 
 		final short epoch;
 
+		int num = 0;
+
 		@VisibleForTesting
 		public KafkaTransactionState(String transactionalId, FlinkKafkaInternalProducer<byte[], byte[]> producer) {
 			this(transactionalId, producer.getProducerId(), producer.getEpoch(), producer);
@@ -1382,14 +1384,36 @@ public class FlinkKafkaProducer<IN>
 			return producer;
 		}
 
+		@Nullable
+		public String getTransactionalId() {
+			return transactionalId;
+		}
+
+		public long getProducerId() {
+			return producerId;
+		}
+
+		public short getEpoch() {
+			return epoch;
+		}
+
+		public void setNum(int num) {
+			this.num = num;
+		}
+
+		public int getNum() {
+			return num;
+		}
+
 		@Override
 		public String toString() {
 			return String.format(
-				"%s [transactionalId=%s, producerId=%s, epoch=%s]",
+				"%s [transactionalId=%s, producerId=%s, epoch=%s, num=%s]",
 				this.getClass().getSimpleName(),
 				transactionalId,
 				producerId,
-				epoch);
+				epoch,
+				num);
 		}
 
 		@Override
