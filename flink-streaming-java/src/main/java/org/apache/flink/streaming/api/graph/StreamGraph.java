@@ -115,6 +115,8 @@ public class StreamGraph implements Pipeline {
 	private StateBackend stateBackend;
 	private Set<Tuple2<StreamNode, StreamNode>> iterationSourceSinkPairs;
 
+	private Map<String, Integer> singletonRealisticNodes;
+
 	public StreamGraph(ExecutionConfig executionConfig, CheckpointConfig checkpointConfig, SavepointRestoreSettings savepointRestoreSettings) {
 		this.executionConfig = checkNotNull(executionConfig);
 		this.checkpointConfig = checkNotNull(checkpointConfig);
@@ -137,6 +139,7 @@ public class StreamGraph implements Pipeline {
 		iterationSourceSinkPairs = new HashSet<>();
 		sources = new HashSet<>();
 		sinks = new HashSet<>();
+		singletonRealisticNodes = new HashMap<>();
 	}
 
 	public ExecutionConfig getExecutionConfig() {
@@ -278,6 +281,24 @@ public class StreamGraph implements Pipeline {
 			String operatorName) {
 		addOperator(vertexID, slotSharingGroup, coLocationGroup, operatorFactory, inTypeInfo, outTypeInfo, operatorName);
 		sinks.add(vertexID);
+	}
+
+	public Integer getSingltonNodeId(String uniqueId) {
+		return singletonRealisticNodes.get(uniqueId);
+	}
+
+	public <IN, OUT> void addSingletonNode(
+		String uniqueId,
+		Integer vertexID,
+		@Nullable String slotSharingGroup,
+		@Nullable String coLocationGroup,
+		StreamOperatorFactory<OUT> operatorFactory,
+		TypeInformation<IN> inTypeInfo,
+		TypeInformation<OUT> outTypeInfo,
+		String operatorName) {
+
+		addOperator(vertexID, slotSharingGroup, coLocationGroup, operatorFactory, inTypeInfo, outTypeInfo, operatorName);
+		singletonRealisticNodes.put(uniqueId, vertexID);
 	}
 
 	public <IN, OUT> void addOperator(

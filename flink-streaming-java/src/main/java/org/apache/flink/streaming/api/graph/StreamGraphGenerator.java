@@ -22,6 +22,7 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.cache.DistributedCache;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
+import org.apache.flink.api.dag.BatchCommitTransformation;
 import org.apache.flink.api.dag.CommitTransformation;
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -32,6 +33,8 @@ import org.apache.flink.runtime.state.StateBackend;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.operators.*;
+import org.apache.flink.streaming.api.operators.sink.BatchSinkBarrierOperatorFactory;
+import org.apache.flink.streaming.api.operators.sink.BatchSinkCommitOperatorFactory;
 import org.apache.flink.streaming.api.operators.sink.StreamingCommitOperatorFactory;
 import org.apache.flink.streaming.api.transformations.*;
 import org.apache.flink.streaming.runtime.io.MultipleInputSelectionHandler;
@@ -263,6 +266,10 @@ public class StreamGraphGenerator {
 			transformedIds = transformSideOutput((SideOutputTransformation<?>) transform);
 		} else if (transform instanceof CommitTransformation<?>) {
 			transformedIds = transformCommit((CommitTransformation<?>) transform);
+		} else if (transform instanceof BatchCommitTransformation<?>) {
+			transformedIds = transformBatchCommit((BatchCommitTransformation<?>) transform);
+		} else if (transform instanceof SingletonPlaceHolderTransformation<?, ?>) {
+			transformedIds = transformSinglePlaceHolder((SingletonPlaceHolderTransformation<?, ?>) transform);
 		} else {
 			throw new IllegalStateException("Unknown transformation: " + transform);
 		}
@@ -454,6 +461,79 @@ public class StreamGraphGenerator {
 		}
 
 		return Collections.singleton(transform.getId());
+	}
+
+	private <CommitT> Collection<Integer> transformBatchCommit(BatchCommitTransformation<CommitT> transform) {
+
+		Collection<Integer> inputIds = transform(transform.getInput());
+
+		// the recursive call might have already transformed this
+		if (alreadyTransformed.containsKey(transform)) {
+			return alreadyTransformed.get(transform);
+		}
+
+		String slotSharingGroup = determineSlotSharingGroup(
+			transform.getSlotSharingGroup(),
+			inputIds);
+
+		// It is the streaming execution mode we could choose the streaming committer
+		streamGraph.addOperator(
+			transform.getId(),
+			slotSharingGroup,
+			transform.getCoLocationGroupKey(),
+			new BatchSinkCommitOperatorFactory<>(
+				transform.getCommitFunction(),
+				transform.getSinkId()),
+			transform.getInput().getOutputType(),
+			null,
+			transform.getName());
+
+		streamGraph.setParallelism(transform.getId(), transform.getParallelism());
+		streamGraph.setMaxParallelism(transform.getId(), transform.getInput().getMaxParallelism());
+
+		for (Integer inputId : inputIds) {
+			streamGraph.addEdge(inputId, transform.getId(), 0);
+		}
+
+		return Collections.singleton(transform.getId());
+	}
+
+	private <IN, OUT> Collection<Integer> transformSinglePlaceHolder(SingletonPlaceHolderTransformation<IN, OUT> transform) {
+		Collection<Integer> inputIds = transform(transform.getInput());
+
+		// the recursive call might have already transformed this
+		if (alreadyTransformed.containsKey(transform)) {
+			return alreadyTransformed.get(transform);
+		}
+
+		Integer vertexId = streamGraph.getSingltonNodeId(transform.getUniqueId());
+		if (vertexId == null) {
+			String slotSharingGroup = determineSlotSharingGroup(
+				transform.getSlotSharingGroup(),
+				inputIds);
+
+			// It is the streaming execution mode we could choose the streaming committer
+			streamGraph.addSingletonNode(
+				transform.getUniqueId(),
+				transform.getId(),
+				slotSharingGroup,
+				transform.getCoLocationGroupKey(),
+				new BatchSinkBarrierOperatorFactory<>(),
+				transform.getInput().getOutputType(),
+				transform.getOutputType(),
+				transform.getName());
+
+			streamGraph.setParallelism(transform.getId(), 1);
+			streamGraph.setMaxParallelism(transform.getId(), transform.getInput().getMaxParallelism());
+
+			vertexId = transform.getId();
+		}
+
+		for (Integer inputId : inputIds) {
+			streamGraph.addEdge(inputId, transform.getId(), 0);
+		}
+
+		return Collections.singleton(vertexId);
 	}
 
 	/**

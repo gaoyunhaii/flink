@@ -39,8 +39,10 @@ import org.apache.flink.api.common.serialization.SerializationSchema;
 import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.typeinfo.BasicArrayTypeInfo;
 import org.apache.flink.api.common.typeinfo.PrimitiveArrayTypeInfo;
+import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.connector.sink.USink;
+import org.apache.flink.api.dag.BatchCommitTransformation;
 import org.apache.flink.api.dag.CommitTransformation;
 import org.apache.flink.api.dag.Sink;
 import org.apache.flink.api.dag.Transformation;
@@ -65,9 +67,14 @@ import org.apache.flink.streaming.api.functions.sink.PrintSinkFunction;
 import org.apache.flink.streaming.api.functions.sink.SinkFunction;
 import org.apache.flink.streaming.api.functions.sink.SocketClientSink;
 import org.apache.flink.streaming.api.operators.*;
+import org.apache.flink.streaming.api.operators.sink.BatchSinkBarrierOperatorFactory;
+import org.apache.flink.streaming.api.operators.sink.BatchSinkCommitOperatorFactory;
+import org.apache.flink.streaming.api.operators.sink.BatchSinkWriterOperator;
+import org.apache.flink.streaming.api.operators.sink.BatchSinkWriterOperatorFactory;
 import org.apache.flink.streaming.api.operators.sink.SinkWriterOperatorFactory;
 import org.apache.flink.streaming.api.transformations.OneInputTransformation;
 import org.apache.flink.streaming.api.transformations.PartitionTransformation;
+import org.apache.flink.streaming.api.transformations.SingletonPlaceHolderTransformation;
 import org.apache.flink.streaming.api.transformations.UnionTransformation;
 import org.apache.flink.streaming.api.windowing.assigners.GlobalWindows;
 import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows;
@@ -99,6 +106,7 @@ import org.apache.flink.util.function.USinkCommitFunction;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * A DataStream represents a stream of elements of the same type. A DataStream
@@ -1324,6 +1332,47 @@ public class DataStream<T> {
 		getExecutionEnvironment().addOperator(commitTransformation);
 
 		// TODO: return sinkWriterTransformation
+	}
+
+	// TODO: Actually we should use the same addUSink interface,
+	// and determine the structure with the blocking mode.
+	public <CommitT> void addUSinkBlocking(USink<T, CommitT> uSink) {
+		TypeInformation<CommitT> splitTypeInformation = TypeExtractor.getUnaryOperatorReturnType(
+			clean(uSink),
+			USink.class,
+			0,
+			1,
+			TypeExtractor.NO_INDEX,
+			getType(),
+			Utils.getCallLocationName(),
+			true);
+
+		UUID sinkId = UUID.randomUUID();
+
+		OneInputTransformation<T, CommitT> sinkWriterTransformation =
+			new OneInputTransformation<>(
+				getTransformation(),
+				"Committable Sink Writer",
+				new BatchSinkWriterOperatorFactory<>(uSink, sinkId),
+				splitTypeInformation,
+				environment.getParallelism());
+
+		SingletonPlaceHolderTransformation<CommitT, CommitT> barrierTransformation =
+			new SingletonPlaceHolderTransformation<>(
+				sinkWriterTransformation,
+				"batch sink barrier",
+				"batch_sink_barrier",
+				new BatchSinkBarrierOperatorFactory<>(),
+				splitTypeInformation);
+
+		BatchCommitTransformation<CommitT> commitTransformation =
+			new BatchCommitTransformation<CommitT>(
+				barrierTransformation,
+				new USinkCommitFunction<>(uSink),
+				environment.getParallelism(),
+				sinkId);
+
+		getExecutionEnvironment().addOperator(commitTransformation);
 	}
 
 	/**

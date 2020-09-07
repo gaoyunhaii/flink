@@ -544,6 +544,13 @@ public class TaskManagerOptions {
 			.withDescription("Time we wait for the timers in milliseconds to finish all pending timer threads" +
 				" when the stream task is cancelled.");
 
+	@Documentation.Section(Documentation.Sections.ALL_TASK_MANAGER)
+	public static final ConfigOption<String> SINK_BATCH_PERSISTENT_DIR = ConfigOptions
+		.key("sink.batch.persistent.dir")
+		.stringType()
+		.noDefaultValue()
+		.withDescription("");
+
 	// ------------------------------------------------------------------------
 
 	/** Not intended to be instantiated. */
