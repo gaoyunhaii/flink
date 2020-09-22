@@ -464,7 +464,8 @@ public class CheckpointCoordinatorMasterHooksTest {
 				SharedStateRegistry.DEFAULT_FACTORY,
 				new CheckpointFailureManager(
 					0,
-					NoOpFailJobCall.INSTANCE));
+					NoOpFailJobCall.INSTANCE),
+				mock(CheckpointTaskTriggerComputer.class));
 	}
 
 	private static <T> T mockGeneric(Class<?> clazz) {

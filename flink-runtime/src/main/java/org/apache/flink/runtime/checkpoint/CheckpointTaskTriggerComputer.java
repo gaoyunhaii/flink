@@ -21,12 +21,13 @@ package org.apache.flink.runtime.checkpoint;
 import org.apache.flink.runtime.concurrent.ScheduledExecutor;
 import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.executiongraph.ExecutionEdge;
-import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.jobgraph.JobEdge;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -35,38 +36,51 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Timer;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkState;
 
 public class CheckpointTaskTriggerComputer {
+	private static final Logger LOG = LoggerFactory.getLogger(CheckpointTaskTriggerComputer.class);
 
-	private final ExecutionGraph executionGraph;
+	private final Iterable<ExecutionJobVertex> verticesInTopologicalOrder;
 
-	private final ScheduledExecutor mainThreadExecutor;
+	private final FinalSnapshotManager finalSnapshotManager;
+
+	private final Supplier<ScheduledExecutor> mainThreadExecutorSupplier;
 
 	public CheckpointTaskTriggerComputer(
-		ExecutionGraph executionGraph,
-		ScheduledExecutor mainThreadExecutor) {
+		Iterable<ExecutionJobVertex> verticesInTopologicalOrder,
+		FinalSnapshotManager finalSnapshotManager,
+		Supplier<ScheduledExecutor> mainThreadExecutorSupplier) {
 
-		this.executionGraph = executionGraph;
-		this.mainThreadExecutor = mainThreadExecutor;
+		this.verticesInTopologicalOrder = checkNotNull(verticesInTopologicalOrder);
+		this.finalSnapshotManager = checkNotNull(finalSnapshotManager);
+		this.mainThreadExecutorSupplier = checkNotNull(mainThreadExecutorSupplier);
 	}
 
-	public List<Execution> computeTasksToTrigger(Set<ExecutionVertexID> finishedTaskIDs) throws Exception {
-		CompletableFuture<List<Execution>> resultFuture = new CompletableFuture<>();
+	public TaskTriggerResult computeTasksToTrigger() throws Exception {
+		CompletableFuture<TaskTriggerResult> resultFuture = new CompletableFuture<>();
 
-		mainThreadExecutor.execute(() -> {
+		mainThreadExecutorSupplier.get().execute(() -> {
+			long start = System.nanoTime();
+
+			Map<ExecutionVertexID, FinalSnapshotManager.FinalSnapshot> finalSnapshots =
+				finalSnapshotManager.retrieveActiveFinalSnapshots();
+
 			List<Execution> tasksToTrigger = new ArrayList<>();
 			Map<JobVertexID, VertexTaskCheckingStatus> vertexStatus = new HashMap<>();
-			executionGraph.getVerticesTopologically().forEach(
+			verticesInTopologicalOrder.forEach(
 				vertex -> vertexStatus.put(vertex.getJobVertexId(), new VertexTaskCheckingStatus()));
 
-			for (ExecutionJobVertex vertex : executionGraph.getVerticesTopologically()) {
+			for (ExecutionJobVertex vertex : verticesInTopologicalOrder) {
 				VertexTaskCheckingStatus status = vertexStatus.get(vertex.getJobVertexId());
 
-				List<ExecutionVertex> tasksToCheck = null;
+				List<ExecutionVertex> tasksToCheck;
 				if (status.getType() == VertexTaskCheckingType.ALL_TASKS_TO_CHECK) {
 					tasksToCheck = Arrays.asList(vertex.getTaskVertices());
 				} else if (status.getType() == VertexTaskCheckingType.SOME_TASKS_TO_CHECK) {
@@ -81,7 +95,7 @@ public class CheckpointTaskTriggerComputer {
 				// Checks the tasks to see if they are finished
 				List<ExecutionVertexID> tasksCheckedFinished = new ArrayList<>();
 				for (ExecutionVertex task : tasksToCheck) {
-					if (!finishedTaskIDs.contains(task.getID())) {
+					if (!finalSnapshots.containsKey(task.getID())) {
 						tasksToTrigger.add(task.getCurrentExecutionAttempt());
 					} else {
 						tasksCheckedFinished.add(task.getID());
@@ -121,7 +135,12 @@ public class CheckpointTaskTriggerComputer {
 				}
 			}
 
-			resultFuture.complete(tasksToTrigger);
+			LOG.info("Computes tasks to trigger used {} ms, final snapshots used is {}, executions to trigger is {}",
+				(System.nanoTime() - start) / 1e6,
+				finalSnapshots,
+				tasksToTrigger);
+
+			resultFuture.complete(new TaskTriggerResult(tasksToTrigger, finalSnapshots));
 		});
 
 		return resultFuture.get();
@@ -140,6 +159,28 @@ public class CheckpointTaskTriggerComputer {
 		ALL_TASKS_TO_CHECK,
 		SOME_TASKS_TO_CHECK,
 		NO_TASKS_TO_CHECK
+	}
+
+	public static class TaskTriggerResult {
+		private final List<Execution> tasksToTrigger;
+
+		private final Map<ExecutionVertexID, FinalSnapshotManager.FinalSnapshot> finalSnapshotsUsed;
+
+		public TaskTriggerResult(
+			List<Execution> tasksToTrigger,
+			Map<ExecutionVertexID, FinalSnapshotManager.FinalSnapshot> finalSnapshotsUsed) {
+
+			this.tasksToTrigger = tasksToTrigger;
+			this.finalSnapshotsUsed = finalSnapshotsUsed;
+		}
+
+		public List<Execution> getTasksToTrigger() {
+			return tasksToTrigger;
+		}
+
+		public Map<ExecutionVertexID, FinalSnapshotManager.FinalSnapshot> getFinalSnapshotsUsed() {
+			return finalSnapshotsUsed;
+		}
 	}
 
 	private static class VertexTaskCheckingStatus {

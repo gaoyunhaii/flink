@@ -37,6 +37,7 @@ import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
 import org.apache.flink.runtime.checkpoint.CheckpointRecoveryFactory;
 import org.apache.flink.runtime.checkpoint.CompletedCheckpoint;
+import org.apache.flink.runtime.checkpoint.FinalSnapshotManager;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.client.JobExecutionException;
 import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutor;
@@ -799,6 +800,15 @@ public abstract class SchedulerBase implements SchedulerNG {
 			} catch (IllegalStateException ignored) {
 				// Concurrent shut down of the coordinator
 			}
+		}
+	}
+
+	protected void onTasksRestarting(Set<ExecutionVertexID> tasksToRestart) throws Exception {
+		mainThreadExecutor.assertRunningInMainThread();
+
+		FinalSnapshotManager finalSnapshotManager = executionGraph.getFinalSnapshotManager();
+		if (finalSnapshotManager != null) {
+			finalSnapshotManager.onTasksRestarting(tasksToRestart);
 		}
 	}
 

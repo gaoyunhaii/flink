@@ -85,7 +85,8 @@ public class FailoverStrategyCheckpointCoordinatorTest extends TestLogger {
 			Executors.directExecutor(),
 			manualThreadExecutor,
 			SharedStateRegistry.DEFAULT_FACTORY,
-			mock(CheckpointFailureManager.class));
+			mock(CheckpointFailureManager.class),
+			mock(CheckpointTaskTriggerComputer.class));
 
 		// switch current execution's state to running to allow checkpoint could be triggered.
 		mockExecutionRunning(executionVertex);

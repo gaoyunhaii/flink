@@ -39,7 +39,9 @@ import org.apache.flink.runtime.checkpoint.CheckpointFailureManager;
 import org.apache.flink.runtime.checkpoint.CheckpointIDCounter;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsTracker;
+import org.apache.flink.runtime.checkpoint.CheckpointTaskTriggerComputer;
 import org.apache.flink.runtime.checkpoint.CompletedCheckpointStore;
+import org.apache.flink.runtime.checkpoint.FinalSnapshotManager;
 import org.apache.flink.runtime.checkpoint.MasterTriggerRestoreHook;
 import org.apache.flink.runtime.checkpoint.OperatorCoordinatorCheckpointContext;
 import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutor;
@@ -161,79 +163,123 @@ import static org.apache.flink.util.Preconditions.checkState;
  */
 public class ExecutionGraph implements AccessExecutionGraph {
 
-	/** The log object used for debugging. */
+	/**
+	 * The log object used for debugging.
+	 */
 	static final Logger LOG = LoggerFactory.getLogger(ExecutionGraph.class);
 
 	// --------------------------------------------------------------------------------------------
 
-	/** Job specific information like the job id, job name, job configuration, etc. */
+	/**
+	 * Job specific information like the job id, job name, job configuration, etc.
+	 */
 	private final JobInformation jobInformation;
 
-	/** Serialized job information or a blob key pointing to the offloaded job information. */
+	/**
+	 * Serialized job information or a blob key pointing to the offloaded job information.
+	 */
 	private final Either<SerializedValue<JobInformation>, PermanentBlobKey> jobInformationOrBlobKey;
 
-	/** The executor which is used to execute futures. */
+	/**
+	 * The executor which is used to execute futures.
+	 */
 	private final ScheduledExecutorService futureExecutor;
 
-	/** The executor which is used to execute blocking io operations. */
+	/**
+	 * The executor which is used to execute blocking io operations.
+	 */
 	private final Executor ioExecutor;
 
-	/** Executor that runs tasks in the job manager's main thread. */
+	/**
+	 * Executor that runs tasks in the job manager's main thread.
+	 */
 	@Nonnull
 	private ComponentMainThreadExecutor jobMasterMainThreadExecutor;
 
-	/** {@code true} if all source tasks are stoppable. */
+	/**
+	 * {@code true} if all source tasks are stoppable.
+	 */
 	private boolean isStoppable = true;
 
-	/** All job vertices that are part of this graph. */
+	/**
+	 * All job vertices that are part of this graph.
+	 */
 	private final Map<JobVertexID, ExecutionJobVertex> tasks;
 
-	/** All vertices, in the order in which they were created. **/
+	/**
+	 * All vertices, in the order in which they were created.
+	 **/
 	private final List<ExecutionJobVertex> verticesInCreationOrder;
 
-	/** All intermediate results that are part of this graph. */
+	/**
+	 * All intermediate results that are part of this graph.
+	 */
 	private final Map<IntermediateDataSetID, IntermediateResult> intermediateResults;
 
-	/** The currently executed tasks, for callbacks. */
+	/**
+	 * The currently executed tasks, for callbacks.
+	 */
 	private final Map<ExecutionAttemptID, Execution> currentExecutions;
 
-	/** Listeners that receive messages when the entire job switches it status
-	 * (such as from RUNNING to FINISHED). */
+	/**
+	 * Listeners that receive messages when the entire job switches it status
+	 * (such as from RUNNING to FINISHED).
+	 */
 	private final List<JobStatusListener> jobStatusListeners;
 
-	/** The implementation that decides how to recover the failures of tasks. */
+	/**
+	 * The implementation that decides how to recover the failures of tasks.
+	 */
 	private final FailoverStrategy failoverStrategy;
 
-	/** Timestamps (in milliseconds as returned by {@code System.currentTimeMillis()} when
+	/**
+	 * Timestamps (in milliseconds as returned by {@code System.currentTimeMillis()} when
 	 * the execution graph transitioned into a certain state. The index into this array is the
 	 * ordinal of the enum value, i.e. the timestamp when the graph went into state "RUNNING" is
-	 * at {@code stateTimestamps[RUNNING.ordinal()]}. */
+	 * at {@code stateTimestamps[RUNNING.ordinal()]}.
+	 */
 	private final long[] stateTimestamps;
 
-	/** The timeout for all messages that require a response/acknowledgement. */
+	/**
+	 * The timeout for all messages that require a response/acknowledgement.
+	 */
 	private final Time rpcTimeout;
 
-	/** The timeout for slot allocations. */
+	/**
+	 * The timeout for slot allocations.
+	 */
 	private final Time allocationTimeout;
 
-	/** Strategy to use for restarts. */
+	/**
+	 * Strategy to use for restarts.
+	 */
 	private final RestartStrategy restartStrategy;
 
-	/** The slot provider strategy to use for allocating slots for tasks as they are needed. */
+	/**
+	 * The slot provider strategy to use for allocating slots for tasks as they are needed.
+	 */
 	private final SlotProviderStrategy slotProviderStrategy;
 
-	/** The classloader for the user code. Needed for calls into user code classes. */
+	/**
+	 * The classloader for the user code. Needed for calls into user code classes.
+	 */
 	private final ClassLoader userClassLoader;
 
-	/** Registered KvState instances reported by the TaskManagers. */
+	/**
+	 * Registered KvState instances reported by the TaskManagers.
+	 */
 	private final KvStateLocationRegistry kvStateLocationRegistry;
 
-	/** Blob writer used to offload RPC messages. */
+	/**
+	 * Blob writer used to offload RPC messages.
+	 */
 	private final BlobWriter blobWriter;
 
 	private boolean legacyScheduling = true;
 
-	/** The total number of vertices currently in the execution graph. */
+	/**
+	 * The total number of vertices currently in the execution graph.
+	 */
 	private int numVerticesTotal;
 
 	private final PartitionReleaseStrategy.Factory partitionReleaseStrategyFactory;
@@ -245,40 +291,56 @@ public class ExecutionGraph implements AccessExecutionGraph {
 	@Nullable
 	private InternalFailuresListener internalTaskFailuresListener;
 
-	/** Counts all restarts. Used by other Gauges/Meters and does not register to metric group. */
+	/**
+	 * Counts all restarts. Used by other Gauges/Meters and does not register to metric group.
+	 */
 	private final Counter numberOfRestartsCounter = new SimpleCounter();
 
 	// ------ Configuration of the Execution -------
 
-	/** The mode of scheduling. Decides how to select the initial set of tasks to be deployed.
+	/**
+	 * The mode of scheduling. Decides how to select the initial set of tasks to be deployed.
 	 * May indicate to deploy all sources, or to deploy everything, or to deploy via backtracking
-	 * from results than need to be materialized. */
+	 * from results than need to be materialized.
+	 */
 	private final ScheduleMode scheduleMode;
 
-	/** The maximum number of prior execution attempts kept in history. */
+	/**
+	 * The maximum number of prior execution attempts kept in history.
+	 */
 	private final int maxPriorAttemptsHistoryLength;
 
 	// ------ Execution status and progress. These values are volatile, and accessed under the lock -------
 
 	private int verticesFinished;
 
-	/** Current status of the job execution. */
+	/**
+	 * Current status of the job execution.
+	 */
 	private volatile JobStatus state = JobStatus.CREATED;
 
-	/** A future that completes once the job has reached a terminal state. */
+	/**
+	 * A future that completes once the job has reached a terminal state.
+	 */
 	private final CompletableFuture<JobStatus> terminationFuture = new CompletableFuture<>();
 
-	/** On each global recovery, this version is incremented. The version breaks conflicts
-	 * between concurrent restart attempts by local failover strategies. */
+	/**
+	 * On each global recovery, this version is incremented. The version breaks conflicts
+	 * between concurrent restart attempts by local failover strategies.
+	 */
 	private long globalModVersion;
 
-	/** The exception that caused the job to fail. This is set to the first root exception
-	 * that was not recoverable and triggered job failure. */
+	/**
+	 * The exception that caused the job to fail. This is set to the first root exception
+	 * that was not recoverable and triggered job failure.
+	 */
 	private Throwable failureCause;
 
-	/** The extended failure cause information for the job. This exists in addition to 'failureCause',
+	/**
+	 * The extended failure cause information for the job. This exists in addition to 'failureCause',
 	 * to let 'failureCause' be a strong reference to the exception, while this info holds no
-	 * strong reference to any user-defined classes.*/
+	 * strong reference to any user-defined classes.
+	 */
 	private ErrorInfo failureInfo;
 
 	private final JobMasterPartitionTracker partitionTracker;
@@ -293,16 +355,25 @@ public class ExecutionGraph implements AccessExecutionGraph {
 
 	// ------ Fields that are relevant to the execution and need to be cleared before archiving  -------
 
-	/** The coordinator for checkpoints, if snapshot checkpoints are enabled. */
+	@Nullable
+	private FinalSnapshotManager finalSnapshotManager;
+
+	/**
+	 * The coordinator for checkpoints, if snapshot checkpoints are enabled.
+	 */
 	@Nullable
 	private CheckpointCoordinator checkpointCoordinator;
 
-	/** TODO, replace it with main thread executor. */
+	/**
+	 * TODO, replace it with main thread executor.
+	 */
 	@Nullable
 	private ScheduledExecutorService checkpointCoordinatorTimer;
 
-	/** Checkpoint stats tracker separate from the coordinator in order to be
-	 * available after archiving. */
+	/**
+	 * Checkpoint stats tracker separate from the coordinator in order to be
+	 * available after archiving.
+	 */
 	private CheckpointStatsTracker checkpointStatsTracker;
 
 	// ------ Fields that are only relevant for archived execution graphs ------------
@@ -311,7 +382,9 @@ public class ExecutionGraph implements AccessExecutionGraph {
 
 	private String jsonPlan;
 
-	/** Shuffle master to register partitions for task deployment. */
+	/**
+	 * Shuffle master to register partitions for task deployment.
+	 */
 	private final ShuffleMaster<?> shuffleMaster;
 
 	private final ExecutionDeploymentListener executionDeploymentListener;
@@ -322,23 +395,23 @@ public class ExecutionGraph implements AccessExecutionGraph {
 	// --------------------------------------------------------------------------------------------
 
 	public ExecutionGraph(
-			JobInformation jobInformation,
-			ScheduledExecutorService futureExecutor,
-			Executor ioExecutor,
-			Time rpcTimeout,
-			RestartStrategy restartStrategy,
-			int maxPriorAttemptsHistoryLength,
-			FailoverStrategy.Factory failoverStrategyFactory,
-			SlotProvider slotProvider,
-			ClassLoader userClassLoader,
-			BlobWriter blobWriter,
-			Time allocationTimeout,
-			PartitionReleaseStrategy.Factory partitionReleaseStrategyFactory,
-			ShuffleMaster<?> shuffleMaster,
-			JobMasterPartitionTracker partitionTracker,
-			ScheduleMode scheduleMode,
-			ExecutionDeploymentListener executionDeploymentListener,
-			ExecutionStateUpdateListener executionStateUpdateListener) throws IOException {
+		JobInformation jobInformation,
+		ScheduledExecutorService futureExecutor,
+		Executor ioExecutor,
+		Time rpcTimeout,
+		RestartStrategy restartStrategy,
+		int maxPriorAttemptsHistoryLength,
+		FailoverStrategy.Factory failoverStrategyFactory,
+		SlotProvider slotProvider,
+		ClassLoader userClassLoader,
+		BlobWriter blobWriter,
+		Time allocationTimeout,
+		PartitionReleaseStrategy.Factory partitionReleaseStrategyFactory,
+		ShuffleMaster<?> shuffleMaster,
+		JobMasterPartitionTracker partitionTracker,
+		ScheduleMode scheduleMode,
+		ExecutionDeploymentListener executionDeploymentListener,
+		ExecutionStateUpdateListener executionStateUpdateListener) throws IOException {
 
 		this.jobInformation = Preconditions.checkNotNull(jobInformation);
 
@@ -362,7 +435,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 		this.verticesInCreationOrder = new ArrayList<>(16);
 		this.currentExecutions = new HashMap<>(16);
 
-		this.jobStatusListeners  = new ArrayList<>();
+		this.jobStatusListeners = new ArrayList<>();
 
 		this.stateTimestamps = new long[JobStatus.values().length];
 		this.stateTimestamps[JobStatus.CREATED.ordinal()] = System.currentTimeMillis();
@@ -411,6 +484,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 
 	/**
 	 * Gets the number of job vertices currently held by this execution graph.
+	 *
 	 * @return The current number of job vertices.
 	 */
 	public int getNumberOfExecutionJobVertices() {
@@ -445,15 +519,15 @@ public class ExecutionGraph implements AccessExecutionGraph {
 	}
 
 	public void enableCheckpointing(
-			CheckpointCoordinatorConfiguration chkConfig,
-			List<ExecutionJobVertex> verticesToTrigger,
-			List<ExecutionJobVertex> verticesToWaitFor,
-			List<ExecutionJobVertex> verticesToCommitTo,
-			List<MasterTriggerRestoreHook<?>> masterHooks,
-			CheckpointIDCounter checkpointIDCounter,
-			CompletedCheckpointStore checkpointStore,
-			StateBackend checkpointStateBackend,
-			CheckpointStatsTracker statsTracker) {
+		CheckpointCoordinatorConfiguration chkConfig,
+		List<ExecutionJobVertex> verticesToTrigger,
+		List<ExecutionJobVertex> verticesToWaitFor,
+		List<ExecutionJobVertex> verticesToCommitTo,
+		List<MasterTriggerRestoreHook<?>> masterHooks,
+		CheckpointIDCounter checkpointIDCounter,
+		CompletedCheckpointStore checkpointStore,
+		StateBackend checkpointStateBackend,
+		CheckpointStatsTracker statsTracker) {
 
 		checkState(state == JobStatus.CREATED, "Job must be in CREATED state");
 		checkState(checkpointCoordinator == null, "checkpointing already enabled");
@@ -487,6 +561,15 @@ public class ExecutionGraph implements AccessExecutionGraph {
 			new DispatcherThreadFactory(
 				Thread.currentThread().getThreadGroup(), "Checkpoint Timer"));
 
+		finalSnapshotManager = new FinalSnapshotManager(
+			this::getJobMasterMainThreadExecutor,
+			this::assertRunningInJobMasterMainThread);
+
+		CheckpointTaskTriggerComputer taskTriggerComputer = new CheckpointTaskTriggerComputer(
+			getVerticesTopologically(),
+			finalSnapshotManager,
+			this::getJobMasterMainThreadExecutor);
+
 		// create the coordinator that triggers and commits checkpoints and holds the state
 		checkpointCoordinator = new CheckpointCoordinator(
 			jobInformation.getJobId(),
@@ -501,7 +584,8 @@ public class ExecutionGraph implements AccessExecutionGraph {
 			ioExecutor,
 			new ScheduledExecutorServiceAdapter(checkpointCoordinatorTimer),
 			SharedStateRegistry.DEFAULT_FACTORY,
-			failureManager);
+			failureManager,
+			taskTriggerComputer);
 
 		// register the master hooks on the checkpoint coordinator
 		for (MasterTriggerRestoreHook<?> hook : masterHooks) {
@@ -521,6 +605,11 @@ public class ExecutionGraph implements AccessExecutionGraph {
 		}
 
 		this.stateBackendName = checkpointStateBackend.getClass().getSimpleName();
+	}
+
+	@Nullable
+	public FinalSnapshotManager getFinalSnapshotManager() {
+		return finalSnapshotManager;
 	}
 
 	@Nullable
@@ -561,8 +650,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 				throw new IllegalArgumentException("Can only use ExecutionJobVertices of this ExecutionGraph");
 			}
 			return jv.getTaskVertices();
-		}
-		else {
+		} else {
 			ArrayList<ExecutionVertex> all = new ArrayList<>();
 			for (ExecutionJobVertex jv : jobVertices) {
 				if (jv.getGraph() != this) {
@@ -733,6 +821,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 
 	/**
 	 * Merges all accumulator results from the tasks previously executed in the Executions.
+	 *
 	 * @return The accumulator map
 	 */
 	public Map<String, OptionalFailure<Accumulator<?, ?>>> aggregateUserAccumulators() {
@@ -751,6 +840,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 
 	/**
 	 * Gets a serialized accumulator map.
+	 *
 	 * @return The accumulator map with serialized accumulator values.
 	 */
 	@Override
@@ -781,6 +871,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 
 	/**
 	 * Returns the a stringified version of the user-defined accumulators.
+	 *
 	 * @return an Array containing the StringifiedAccumulatorResult objects
 	 */
 	@Override
@@ -821,13 +912,13 @@ public class ExecutionGraph implements AccessExecutionGraph {
 
 			// create the execution job vertex and attach it to the graph
 			ExecutionJobVertex ejv = new ExecutionJobVertex(
-					this,
-					jobVertex,
-					1,
-					maxPriorAttemptsHistoryLength,
-					rpcTimeout,
-					globalModVersion,
-					createTimestamp);
+				this,
+				jobVertex,
+				1,
+				maxPriorAttemptsHistoryLength,
+				rpcTimeout,
+				globalModVersion,
+				createTimestamp);
 
 			ejv.connectToPredecessors(this.intermediateResults);
 
@@ -901,8 +992,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 			} else {
 				newSchedulingFuture.cancel(false);
 			}
-		}
-		else {
+		} else {
 			throw new IllegalStateException("Job may only be scheduled from state " + JobStatus.CREATED);
 		}
 	}
@@ -953,8 +1043,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 				if (transitionState(current, JobStatus.CANCELLING)) {
 					return;
 				}
-			}
-			else {
+			} else {
 				// no need to treat other states
 				return;
 			}
@@ -1003,7 +1092,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 			}
 			final ArrayList<CompletableFuture<Void>> executionJobVertexTerminationFutures = new ArrayList<>(verticesInCreationOrder.size());
 
-			for (ExecutionJobVertex ejv: verticesInCreationOrder) {
+			for (ExecutionJobVertex ejv : verticesInCreationOrder) {
 				executionJobVertexTerminationFutures.add(ejv.suspend());
 			}
 
@@ -1130,7 +1219,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 			for (ExecutionJobVertex jv : this.verticesInCreationOrder) {
 
 				CoLocationGroup cgroup = jv.getCoLocationGroup();
-				if (cgroup != null && !colGroups.contains(cgroup)){
+				if (cgroup != null && !colGroups.contains(cgroup)) {
 					cgroup.resetConstraints();
 					colGroups.add(cgroup);
 				}
@@ -1196,8 +1285,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 	public JobStatus waitUntilTerminal() throws InterruptedException {
 		try {
 			return terminationFuture.get();
-		}
-		catch (ExecutionException e) {
+		} catch (ExecutionException e) {
 			// this should never happen
 			// it would be a bug, so we  don't expect this to be handled and throw
 			// an unchecked exception here
@@ -1251,8 +1339,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 			stateTimestamps[newState.ordinal()] = System.currentTimeMillis();
 			notifyJobStatusChange(newState, error);
 			return true;
-		}
-		else {
+		} else {
 			return false;
 		}
 	}
@@ -1294,8 +1381,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 					for (ExecutionJobVertex ejv : verticesInCreationOrder) {
 						ejv.getJobVertex().finalizeOnMaster(getUserClassLoader());
 					}
-				}
-				catch (Throwable t) {
+				} catch (Throwable t) {
 					ExceptionUtils.rethrowIfFatalError(t);
 					ClusterEntryPointExceptionUtils.tryEnrichClusterEntryPointError(t);
 					failGlobal(new Exception("Failed to finalize execution on master", t));
@@ -1331,25 +1417,21 @@ public class ExecutionGraph implements AccessExecutionGraph {
 
 			if (current == JobStatus.RUNNING) {
 				failGlobal(new Exception("ExecutionGraph went into allVerticesInTerminalState() from RUNNING"));
-			}
-			else if (current == JobStatus.CANCELLING) {
+			} else if (current == JobStatus.CANCELLING) {
 				if (transitionState(current, JobStatus.CANCELED)) {
 					onTerminalState(JobStatus.CANCELED);
 					break;
 				}
-			}
-			else if (current == JobStatus.FAILING) {
+			} else if (current == JobStatus.FAILING) {
 				if (tryRestartOrFail(expectedGlobalVersionForRestart)) {
 					break;
 				}
 				// concurrent job status change, let's check again
-			}
-			else if (current.isGloballyTerminalState()) {
+			} else if (current.isGloballyTerminalState()) {
 				LOG.warn("Job has entered globally terminal state without waiting for all " +
 					"job vertices to reach final state.");
 				break;
-			}
-			else {
+			} else {
 				failGlobal(new Exception("ExecutionGraph went into final state from state " + current));
 				break;
 			}
@@ -1393,12 +1475,11 @@ public class ExecutionGraph implements AccessExecutionGraph {
 					restartStrategy
 						.restart(restarter, getJobMasterMainThreadExecutor())
 						.exceptionally((throwable) -> {
-								failGlobal(throwable);
-								return null;
-							}));
+							failGlobal(throwable);
+							return null;
+						}));
 				return true;
-			}
-			else if (!isRestartable && transitionState(currentState, JobStatus.FAILED, failureCause)) {
+			} else if (!isRestartable && transitionState(currentState, JobStatus.FAILED, failureCause)) {
 				final String cause1 = isFailureCauseAllowingRestart ? null :
 					"a type of SuppressRestartsException was thrown";
 				final String cause2 = isRestartStrategyAllowingRestart ? null :
@@ -1445,11 +1526,15 @@ public class ExecutionGraph implements AccessExecutionGraph {
 				checkpointCoordinatorTimer.shutdownNow();
 				checkpointCoordinatorTimer = null;
 			}
-		}
-		catch (Exception e) {
+
+			FinalSnapshotManager activeFinalSnapshotManager = this.finalSnapshotManager;
+			this.finalSnapshotManager = null;
+			if (activeFinalSnapshotManager != null) {
+				activeFinalSnapshotManager.shutdown();
+			}
+		} catch (Exception e) {
 			LOG.error("Error while cleaning up after execution", e);
-		}
-		finally {
+		} finally {
 			terminationFuture.complete(status);
 		}
 	}
@@ -1474,16 +1559,14 @@ public class ExecutionGraph implements AccessExecutionGraph {
 				final boolean stateUpdated = updateStateInternal(state, attempt);
 				maybeReleasePartitions(attempt);
 				return stateUpdated;
-			}
-			catch (Throwable t) {
+			} catch (Throwable t) {
 				ExceptionUtils.rethrowIfFatalErrorOrOOM(t);
 
 				// failures during updates leave the ExecutionGraph inconsistent
 				failGlobal(t);
 				return false;
 			}
-		}
-		else {
+		} else {
 			return false;
 		}
 	}
@@ -1574,8 +1657,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 		if (serializedAccumulators != null) {
 			try {
 				return serializedAccumulators.deserializeUserAccumulators(userClassLoader);
-			}
-			catch (Throwable t) {
+			} catch (Throwable t) {
 				// we catch Throwable here to include all form of linking errors that may
 				// occur if user classes are missing in the classpath
 				LOG.error("Failed to deserialize final accumulator results.", t);
@@ -1599,8 +1681,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 		if (execution == null) {
 			throw new ExecutionGraphException("Cannot find execution for execution Id " +
 				partitionId.getPartitionId() + '.');
-		}
-		else if (execution.getVertex() == null){
+		} else if (execution.getVertex() == null) {
 			throw new ExecutionGraphException("Execution with execution Id " +
 				partitionId.getPartitionId() + " has no vertex assigned.");
 		} else {
@@ -1632,6 +1713,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 	/**
 	 * Updates the accumulators during the runtime of a job. Final accumulator results are transferred
 	 * through the UpdateTaskExecutionState message.
+	 *
 	 * @param accumulatorSnapshot The serialized flink and user-defined accumulators
 	 */
 	public void updateAccumulators(AccumulatorSnapshot accumulatorSnapshot) {
@@ -1677,9 +1759,9 @@ public class ExecutionGraph implements AccessExecutionGraph {
 	}
 
 	void notifyExecutionChange(
-			final Execution execution,
-			final ExecutionState newExecutionState,
-			final Throwable error) {
+		final Execution execution,
+		final ExecutionState newExecutionState,
+		final Throwable error) {
 
 		if (!isLegacyScheduling()) {
 			return;
@@ -1701,8 +1783,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 					}
 
 					failoverStrategy.onTaskFailure(execution, ex);
-				}
-				catch (Throwable t) {
+				} catch (Throwable t) {
 					// bug in the failover strategy - fall back to global failover
 					LOG.warn("Error in failover strategy - falling back to global restart", t);
 					failGlobal(ex);

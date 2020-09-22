@@ -25,6 +25,7 @@ import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.operators.coordination.OperatorInfo;
+import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.state.CheckpointMetadataOutputStream;
 import org.apache.flink.runtime.state.CheckpointStorageLocation;
 import org.apache.flink.runtime.state.CompletedCheckpointStorageLocation;
@@ -92,6 +93,8 @@ public class PendingCheckpoint {
 
 	private final Map<ExecutionAttemptID, ExecutionVertex> notYetAcknowledgedTasks;
 
+	private final Map<ExecutionVertexID, FinalSnapshotManager.FinalSnapshot> finalSnapshotUsed;
+
 	private final Set<OperatorID> notYetAcknowledgedOperatorCoordinators;
 
 	private final List<MasterState> masterStates;
@@ -131,6 +134,7 @@ public class PendingCheckpoint {
 			JobID jobId,
 			long checkpointId,
 			long checkpointTimestamp,
+			Map<ExecutionVertexID, FinalSnapshotManager.FinalSnapshot> finalSnapshotUsed,
 			Map<ExecutionAttemptID, ExecutionVertex> verticesToConfirm,
 			Collection<OperatorID> operatorCoordinatorsToConfirm,
 			Collection<String> masterStateIdentifiers,
@@ -145,6 +149,7 @@ public class PendingCheckpoint {
 		this.jobId = checkNotNull(jobId);
 		this.checkpointId = checkpointId;
 		this.checkpointTimestamp = checkpointTimestamp;
+		this.finalSnapshotUsed = checkNotNull(finalSnapshotUsed);
 		this.notYetAcknowledgedTasks = checkNotNull(verticesToConfirm);
 		this.props = checkNotNull(props);
 		this.targetLocation = checkNotNull(targetLocation);

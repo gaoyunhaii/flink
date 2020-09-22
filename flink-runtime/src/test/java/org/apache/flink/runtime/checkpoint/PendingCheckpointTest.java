@@ -554,6 +554,7 @@ public class PendingCheckpointTest {
 			new JobID(),
 			0,
 			1,
+			new HashMap<>(),
 			ackTasks,
 			operatorCoordinators,
 			masterStateIdentifiers,

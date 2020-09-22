@@ -709,7 +709,8 @@ public class CheckpointCoordinatorTestingUtils {
 				ioExecutor,
 				timer,
 				sharedStateRegistryFactory,
-				failureManager);
+				failureManager,
+				mock(CheckpointTaskTriggerComputer.class));
 		}
 	}
 
