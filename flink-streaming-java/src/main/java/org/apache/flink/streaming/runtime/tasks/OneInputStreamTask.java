@@ -22,6 +22,8 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.metrics.Counter;
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.runtime.io.network.partition.consumer.IndexedInputGate;
 import org.apache.flink.runtime.metrics.MetricNames;
@@ -29,6 +31,7 @@ import org.apache.flink.streaming.api.graph.StreamConfig;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.io.AbstractDataOutput;
+import org.apache.flink.streaming.runtime.io.CheckpointBarrierHandler;
 import org.apache.flink.streaming.runtime.io.CheckpointedInputGate;
 import org.apache.flink.streaming.runtime.io.InputProcessorUtil;
 import org.apache.flink.streaming.runtime.io.PushingAsyncDataInput.DataOutput;
@@ -43,6 +46,8 @@ import org.apache.flink.streaming.runtime.streamstatus.StreamStatusMaintainer;
 
 import javax.annotation.Nullable;
 
+import java.util.Arrays;
+
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
@@ -52,6 +57,8 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 public class OneInputStreamTask<IN, OUT> extends StreamTask<OUT, OneInputStreamOperator<IN, OUT>> {
 
 	private final WatermarkGauge inputWatermarkGauge = new WatermarkGauge();
+
+	private CheckpointBarrierHandler checkpointBarrierHandler;
 
 	/**
 	 * Constructor for initialization, possibly with initial state (recovery / savepoint / etc).
@@ -101,13 +108,31 @@ public class OneInputStreamTask<IN, OUT> extends StreamTask<OUT, OneInputStreamO
 	private CheckpointedInputGate createCheckpointedInputGate() {
 		IndexedInputGate[] inputGates = getEnvironment().getAllInputGates();
 
-		return InputProcessorUtil.createCheckpointedInputGate(
-			this,
+		checkpointBarrierHandler = InputProcessorUtil.createCheckpointBarrierHandler(
 			configuration,
 			getCheckpointCoordinator(),
+			getTaskNameWithSubtaskAndId(),
+			this,
+			Arrays.asList(inputGates));
+
+		return InputProcessorUtil.createCheckpointedInputGate(
 			inputGates,
 			getEnvironment().getMetricGroup().getIOMetricGroup(),
-			getTaskNameWithSubtaskAndId());
+			checkpointBarrierHandler);
+	}
+
+	@Override
+	protected boolean triggerCheckpointSync(
+		CheckpointMetaData checkpointMetaData,
+		CheckpointOptions checkpointOptions,
+		boolean advanceToEndOfEventTime) throws Exception {
+
+		if (checkpointBarrierHandler != null) {
+			checkpointBarrierHandler.onCheckpointTrigger(checkpointMetaData, checkpointOptions);
+			return true;
+		}
+
+		return false;
 	}
 
 	private DataOutput<IN> createDataOutput() {

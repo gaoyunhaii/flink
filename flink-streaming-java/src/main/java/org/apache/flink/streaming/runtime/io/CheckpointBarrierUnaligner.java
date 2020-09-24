@@ -22,6 +22,8 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.channel.ChannelStateWriter;
 import org.apache.flink.runtime.checkpoint.channel.InputChannelInfo;
 import org.apache.flink.runtime.concurrent.FutureUtils;
@@ -185,6 +187,11 @@ public class CheckpointBarrierUnaligner extends CheckpointBarrierHandler {
 	}
 
 	@Override
+	public void onCheckpointTrigger(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) throws IOException {
+		throw new UnsupportedOperationException("Not implemented yet");
+	}
+
+	@Override
 	public boolean hasInflightData(long checkpointId, InputChannelInfo channelInfo) {
 		if (checkpointId < currentConsumedCheckpointId) {
 			return false;
@@ -223,7 +230,11 @@ public class CheckpointBarrierUnaligner extends CheckpointBarrierHandler {
 	private void notifyCheckpoint(CheckpointBarrier barrier) throws IOException {
 		// ignore the previous triggered checkpoint by netty thread if it was already canceled or aborted before.
 		if (barrier.getId() >= threadSafeUnaligner.getCurrentCheckpointId()) {
-			super.notifyCheckpoint(barrier, 0);
+			super.notifyCheckpoint(
+				barrier.getId(),
+				barrier.getTimestamp(),
+				barrier.getCheckpointOptions(),
+				0);
 		}
 	}
 

@@ -856,7 +856,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 						0,
 						System.currentTimeMillis() - checkpointMetaData.getTimestamp());
 					try {
-						result.complete(triggerCheckpoint(checkpointMetaData, checkpointOptions, advanceToEndOfEventTime));
+						result.complete(triggerCheckpointSync(checkpointMetaData, checkpointOptions, advanceToEndOfEventTime));
 					}
 					catch (Exception ex) {
 						// Report the failure both via the Future result but also to the mailbox
@@ -870,10 +870,19 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 		return result;
 	}
 
-	private boolean triggerCheckpoint(
+	protected boolean triggerCheckpointSync(
+		CheckpointMetaData checkpointMetaData,
+		CheckpointOptions checkpointOptions,
+		boolean advanceToEndOfEventTime) throws Exception {
+
+		return triggerCheckpoint(checkpointMetaData, checkpointOptions, advanceToEndOfEventTime);
+	}
+
+	protected boolean triggerCheckpoint(
 			CheckpointMetaData checkpointMetaData,
 			CheckpointOptions checkpointOptions,
 			boolean advanceToEndOfEventTime) throws Exception {
+
 		try {
 			// No alignment if we inject a checkpoint
 			CheckpointMetrics checkpointMetrics = new CheckpointMetrics().setAlignmentDurationNanos(0L);

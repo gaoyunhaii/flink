@@ -18,6 +18,8 @@
 package org.apache.flink.streaming.runtime.io;
 
 import org.apache.flink.runtime.checkpoint.CheckpointException;
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.channel.InputChannelInfo;
 import org.apache.flink.runtime.io.network.api.CancelCheckpointMarker;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
@@ -129,5 +131,11 @@ class AlternatingCheckpointBarrierHandler extends CheckpointBarrierHandler {
 			closer.register(unalignedHandler);
 			closer.register(super::close);
 		}
+	}
+
+	@Override
+	public void onCheckpointTrigger(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) throws IOException {
+		// Since checkpoint is always dealed with unalignedHandler
+		unalignedHandler.onCheckpointTrigger(checkpointMetaData, checkpointOptions);
 	}
 }

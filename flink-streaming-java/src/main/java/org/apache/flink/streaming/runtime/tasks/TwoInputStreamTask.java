@@ -19,15 +19,19 @@ package org.apache.flink.streaming.runtime.tasks;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.runtime.io.network.partition.consumer.IndexedInputGate;
 import org.apache.flink.streaming.api.operators.InputSelectable;
 import org.apache.flink.streaming.api.operators.TwoInputStreamOperator;
+import org.apache.flink.streaming.runtime.io.CheckpointBarrierHandler;
 import org.apache.flink.streaming.runtime.io.CheckpointedInputGate;
 import org.apache.flink.streaming.runtime.io.InputProcessorUtil;
 import org.apache.flink.streaming.runtime.io.StreamTwoInputProcessor;
 import org.apache.flink.streaming.runtime.io.TwoInputSelectionHandler;
 
+import javax.annotation.Nullable;
 import java.util.List;
 
 import static org.apache.flink.util.Preconditions.checkState;
@@ -38,6 +42,8 @@ import static org.apache.flink.util.Preconditions.checkState;
  */
 @Internal
 public class TwoInputStreamTask<IN1, IN2, OUT> extends AbstractTwoInputStreamTask<IN1, IN2, OUT> {
+
+	private CheckpointBarrierHandler checkpointBarrierHandler;
 
 	public TwoInputStreamTask(Environment env) throws Exception {
 		super(env);
@@ -53,13 +59,18 @@ public class TwoInputStreamTask<IN1, IN2, OUT> extends AbstractTwoInputStreamTas
 		TwoInputSelectionHandler twoInputSelectionHandler = new TwoInputSelectionHandler(
 			headOperator instanceof InputSelectable ? (InputSelectable) headOperator : null);
 
-		// create an input instance for each input
-		CheckpointedInputGate[] checkpointedInputGates = InputProcessorUtil.createCheckpointedMultipleInputGate(
-			this,
+		checkpointBarrierHandler = InputProcessorUtil.createCheckpointBarrierHandler(
 			getConfiguration(),
 			getCheckpointCoordinator(),
-			getEnvironment().getMetricGroup().getIOMetricGroup(),
 			getTaskNameWithSubtaskAndId(),
+			this,
+			inputGates1,
+			inputGates2);
+
+		// create an input instance for each input
+		CheckpointedInputGate[] checkpointedInputGates = InputProcessorUtil.createCheckpointedMultipleInputGate(
+			getEnvironment().getMetricGroup().getIOMetricGroup(),
+			checkpointBarrierHandler,
 			inputGates1,
 			inputGates2);
 		checkState(checkpointedInputGates.length == 2);
@@ -76,5 +87,19 @@ public class TwoInputStreamTask<IN1, IN2, OUT> extends AbstractTwoInputStreamTas
 			input2WatermarkGauge,
 			operatorChain,
 			setupNumRecordsInCounter(headOperator));
+	}
+
+	@Override
+	protected boolean triggerCheckpointSync(
+		CheckpointMetaData checkpointMetaData,
+		CheckpointOptions checkpointOptions,
+		boolean advanceToEndOfEventTime) throws Exception {
+
+		if (checkpointBarrierHandler != null) {
+			checkpointBarrierHandler.onCheckpointTrigger(checkpointMetaData, checkpointOptions);
+			return true;
+		}
+
+		return false;
 	}
 }
