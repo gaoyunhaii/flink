@@ -139,6 +139,12 @@ public class SourceStreamTask<OUT, SRC extends SourceFunction<OUT>, OP extends S
 			} else if (!isFinished && sourceThreadThrowable != null) {
 				mailboxProcessor.reportThrowable(sourceThreadThrowable);
 			} else {
+				try {
+					endOfInput();
+				} catch (Throwable t) {
+					mailboxProcessor.reportThrowable(t);
+				}
+
 				mailboxProcessor.allActionsCompleted();
 			}
 		});

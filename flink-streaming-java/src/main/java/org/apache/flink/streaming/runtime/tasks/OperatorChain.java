@@ -35,11 +35,14 @@ import org.apache.flink.runtime.metrics.groups.OperatorMetricGroup;
 import org.apache.flink.runtime.operators.coordination.OperatorEvent;
 import org.apache.flink.runtime.operators.coordination.OperatorEventDispatcher;
 import org.apache.flink.runtime.plugable.SerializationDelegate;
+import org.apache.flink.runtime.state.CheckpointListener;
+import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.collector.selector.CopyingDirectedOutput;
 import org.apache.flink.streaming.api.collector.selector.DirectedOutput;
 import org.apache.flink.streaming.api.collector.selector.OutputSelector;
 import org.apache.flink.streaming.api.graph.StreamConfig;
 import org.apache.flink.streaming.api.graph.StreamEdge;
+import org.apache.flink.streaming.api.operators.AbstractUdfStreamOperator;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.operators.Output;
 import org.apache.flink.streaming.api.operators.StreamOperator;
@@ -57,6 +60,7 @@ import org.apache.flink.streaming.runtime.streamstatus.StreamStatusProvider;
 import org.apache.flink.streaming.runtime.tasks.mailbox.MailboxExecutorFactory;
 import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.OutputTag;
+import org.apache.flink.util.ReflectionUtil;
 import org.apache.flink.util.SerializedValue;
 import org.apache.flink.util.XORShiftRandom;
 
@@ -66,6 +70,7 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.Nullable;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -301,6 +306,29 @@ public class OperatorChain<OUT, OP extends StreamOperator<OUT>> implements Strea
 		if (headOperatorWrapper != null) {
 			headOperatorWrapper.close(actionExecutor);
 		}
+	}
+
+	public boolean needWaitingCheckpointOnFinish() throws Exception {
+		Method checkpointCompleteMethod =
+			CheckpointListener.class.getMethod("notifyCheckpointComplete", long.class);
+
+		for (StreamOperatorWrapper<?, ?> operatorWrapper : getAllOperators()) {
+			StreamOperator<?> operator = operatorWrapper.getStreamOperator();
+
+			if (ReflectionUtil.hasOverrideMethod(operator.getClass(), checkpointCompleteMethod)) {
+				return true;
+			}
+
+			if (operator instanceof AbstractUdfStreamOperator) {
+				Object udf = ((AbstractUdfStreamOperator<?, ?>) operator).getUserFunction();
+
+				if (ReflectionUtil.hasOverrideMethod(udf.getClass(), checkpointCompleteMethod)) {
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	public RecordWriterOutput<?>[] getStreamOutputs() {

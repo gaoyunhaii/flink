@@ -135,11 +135,7 @@ public class CheckpointTaskTriggerComputer {
 				}
 			}
 
-			LOG.info("Computes tasks to trigger used {} ms, final snapshots used is {}, executions to trigger is {}",
-				(System.nanoTime() - start) / 1e6,
-				finalSnapshots,
-				tasksToTrigger);
-
+			LOG.info("Computes tasks to trigger used {} ms", (System.nanoTime() - start) / 1e6);
 			resultFuture.complete(new TaskTriggerResult(tasksToTrigger, finalSnapshots));
 		});
 

@@ -527,6 +527,10 @@ public class CheckpointCoordinator {
 			checkAllSourcesAreStarted();
 			CheckpointTaskTriggerComputer.TaskTriggerResult taskTriggerResult =
 				taskTriggerComputer.computeTasksToTrigger();
+			LOG.info("tasks to trigger is {}, final snapshots used is {}",
+				taskTriggerResult.getTasksToTrigger(),
+				taskTriggerResult.getFinalSnapshotsUsed());
+
 			final Map<ExecutionAttemptID, ExecutionVertex> ackTasks = getAckTasks();
 
 			// we will actually trigger this checkpoint!

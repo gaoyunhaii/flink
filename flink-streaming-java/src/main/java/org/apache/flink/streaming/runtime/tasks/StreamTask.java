@@ -93,6 +93,8 @@ import java.util.Map;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -225,6 +227,12 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 
 	private long latestAsyncCheckpointStartDelayNanos;
 
+	private volatile boolean isWaitingCheckpointComplete;
+
+	private final ConcurrentHashMap<Long, Boolean> waitingCompleteCheckpoints = new ConcurrentHashMap<>();
+
+	private final CountDownLatch checkpointCompleteLatch = new CountDownLatch(1);
+
 	// ------------------------------------------------------------------------
 
 	/**
@@ -336,6 +344,28 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 	protected void cancelTask() throws Exception {
 	}
 
+	protected void endOfInput() throws Exception {
+		LOG.info("Task {} end of input", getTaskNameWithSubtaskAndId());
+		// Here we will try to wait till we receive the last checkpoint or last checkpoint complete
+
+		boolean requireCheckpointComplete = operatorChain.needWaitingCheckpointOnFinish();
+		if (requireCheckpointComplete) {
+			LOG.info("Task {} requires to wait for a complete checkpoint before finished", getTaskNameWithSubtaskAndId());
+			// notify checkpoint coordinator to checkpoint immediately
+			isWaitingCheckpointComplete = true;
+
+			MailboxExecutor mailboxExecutor = mailboxProcessor.getMailboxExecutor(TaskMailbox.MIN_PRIORITY);
+			if (mailboxProcessor.isMailboxThread()) {
+				while (checkpointCompleteLatch.getCount() > 0) {
+					mailboxExecutor.yield();
+				}
+			} else {
+				// Since we are not in mailbox thread, we could do blocking wait...
+				checkpointCompleteLatch.await();
+			}
+		}
+	}
+
 	protected void cleanup() throws Exception {
 		if (inputProcessor != null) {
 			inputProcessor.close();
@@ -355,6 +385,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 			return;
 		}
 		if (status == InputStatus.END_OF_INPUT) {
+			endOfInput();
 			controller.allActionsCompleted();
 			return;
 		}
@@ -931,6 +962,11 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 			CheckpointMetrics checkpointMetrics,
 			boolean advanceToEndOfTime) throws Exception {
 
+		if (isWaitingCheckpointComplete && !checkpointOptions.getCheckpointType().isSavepoint()) {
+			LOG.info("Start waiting for checkpoint {} to complete", checkpointMetaData.getCheckpointId());
+			waitingCompleteCheckpoints.put(checkpointMetaData.getCheckpointId(), false);
+		}
+
 		LOG.debug("Starting checkpoint ({}) {} on task {}",
 			checkpointMetaData.getCheckpointId(), checkpointOptions.getCheckpointType(), getName());
 
@@ -1012,6 +1048,11 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 
 	private void notifyCheckpointComplete(long checkpointId) throws Exception {
 		subtaskCheckpointCoordinator.notifyCheckpointComplete(checkpointId, operatorChain, this::isRunning);
+
+		if (isWaitingCheckpointComplete && waitingCompleteCheckpoints.containsKey(checkpointId)) {
+			checkpointCompleteLatch.countDown();
+		}
+
 		if (isRunning && isSynchronousSavepointId(checkpointId)) {
 			finishTask();
 			// Reset to "notify" the internal synchronous savepoint mailbox loop.
