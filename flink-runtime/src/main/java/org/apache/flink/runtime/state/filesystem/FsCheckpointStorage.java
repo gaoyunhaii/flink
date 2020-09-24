@@ -135,6 +135,15 @@ public class FsCheckpointStorage extends AbstractFsCheckpointStorage {
 	}
 
 	@Override
+	public void initializeLocationForFinalSnapshots() throws IOException {
+		checkArgument(baseLocationsInitialized, "The base checkpoint location has not been initialized.");
+
+		Path finalSnapshotsDir = createFinalSnapshotDirectory(checkpointsDirectory);
+
+		fileSystem.mkdirs(finalSnapshotsDir);
+	}
+
+	@Override
 	public CheckpointStreamFactory resolveCheckpointStorageLocation(
 			long checkpointId,
 			CheckpointStorageLocationReference reference) throws IOException {
@@ -176,6 +185,20 @@ public class FsCheckpointStorage extends AbstractFsCheckpointStorage {
 				fileSystem,
 				writeBufferSize,
 				fileSizeThreshold);
+	}
+
+	@Override
+	public CheckpointStorageLocation resolveLocationForFinalSnapshots() throws IOException {
+		Path finalSnapshotsDir = createFinalSnapshotDirectory(checkpointsDirectory);
+
+		return new FsCheckpointStorageLocation(
+			fileSystem,
+			finalSnapshotsDir,
+			sharedStateDirectory,
+			taskOwnedStateDirectory,
+			CheckpointStorageLocationReference.getDefault(),
+			fileSizeThreshold,
+			writeBufferSize);
 	}
 
 	@Override

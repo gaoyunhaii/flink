@@ -338,7 +338,8 @@ public class StreamMockEnvironment implements Environment {
 			new CheckpointMetaData(checkpointId, 0L),
 			checkpointMetrics,
 			subtaskState,
-			null);
+			null,
+			false);
 	}
 
 	@Override

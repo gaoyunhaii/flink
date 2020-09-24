@@ -40,6 +40,7 @@ import org.apache.flink.util.function.BiFunctionWithException;
 
 import org.junit.Test;
 
+import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -129,6 +130,11 @@ public class ChannelPersistenceITCase {
 
 			@Override
 			public CheckpointStreamFactory.CheckpointStateOutputStream createTaskOwnedStateStream() {
+				throw new UnsupportedOperationException();
+			}
+
+			@Override
+			public CheckpointStorageLocation resolveLocationForFinalSnapshots() throws IOException {
 				throw new UnsupportedOperationException();
 			}
 		};

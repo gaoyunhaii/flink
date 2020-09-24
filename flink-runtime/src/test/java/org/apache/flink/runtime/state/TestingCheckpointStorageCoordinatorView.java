@@ -90,6 +90,11 @@ public class TestingCheckpointStorageCoordinatorView implements CheckpointStorag
 	}
 
 	@Override
+	public void initializeLocationForFinalSnapshots() throws IOException {
+
+	}
+
+	@Override
 	public CheckpointStreamFactory resolveCheckpointStorageLocation(
 			long checkpointId,
 			CheckpointStorageLocationReference reference) {
@@ -99,6 +104,11 @@ public class TestingCheckpointStorageCoordinatorView implements CheckpointStorag
 	@Override
 	public CheckpointStreamFactory.CheckpointStateOutputStream createTaskOwnedStateStream() {
 		return new MemCheckpointStreamFactory.MemoryCheckpointOutputStream(Integer.MAX_VALUE);
+	}
+
+	@Override
+	public CheckpointStorageLocation resolveLocationForFinalSnapshots() throws IOException {
+		return null;
 	}
 
 	// ------------------------------------------------------------------------

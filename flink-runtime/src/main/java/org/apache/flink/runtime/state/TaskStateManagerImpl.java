@@ -108,18 +108,27 @@ public class TaskStateManagerImpl implements TaskStateManager {
 		@Nonnull CheckpointMetaData checkpointMetaData,
 		@Nonnull CheckpointMetrics checkpointMetrics,
 		@Nullable TaskStateSnapshot acknowledgedState,
-		@Nullable TaskStateSnapshot localState) {
+		@Nullable TaskStateSnapshot localState,
+		boolean isFinalSnapshot) {
 
 		long checkpointId = checkpointMetaData.getCheckpointId();
 
 		localStateStore.storeLocalState(checkpointId, localState);
 
-		checkpointResponder.acknowledgeCheckpoint(
-			jobId,
-			executionAttemptID,
-			checkpointId,
-			checkpointMetrics,
-			acknowledgedState);
+		if (!isFinalSnapshot) {
+			checkpointResponder.acknowledgeCheckpoint(
+				jobId,
+				executionAttemptID,
+				checkpointId,
+				checkpointMetrics,
+				acknowledgedState);
+		} else {
+			checkpointResponder.reportFinalSnapshot(
+				jobId,
+				executionAttemptID,
+				checkpointMetrics,
+				acknowledgedState);
+		}
 	}
 
 	@Nonnull

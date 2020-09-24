@@ -53,7 +53,8 @@ public interface TaskStateManager extends CheckpointListener, AutoCloseable {
 		@Nonnull CheckpointMetaData checkpointMetaData,
 		@Nonnull CheckpointMetrics checkpointMetrics,
 		@Nullable TaskStateSnapshot acknowledgedState,
-		@Nullable TaskStateSnapshot localState);
+		@Nullable TaskStateSnapshot localState,
+		boolean isFinalSnapshot);
 
 	/**
 	 * Returns means to restore previously reported state of an operator running in the owning task.

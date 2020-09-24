@@ -22,6 +22,9 @@ import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
+import org.apache.flink.runtime.messages.Acknowledge;
+
+import java.util.concurrent.CompletableFuture;
 
 /**
  * NoOp {@link CheckpointResponder} implementation.
@@ -34,4 +37,14 @@ public enum NoOpCheckpointResponder implements CheckpointResponder {
 
 	@Override
 	public void declineCheckpoint(JobID j, ExecutionAttemptID e, long l, Throwable t) {}
+
+	@Override
+	public CompletableFuture<Acknowledge> reportFinalSnapshot(
+		JobID jobID,
+		ExecutionAttemptID executionAttemptID,
+		CheckpointMetrics checkpointMetrics,
+		TaskStateSnapshot subtaskState) {
+
+		return CompletableFuture.completedFuture(Acknowledge.get());
+	}
 }

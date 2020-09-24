@@ -76,6 +76,7 @@ import org.apache.flink.runtime.jobmaster.ExecutionDeploymentTracker;
 import org.apache.flink.runtime.jobmaster.ExecutionDeploymentTrackerDeploymentListenerAdapter;
 import org.apache.flink.runtime.jobmaster.SerializedInputSplit;
 import org.apache.flink.runtime.jobmaster.slotpool.SlotProvider;
+import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.messages.FlinkJobNotFoundException;
 import org.apache.flink.runtime.messages.checkpoint.AcknowledgeCheckpoint;
 import org.apache.flink.runtime.messages.checkpoint.DeclineCheckpoint;
@@ -867,6 +868,43 @@ public abstract class SchedulerBase implements SchedulerNG {
 				log.debug(errorMessage, jobGraph.getJobID());
 			}
 		}
+	}
+
+	@Override
+	public CompletableFuture<Acknowledge> reportFinalSnapshot(
+		JobID jobID,
+		ExecutionAttemptID executionAttemptID,
+		CheckpointMetrics checkpointMetrics,
+		TaskStateSnapshot checkpointState) {
+
+		mainThreadExecutor.assertRunningInMainThread();;
+
+		FinalSnapshotManager finalSnapshotManager = executionGraph.getFinalSnapshotManager();
+		if (finalSnapshotManager != null) {
+			Execution execution = executionGraph.getRegisteredExecutions().get(executionAttemptID);
+
+			if (execution == null) {
+				log.warn("Received final snapshots for tasks that are not current attempt {}", executionAttemptID);
+				try {
+					checkpointState.discardState();
+				} catch (Exception e) {
+					log.warn("Failed to clear the outdated final snapshot");
+				}
+
+				return CompletableFuture.completedFuture(Acknowledge.get());
+			}
+
+			String taskManagerLocationInfo = retrieveTaskManagerLocation(executionAttemptID);
+			finalSnapshotManager.reportFinalSnapshot(
+				execution.getVertex(),
+				executionAttemptID,
+				checkpointState,
+				taskManagerLocationInfo);
+		} else {
+			log.warn("Received final snapshots but the job do not have a final snapshot manager");
+		}
+
+		return CompletableFuture.completedFuture(Acknowledge.get());
 	}
 
 	@Override

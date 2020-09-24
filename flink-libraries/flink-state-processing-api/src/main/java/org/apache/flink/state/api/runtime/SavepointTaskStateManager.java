@@ -52,7 +52,8 @@ final class SavepointTaskStateManager implements TaskStateManager {
 		@Nonnull CheckpointMetaData checkpointMetaData,
 		@Nonnull CheckpointMetrics checkpointMetrics,
 		@Nullable TaskStateSnapshot acknowledgedState,
-		@Nullable TaskStateSnapshot localState) {}
+		@Nullable TaskStateSnapshot localState,
+		boolean isFinalSnapshot) {}
 
 	@Nonnull
 	@Override

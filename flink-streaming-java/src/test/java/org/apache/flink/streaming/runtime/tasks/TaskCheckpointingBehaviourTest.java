@@ -51,6 +51,7 @@ import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobgraph.tasks.InputSplitProvider;
 import org.apache.flink.runtime.memory.MemoryManager;
+import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.metrics.groups.UnregisteredMetricGroups;
 import org.apache.flink.runtime.query.KvStateRegistry;
 import org.apache.flink.runtime.shuffle.ShuffleEnvironment;
@@ -95,6 +96,7 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.RunnableFuture;
 
@@ -257,6 +259,16 @@ public class TaskCheckpointingBehaviourTest extends TestLogger {
 			Throwable cause) {
 
 			declinedLatch.trigger();
+		}
+
+		@Override
+		public CompletableFuture<Acknowledge> reportFinalSnapshot(
+			JobID jobID,
+			ExecutionAttemptID executionAttemptID,
+			CheckpointMetrics checkpointMetrics,
+			TaskStateSnapshot subtaskState) {
+
+			return CompletableFuture.completedFuture(Acknowledge.get());
 		}
 
 		public OneShotLatch getDeclinedLatch() {

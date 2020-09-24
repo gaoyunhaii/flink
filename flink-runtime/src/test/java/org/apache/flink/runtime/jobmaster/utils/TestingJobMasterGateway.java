@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.jobmaster.utils;
 
+import com.sun.xml.internal.ws.util.CompletedFuture;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.common.time.Time;
@@ -326,6 +327,12 @@ public class TestingJobMasterGateway implements JobMasterGateway {
 	@Override
 	public void declineCheckpoint(DeclineCheckpoint declineCheckpoint) {
 		declineCheckpointConsumer.accept(declineCheckpoint);
+	}
+
+	@Override
+	public CompletableFuture<Acknowledge> reportFinalSnapshot(JobID jobID, ExecutionAttemptID executionAttemptID, CheckpointMetrics checkpointMetrics, TaskStateSnapshot subtaskState) {
+		// Do nothing now.
+		return CompletableFuture.completedFuture(Acknowledge.get());
 	}
 
 	@Override

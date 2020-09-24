@@ -18,10 +18,14 @@
 
 package org.apache.flink.runtime.checkpoint;
 
+import com.sun.xml.internal.ws.util.CompletedFuture;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
+import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.messages.checkpoint.DeclineCheckpoint;
 import org.apache.flink.runtime.rpc.RpcGateway;
+
+import java.util.concurrent.CompletableFuture;
 
 /**
  * RPC Gateway interface for messages to the CheckpointCoordinator.
@@ -36,4 +40,10 @@ public interface CheckpointCoordinatorGateway extends RpcGateway {
 			final TaskStateSnapshot subtaskState);
 
 	void declineCheckpoint(DeclineCheckpoint declineCheckpoint);
+
+	CompletableFuture<Acknowledge> reportFinalSnapshot(
+		final JobID jobID,
+		final ExecutionAttemptID executionAttemptID,
+		final CheckpointMetrics checkpointMetrics,
+		final TaskStateSnapshot subtaskState);
 }

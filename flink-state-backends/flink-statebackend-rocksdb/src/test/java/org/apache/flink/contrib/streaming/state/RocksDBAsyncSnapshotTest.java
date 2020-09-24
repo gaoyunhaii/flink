@@ -37,6 +37,7 @@ import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.execution.CancelTaskException;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.jobgraph.OperatorID;
+import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.operators.testutils.MockEnvironment;
 import org.apache.flink.runtime.operators.testutils.MockInputSplitProvider;
 import org.apache.flink.runtime.state.AbstractKeyedStateBackend;
@@ -86,6 +87,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RunnableFuture;
@@ -189,6 +191,16 @@ public class RocksDBAsyncSnapshotTest extends TestLogger {
 				JobID jobID, ExecutionAttemptID executionAttemptID,
 				long checkpointId, Throwable cause) {
 
+			}
+
+			@Override
+			public CompletableFuture<Acknowledge> reportFinalSnapshot(
+				JobID jobID,
+				ExecutionAttemptID executionAttemptID,
+				CheckpointMetrics checkpointMetrics,
+				TaskStateSnapshot subtaskState) {
+
+				return CompletableFuture.completedFuture(Acknowledge.get());
 			}
 		};
 

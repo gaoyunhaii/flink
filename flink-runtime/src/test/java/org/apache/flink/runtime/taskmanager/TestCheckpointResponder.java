@@ -23,9 +23,11 @@ import org.apache.flink.core.testutils.OneShotLatch;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
+import org.apache.flink.runtime.messages.Acknowledge;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Mock for interface {@link CheckpointResponder} for unit testing.
@@ -83,6 +85,16 @@ public class TestCheckpointResponder implements CheckpointResponder {
 		if (declinedLatch != null) {
 			declinedLatch.trigger();
 		}
+	}
+
+	@Override
+	public CompletableFuture<Acknowledge> reportFinalSnapshot(
+		JobID jobID,
+		ExecutionAttemptID executionAttemptID,
+		CheckpointMetrics checkpointMetrics,
+		TaskStateSnapshot subtaskState) {
+
+		return CompletableFuture.completedFuture(Acknowledge.get());
 	}
 
 	public static abstract class AbstractReport {

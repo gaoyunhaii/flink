@@ -22,6 +22,9 @@ import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
+import org.apache.flink.runtime.messages.Acknowledge;
+
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Responder for checkpoint acknowledge and decline messages in the {@link Task}.
@@ -62,4 +65,10 @@ public interface CheckpointResponder {
 		ExecutionAttemptID executionAttemptID,
 		long checkpointId,
 		Throwable cause);
+
+	CompletableFuture<Acknowledge> reportFinalSnapshot(
+		final JobID jobID,
+		final ExecutionAttemptID executionAttemptID,
+		final CheckpointMetrics checkpointMetrics,
+		final TaskStateSnapshot subtaskState);
 }

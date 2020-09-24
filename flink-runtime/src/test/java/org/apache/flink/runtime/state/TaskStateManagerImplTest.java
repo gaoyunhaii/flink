@@ -102,7 +102,8 @@ public class TaskStateManagerImplTest extends TestLogger {
 			checkpointMetaData,
 			checkpointMetrics,
 			jmTaskStateSnapshot,
-			tmTaskStateSnapshot);
+			tmTaskStateSnapshot,
+			false);
 
 		TestCheckpointResponder.AcknowledgeReport acknowledgeReport =
 			testCheckpointResponder.getAcknowledgeReports().get(0);

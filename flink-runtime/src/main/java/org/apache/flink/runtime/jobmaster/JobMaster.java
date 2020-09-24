@@ -499,6 +499,16 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId> implements JobMast
 	}
 
 	@Override
+	public CompletableFuture<Acknowledge> reportFinalSnapshot(
+		JobID jobID,
+		ExecutionAttemptID executionAttemptID,
+		CheckpointMetrics checkpointMetrics,
+		TaskStateSnapshot subtaskState) {
+
+		return schedulerNG.reportFinalSnapshot(jobID, executionAttemptID, checkpointMetrics, subtaskState);
+	}
+
+	@Override
 	public CompletableFuture<Acknowledge> sendOperatorEventToCoordinator(
 			final ExecutionAttemptID task,
 			final OperatorID operatorID,

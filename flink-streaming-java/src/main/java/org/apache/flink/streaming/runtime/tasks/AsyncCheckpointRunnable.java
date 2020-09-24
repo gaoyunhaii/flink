@@ -61,6 +61,7 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 	private final CheckpointMetrics checkpointMetrics;
 	private final long asyncStartNanos;
 	private final AtomicReference<AsyncCheckpointState> asyncCheckpointState = new AtomicReference<>(AsyncCheckpointState.RUNNING);
+	private final boolean isFinalSnapshot;
 
 	AsyncCheckpointRunnable(
 			Map<OperatorID, OperatorSnapshotFutures> operatorSnapshotsInProgress,
@@ -71,7 +72,8 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 			Consumer<AsyncCheckpointRunnable> register,
 			Consumer<AsyncCheckpointRunnable> unregister,
 			Environment taskEnvironment,
-			AsyncExceptionHandler asyncExceptionHandler) {
+			AsyncExceptionHandler asyncExceptionHandler,
+			boolean isFinalSnapshot) {
 
 		this.operatorSnapshotsInProgress = checkNotNull(operatorSnapshotsInProgress);
 		this.checkpointMetaData = checkNotNull(checkpointMetaData);
@@ -82,6 +84,7 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 		this.unregisterConsumer = unregister;
 		this.taskEnvironment = checkNotNull(taskEnvironment);
 		this.asyncExceptionHandler = checkNotNull(asyncExceptionHandler);
+		this.isFinalSnapshot = isFinalSnapshot;
 	}
 
 	@Override
@@ -161,7 +164,8 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 			checkpointMetaData,
 			checkpointMetrics,
 			hasAckState ? acknowledgedTaskStateSnapshot : null,
-			hasLocalState ? localTaskStateSnapshot : null);
+			hasLocalState ? localTaskStateSnapshot : null,
+			isFinalSnapshot);
 
 		LOG.debug("{} - finished asynchronous part of checkpoint {}. Asynchronous duration: {} ms",
 			taskName, checkpointMetaData.getCheckpointId(), asyncDurationMillis);

@@ -119,7 +119,8 @@ public class LocalStateForwardingTest extends TestLogger {
 			asyncCheckpointRunnable -> {},
 			asyncCheckpointRunnable -> {},
 			testStreamTask.getEnvironment(),
-			testStreamTask);
+			testStreamTask,
+			false);
 
 		checkpointRunnable.run();
 
@@ -213,7 +214,8 @@ public class LocalStateForwardingTest extends TestLogger {
 			checkpointMetaData,
 			checkpointMetrics,
 			jmSnapshot,
-			tmSnapshot);
+			tmSnapshot,
+			false);
 
 		Assert.assertTrue("Reporting for JM state was not called.", jmReported.get());
 		Assert.assertTrue("Reporting for TM state was not called.", tmReported.get());
