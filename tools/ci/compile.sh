@@ -42,12 +42,12 @@ echo "==========================================================================
 
 EXIT_CODE=0
 
-run_mvn generate-sources -pl flink-formats/flink-parquet
+run_mvn install -pl flink-formats/flink-parquet -am
 ls -lrth flink-formats/flink-parquet/target/
 ls -lrth flink-formats/flink-parquet/target/protoc-plugins/
 
-run_mvn clean install $MAVEN_OPTS -Dflink.convergence.phase=install -Pcheck-convergence -Dflink.forkCount=2 \
-    -Dflink.forkCountTestPackage=2 -Dmaven.javadoc.skip=true -U -DskipTests
+#run_mvn clean install $MAVEN_OPTS -Dflink.convergence.phase=install -Pcheck-convergence -Dflink.forkCount=2 \
+#    -Dflink.forkCountTestPackage=2 -Dmaven.javadoc.skip=true -U -DskipTests
 
 EXIT_CODE=$?
 

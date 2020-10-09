@@ -232,6 +232,7 @@ under the License.
 				<version>0.5.1</version>
 				<extensions>true</extensions>
 				<configuration>
+					<checkStaleness>true</checkStaleness>
 					<protoTestSourceRoot>${project.basedir}/src/test/resources/protobuf</protoTestSourceRoot>
 					<!-- Generates classes into a separate directory since the generator always removes existing files. -->
 					<outputDirectory>${project.build.directory}/generated-test-sources/protobuf/java</outputDirectory>
