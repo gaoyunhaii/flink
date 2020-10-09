@@ -43,7 +43,8 @@ echo "==========================================================================
 EXIT_CODE=0
 
 run_mvn generate-sources -pl flink-formats/flink-parquet
-ls -l /Users/owner-pc/workspace_commu/flink-2/flink-formats/flink-parquet/target/protoc-plugins/
+ls -lrth flink-formats/flink-parquet/target/
+ls -lrth flink-formats/flink-parquet/target/protoc-plugins/
 
 run_mvn clean install $MAVEN_OPTS -Dflink.convergence.phase=install -Pcheck-convergence -Dflink.forkCount=2 \
     -Dflink.forkCountTestPackage=2 -Dmaven.javadoc.skip=true -U -DskipTests
