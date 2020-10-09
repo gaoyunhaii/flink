@@ -43,7 +43,7 @@ echo "==========================================================================
 EXIT_CODE=0
 
 run_mvn clean install $MAVEN_OPTS -Dflink.convergence.phase=install -Pcheck-convergence -Dflink.forkCount=2 \
-    -Dflink.forkCountTestPackage=2 -Dmaven.javadoc.skip=true -U -DskipTests  -pl flink-formats/flink-parquet -am
+    -Dflink.forkCountTestPackage=2 -Dmaven.javadoc.skip=true -U -DskipTests
 
 EXIT_CODE=$?
 
