@@ -246,15 +246,6 @@ public class ExecutionGraphBuilder {
 		// configure the state checkpointing
 		JobCheckpointingSettings snapshotSettings = jobGraph.getCheckpointingSettings();
 		if (snapshotSettings != null) {
-			List<ExecutionJobVertex> triggerVertices =
-					idToVertex(snapshotSettings.getVerticesToTrigger(), executionGraph);
-
-			List<ExecutionJobVertex> ackVertices =
-					idToVertex(snapshotSettings.getVerticesToAcknowledge(), executionGraph);
-
-			List<ExecutionJobVertex> confirmVertices =
-					idToVertex(snapshotSettings.getVerticesToConfirm(), executionGraph);
-
 			CompletedCheckpointStore completedCheckpoints;
 			CheckpointIDCounter checkpointIdCounter;
 			try {
@@ -284,7 +275,6 @@ public class ExecutionGraphBuilder {
 
 			CheckpointStatsTracker checkpointStatsTracker = new CheckpointStatsTracker(
 					historySize,
-					ackVertices,
 					snapshotSettings.getCheckpointCoordinatorConfiguration(),
 					metrics);
 
@@ -349,9 +339,6 @@ public class ExecutionGraphBuilder {
 
 			executionGraph.enableCheckpointing(
 				chkConfig,
-				triggerVertices,
-				ackVertices,
-				confirmVertices,
 				hooks,
 				checkpointIdCounter,
 				completedCheckpoints,

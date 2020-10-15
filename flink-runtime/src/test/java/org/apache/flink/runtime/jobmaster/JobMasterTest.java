@@ -2087,9 +2087,6 @@ public class JobMasterTest extends TestLogger {
 			false,
 			0);
 		final JobCheckpointingSettings checkpointingSettings = new JobCheckpointingSettings(
-			Collections.emptyList(),
-			Collections.emptyList(),
-			Collections.emptyList(),
 			checkpoinCoordinatorConfiguration,
 			null);
 		jobGraph.setSnapshotSettings(checkpointingSettings);

@@ -34,7 +34,6 @@ import org.apache.flink.util.TestLogger;
 import org.junit.Test;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.List;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
@@ -360,9 +359,6 @@ public class JobGraphTest extends TestLogger {
 			0);
 
 		return new JobCheckpointingSettings(
-			Collections.emptyList(),
-			Collections.emptyList(),
-			Collections.emptyList(),
 			checkpointCoordinatorConfiguration,
 			null);
 	}

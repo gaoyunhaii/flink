@@ -40,6 +40,7 @@ import org.mockito.stubbing.Answer;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -452,9 +453,6 @@ public class CheckpointCoordinatorMasterHooksTest {
 		return new CheckpointCoordinator(
 				jid,
 				chkConfig,
-				new ExecutionVertex[0],
-				ackVertices,
-				new ExecutionVertex[0],
 				Collections.emptyList(),
 				new StandaloneCheckpointIDCounter(),
 				new StandaloneCompletedCheckpointStore(10),
@@ -464,7 +462,12 @@ public class CheckpointCoordinatorMasterHooksTest {
 				SharedStateRegistry.DEFAULT_FACTORY,
 				new CheckpointFailureManager(
 					0,
-					NoOpFailJobCall.INSTANCE));
+					NoOpFailJobCall.INSTANCE),
+				new CheckpointBriefComputer(
+					jid,
+					new ArrayList<>(),
+					Arrays.asList(ackVertices),
+					new ArrayList<>()));
 	}
 
 	private static <T> T mockGeneric(Class<?> clazz) {

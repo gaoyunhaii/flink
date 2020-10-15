@@ -47,7 +47,6 @@ import org.apache.flink.runtime.executiongraph.utils.SimpleAckingTaskManagerGate
 import org.apache.flink.runtime.io.network.partition.JobMasterPartitionTracker;
 import org.apache.flink.runtime.io.network.partition.NoOpJobMasterPartitionTracker;
 import org.apache.flink.runtime.jobgraph.JobGraph;
-import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobgraph.ScheduleMode;
@@ -81,9 +80,7 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.Nullable;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
@@ -195,16 +192,6 @@ public class SchedulerTestingUtils {
 	}
 
 	public static void enableCheckpointing(final JobGraph jobGraph, @Nullable StateBackend stateBackend) {
-		final List<JobVertexID> triggerVertices = new ArrayList<>();
-		final List<JobVertexID> allVertices = new ArrayList<>();
-
-		for (JobVertex vertex : jobGraph.getVertices()) {
-			if (vertex.isInputVertex()) {
-				triggerVertices.add(vertex.getID());
-			}
-			allVertices.add(vertex.getID());
-		}
-
 		final CheckpointCoordinatorConfiguration config = new CheckpointCoordinatorConfiguration(
 			Long.MAX_VALUE, // disable periodical checkpointing
 			DEFAULT_CHECKPOINT_TIMEOUT_MS,
@@ -225,9 +212,7 @@ public class SchedulerTestingUtils {
 			}
 		}
 
-		jobGraph.setSnapshotSettings(new JobCheckpointingSettings(
-				triggerVertices, allVertices, allVertices,
-				config, serializedStateBackend));
+		jobGraph.setSnapshotSettings(new JobCheckpointingSettings(config, serializedStateBackend));
 	}
 
 	public static Collection<ExecutionAttemptID> getAllCurrentExecutionAttempts(DefaultScheduler scheduler) {

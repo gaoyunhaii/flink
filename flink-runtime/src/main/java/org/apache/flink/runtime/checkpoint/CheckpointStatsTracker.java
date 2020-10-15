@@ -22,7 +22,7 @@ import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.metrics.Gauge;
 import org.apache.flink.metrics.Metric;
 import org.apache.flink.metrics.MetricGroup;
-import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
+import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.tasks.CheckpointCoordinatorConfiguration;
 
@@ -65,9 +65,6 @@ public class CheckpointStatsTracker {
 	 */
 	private final ReentrantLock statsReadWriteLock = new ReentrantLock();
 
-	/** Total number of subtasks to checkpoint. */
-	private final int totalSubtaskCount;
-
 	/** Snapshotting settings created from the CheckpointConfig. */
 	private final CheckpointCoordinatorConfiguration jobCheckpointingConfiguration;
 
@@ -79,9 +76,6 @@ public class CheckpointStatsTracker {
 
 	/** History of checkpoints. */
 	private final CheckpointStatsHistory history;
-
-	/** The job vertices taking part in the checkpoints. */
-	private final List<ExecutionJobVertex> jobVertices;
 
 	/** The latest restored checkpoint. */
 	@Nullable
@@ -105,28 +99,17 @@ public class CheckpointStatsTracker {
 	 * Creates a new checkpoint stats tracker.
 	 *
 	 * @param numRememberedCheckpoints Maximum number of checkpoints to remember, including in progress ones.
-	 * @param jobVertices Job vertices involved in the checkpoints.
 	 * @param jobCheckpointingConfiguration Checkpointing configuration.
 	 * @param metricGroup Metric group for exposed metrics
 	 */
 	public CheckpointStatsTracker(
 		int numRememberedCheckpoints,
-		List<ExecutionJobVertex> jobVertices,
 		CheckpointCoordinatorConfiguration jobCheckpointingConfiguration,
 		MetricGroup metricGroup) {
 
 		checkArgument(numRememberedCheckpoints >= 0, "Negative number of remembered checkpoints");
 		this.history = new CheckpointStatsHistory(numRememberedCheckpoints);
-		this.jobVertices = checkNotNull(jobVertices, "JobVertices");
 		this.jobCheckpointingConfiguration = checkNotNull(jobCheckpointingConfiguration);
-
-		// Compute the total subtask count. We do this here in order to only
-		// do it once.
-		int count = 0;
-		for (ExecutionJobVertex vertex : jobVertices) {
-			count += vertex.getParallelism();
-		}
-		this.totalSubtaskCount = count;
 
 		// Latest snapshot is empty
 		latestSnapshot = new CheckpointStatsSnapshot(
@@ -192,17 +175,19 @@ public class CheckpointStatsTracker {
 	 * @return Tracker for statistics gathering.
 	 */
 	PendingCheckpointStats reportPendingCheckpoint(
+			List<ExecutionVertex> toAckTasks,
 			long checkpointId,
 			long triggerTimestamp,
 			CheckpointProperties props) {
 
-		ConcurrentHashMap<JobVertexID, TaskStateStats> taskStateStats = createEmptyTaskStateStatsMap();
+		ConcurrentHashMap<JobVertexID, TaskStateStats> taskStateStats = initializeTaskStateStatsMap(
+			toAckTasks);
 
 		PendingCheckpointStats pending = new PendingCheckpointStats(
 				checkpointId,
 				triggerTimestamp,
 				props,
-				totalSubtaskCount,
+				toAckTasks.size(),
 				taskStateStats,
 				new PendingCheckpointStatsCallback());
 
@@ -282,12 +267,17 @@ public class CheckpointStatsTracker {
 	 *
 	 * @return An empty map with an {@link TaskStateStats} entry for each task that is involved in the checkpoint.
 	 */
-	private ConcurrentHashMap<JobVertexID, TaskStateStats> createEmptyTaskStateStatsMap() {
-		ConcurrentHashMap<JobVertexID, TaskStateStats> taskStatsMap = new ConcurrentHashMap<>(jobVertices.size());
-		for (ExecutionJobVertex vertex : jobVertices) {
-			TaskStateStats taskStats = new TaskStateStats(vertex.getJobVertexId(), vertex.getParallelism());
-			taskStatsMap.put(vertex.getJobVertexId(), taskStats);
+	private ConcurrentHashMap<JobVertexID, TaskStateStats> initializeTaskStateStatsMap(
+		List<ExecutionVertex> toAckTask) {
+
+		ConcurrentHashMap<JobVertexID, TaskStateStats> taskStatsMap = new ConcurrentHashMap<>();
+
+		for (ExecutionVertex executionVertex : toAckTask) {
+			taskStatsMap.computeIfAbsent(
+				executionVertex.getJobvertexId(),
+				jobVertexID -> new TaskStateStats(jobVertexID, executionVertex.getJobVertex().getParallelism()));
 		}
+
 		return taskStatsMap;
 	}
 

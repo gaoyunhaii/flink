@@ -92,6 +92,8 @@ public class PendingCheckpoint {
 
 	private final Map<ExecutionAttemptID, ExecutionVertex> notYetAcknowledgedTasks;
 
+	private final List<ExecutionVertex> tasksToCommitTo;
+
 	private final Set<OperatorID> notYetAcknowledgedOperatorCoordinators;
 
 	private final List<MasterState> masterStates;
@@ -132,6 +134,7 @@ public class PendingCheckpoint {
 			long checkpointId,
 			long checkpointTimestamp,
 			Map<ExecutionAttemptID, ExecutionVertex> verticesToConfirm,
+			List<ExecutionVertex> tasksToCommitTo,
 			Collection<OperatorID> operatorCoordinatorsToConfirm,
 			Collection<String> masterStateIdentifiers,
 			CheckpointProperties props,
@@ -146,6 +149,7 @@ public class PendingCheckpoint {
 		this.checkpointId = checkpointId;
 		this.checkpointTimestamp = checkpointTimestamp;
 		this.notYetAcknowledgedTasks = checkNotNull(verticesToConfirm);
+		this.tasksToCommitTo = checkNotNull(tasksToCommitTo);
 		this.props = checkNotNull(props);
 		this.targetLocation = checkNotNull(targetLocation);
 		this.executor = Preconditions.checkNotNull(executor);
@@ -192,6 +196,10 @@ public class PendingCheckpoint {
 
 	public int getNumberOfAcknowledgedTasks() {
 		return numAcknowledgedTasks;
+	}
+
+	public List<ExecutionVertex> getTasksToCommitTo() {
+		return tasksToCommitTo;
 	}
 
 	public Map<OperatorID, OperatorState> getOperatorStates() {

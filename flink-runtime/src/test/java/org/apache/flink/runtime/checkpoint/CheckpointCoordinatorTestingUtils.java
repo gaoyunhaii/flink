@@ -68,6 +68,7 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -355,6 +356,7 @@ public class CheckpointCoordinatorTestingUtils {
 				ExecutionState.RUNNING);
 
 			when(executionVertices[i].getParallelSubtaskIndex()).thenReturn(i);
+			when(executionVertices[i].getJobVertex()).thenReturn(executionJobVertex);
 		}
 
 		when(executionJobVertex.getJobVertexId()).thenReturn(jobVertexID);
@@ -712,9 +714,6 @@ public class CheckpointCoordinatorTestingUtils {
 			return new CheckpointCoordinator(
 				jobId,
 				checkpointCoordinatorConfiguration,
-				tasksToTrigger,
-				tasksToWaitFor,
-				tasksToCommitTo,
 				coordinatorsToCheckpoint,
 				checkpointIDCounter,
 				completedCheckpointStore,
@@ -722,7 +721,12 @@ public class CheckpointCoordinatorTestingUtils {
 				ioExecutor,
 				timer,
 				sharedStateRegistryFactory,
-				failureManager);
+				failureManager,
+				new CheckpointBriefComputer(
+					jobId,
+					Arrays.asList(tasksToTrigger),
+					Arrays.asList(tasksToWaitFor),
+					Arrays.asList(tasksToCommitTo)));
 		}
 	}
 
