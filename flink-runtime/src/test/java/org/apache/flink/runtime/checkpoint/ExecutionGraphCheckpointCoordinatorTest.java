@@ -162,9 +162,6 @@ public class ExecutionGraphCheckpointCoordinatorTest extends TestLogger {
 		executionGraph.enableCheckpointing(
 				chkConfig,
 				Collections.emptyList(),
-				Collections.emptyList(),
-				Collections.emptyList(),
-				Collections.emptyList(),
 				counter,
 				store,
 				new MemoryStateBackend(),

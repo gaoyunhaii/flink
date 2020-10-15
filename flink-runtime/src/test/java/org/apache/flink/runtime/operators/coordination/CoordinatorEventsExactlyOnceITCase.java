@@ -193,10 +193,6 @@ public class CoordinatorEventsExactlyOnceITCase extends TestLogger {
 	}
 
 	private static JobCheckpointingSettings createCheckpointSettings(JobVertex... vertices) {
-		final List<JobVertexID> ids = Arrays.stream(vertices)
-				.map(JobVertex::getID)
-				.collect(Collectors.toList());
-
 		final CheckpointCoordinatorConfiguration coordCfg =
 			new CheckpointCoordinatorConfiguration.CheckpointCoordinatorConfigurationBuilder()
 				.setMaxConcurrentCheckpoints(1)
@@ -204,7 +200,7 @@ public class CoordinatorEventsExactlyOnceITCase extends TestLogger {
 				.setCheckpointTimeout(100_000)
 				.build();
 
-		return new JobCheckpointingSettings(ids, ids, ids, coordCfg, null);
+		return new JobCheckpointingSettings(coordCfg, null);
 	}
 
 	// ------------------------------------------------------------------------

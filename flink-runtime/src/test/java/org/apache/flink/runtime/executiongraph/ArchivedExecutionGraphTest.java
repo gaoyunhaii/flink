@@ -111,7 +111,6 @@ public class ArchivedExecutionGraphTest extends TestLogger {
 
 		CheckpointStatsTracker statsTracker = new CheckpointStatsTracker(
 				0,
-				jobVertices,
 				mock(CheckpointCoordinatorConfiguration.class),
 				new UnregisteredMetricsGroup());
 
@@ -128,9 +127,6 @@ public class ArchivedExecutionGraphTest extends TestLogger {
 
 		runtimeGraph.enableCheckpointing(
 			chkConfig,
-			Collections.<ExecutionJobVertex>emptyList(),
-			Collections.<ExecutionJobVertex>emptyList(),
-			Collections.<ExecutionJobVertex>emptyList(),
 			Collections.<MasterTriggerRestoreHook<?>>emptyList(),
 			new StandaloneCheckpointIDCounter(),
 			new StandaloneCompletedCheckpointStore(1),

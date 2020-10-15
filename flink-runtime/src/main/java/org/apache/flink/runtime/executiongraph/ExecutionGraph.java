@@ -34,6 +34,7 @@ import org.apache.flink.runtime.accumulators.AccumulatorSnapshot;
 import org.apache.flink.runtime.accumulators.StringifiedAccumulatorResult;
 import org.apache.flink.runtime.blob.BlobWriter;
 import org.apache.flink.runtime.blob.PermanentBlobKey;
+import org.apache.flink.runtime.checkpoint.CheckpointBriefComputer;
 import org.apache.flink.runtime.checkpoint.CheckpointCoordinator;
 import org.apache.flink.runtime.checkpoint.CheckpointFailureManager;
 import org.apache.flink.runtime.checkpoint.CheckpointIDCounter;
@@ -95,7 +96,6 @@ import javax.annotation.Nullable;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -449,9 +449,6 @@ public class ExecutionGraph implements AccessExecutionGraph {
 
 	public void enableCheckpointing(
 			CheckpointCoordinatorConfiguration chkConfig,
-			List<ExecutionJobVertex> verticesToTrigger,
-			List<ExecutionJobVertex> verticesToWaitFor,
-			List<ExecutionJobVertex> verticesToCommitTo,
 			List<MasterTriggerRestoreHook<?>> masterHooks,
 			CheckpointIDCounter checkpointIDCounter,
 			CompletedCheckpointStore checkpointStore,
@@ -460,10 +457,6 @@ public class ExecutionGraph implements AccessExecutionGraph {
 
 		checkState(state == JobStatus.CREATED, "Job must be in CREATED state");
 		checkState(checkpointCoordinator == null, "checkpointing already enabled");
-
-		ExecutionVertex[] tasksToTrigger = collectExecutionVertices(verticesToTrigger);
-		ExecutionVertex[] tasksToWaitFor = collectExecutionVertices(verticesToWaitFor);
-		ExecutionVertex[] tasksToCommitTo = collectExecutionVertices(verticesToCommitTo);
 
 		final Collection<OperatorCoordinatorCheckpointContext> operatorCoordinators = buildOpCoordinatorCheckpointContexts();
 
@@ -490,13 +483,26 @@ public class ExecutionGraph implements AccessExecutionGraph {
 			new DispatcherThreadFactory(
 				Thread.currentThread().getThreadGroup(), "Checkpoint Timer"));
 
+		List<ExecutionVertex> sourceVertices = new ArrayList<>();
+		List<ExecutionVertex> allVertices = new ArrayList<>();
+		for (ExecutionVertex executionVertex : getAllExecutionVertices()) {
+			if (executionVertex.getJobVertex().getJobVertex().isInputVertex()) {
+				sourceVertices.add(executionVertex);
+			}
+
+			allVertices.add(executionVertex);
+		}
+
+		CheckpointBriefComputer checkpointBriefComputer = new CheckpointBriefComputer(
+			getJobID(),
+			sourceVertices,
+			allVertices,
+			allVertices);
+
 		// create the coordinator that triggers and commits checkpoints and holds the state
 		checkpointCoordinator = new CheckpointCoordinator(
 			jobInformation.getJobId(),
 			chkConfig,
-			tasksToTrigger,
-			tasksToWaitFor,
-			tasksToCommitTo,
 			operatorCoordinators,
 			checkpointIDCounter,
 			checkpointStore,
@@ -505,7 +511,8 @@ public class ExecutionGraph implements AccessExecutionGraph {
 			new CheckpointsCleaner(),
 			new ScheduledExecutorServiceAdapter(checkpointCoordinatorTimer),
 			SharedStateRegistry.DEFAULT_FACTORY,
-			failureManager);
+			failureManager,
+			checkpointBriefComputer);
 
 		// register the master hooks on the checkpoint coordinator
 		for (MasterTriggerRestoreHook<?> hook : masterHooks) {
@@ -555,26 +562,6 @@ public class ExecutionGraph implements AccessExecutionGraph {
 			return checkpointStatsTracker.createSnapshot();
 		} else {
 			return null;
-		}
-	}
-
-	private ExecutionVertex[] collectExecutionVertices(List<ExecutionJobVertex> jobVertices) {
-		if (jobVertices.size() == 1) {
-			ExecutionJobVertex jv = jobVertices.get(0);
-			if (jv.getGraph() != this) {
-				throw new IllegalArgumentException("Can only use ExecutionJobVertices of this ExecutionGraph");
-			}
-			return jv.getTaskVertices();
-		}
-		else {
-			ArrayList<ExecutionVertex> all = new ArrayList<>();
-			for (ExecutionJobVertex jv : jobVertices) {
-				if (jv.getGraph() != this) {
-					throw new IllegalArgumentException("Can only use ExecutionJobVertices of this ExecutionGraph");
-				}
-				all.addAll(Arrays.asList(jv.getTaskVertices()));
-			}
-			return all.toArray(new ExecutionVertex[all.size()]);
 		}
 	}
 

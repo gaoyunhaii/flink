@@ -83,9 +83,6 @@ public class CheckpointSettingsSerializableTest extends TestLogger {
 		final SerializedValue<MasterTriggerRestoreHook.Factory[]> serHooks = new SerializedValue<>(hooks);
 
 		final JobCheckpointingSettings checkpointingSettings = new JobCheckpointingSettings(
-				Collections.<JobVertexID>emptyList(),
-				Collections.<JobVertexID>emptyList(),
-				Collections.<JobVertexID>emptyList(),
 				new CheckpointCoordinatorConfiguration(
 					1000L,
 					10000L,
