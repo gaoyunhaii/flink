@@ -28,11 +28,8 @@ import org.apache.flink.streaming.api.graph.StreamConfig;
 import org.apache.flink.streaming.api.operators.MailboxExecutor;
 import org.apache.flink.streaming.runtime.tasks.SubtaskCheckpointCoordinator;
 
-import org.apache.flink.shaded.guava18.com.google.common.collect.Iterables;
-
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
@@ -43,53 +40,6 @@ import java.util.stream.Stream;
  */
 @Internal
 public class InputProcessorUtil {
-	@SuppressWarnings("unchecked")
-	public static CheckpointedInputGate createCheckpointedInputGate(
-			AbstractInvokable toNotifyOnCheckpoint,
-			StreamConfig config,
-			SubtaskCheckpointCoordinator checkpointCoordinator,
-			IndexedInputGate[] inputGates,
-			TaskIOMetricGroup taskIOMetricGroup,
-			String taskName,
-			MailboxExecutor mailboxExecutor) {
-		CheckpointedInputGate[] checkpointedInputGates = createCheckpointedMultipleInputGate(
-			toNotifyOnCheckpoint,
-			config,
-			checkpointCoordinator,
-			taskIOMetricGroup,
-			taskName,
-			mailboxExecutor,
-			new List[]{ Arrays.asList(inputGates) },
-			Collections.emptyList());
-		return Iterables.getOnlyElement(Arrays.asList(checkpointedInputGates));
-	}
-
-	/**
-	 * @return an array of {@link CheckpointedInputGate} created for corresponding
-	 * {@link InputGate}s supplied as parameters.
-	 */
-	public static CheckpointedInputGate[] createCheckpointedMultipleInputGate(
-			AbstractInvokable toNotifyOnCheckpoint,
-			StreamConfig config,
-			SubtaskCheckpointCoordinator checkpointCoordinator,
-			TaskIOMetricGroup taskIOMetricGroup,
-			String taskName,
-			MailboxExecutor mailboxExecutor,
-			List<IndexedInputGate>[] inputGates,
-			List<StreamTaskSourceInput<?>> sourceInputs) {
-		CheckpointBarrierHandler barrierHandler = createCheckpointBarrierHandler(
-			toNotifyOnCheckpoint,
-			config,
-			checkpointCoordinator,
-			taskName,
-			inputGates,
-			sourceInputs);
-		return createCheckpointedMultipleInputGate(
-			mailboxExecutor,
-			inputGates,
-			taskIOMetricGroup,
-			barrierHandler);
-	}
 
 	public static CheckpointedInputGate[] createCheckpointedMultipleInputGate(
 			MailboxExecutor mailboxExecutor,

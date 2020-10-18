@@ -31,6 +31,7 @@ import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.operators.sort.SortingDataInput;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.io.AbstractDataOutput;
+import org.apache.flink.streaming.runtime.io.CheckpointBarrierHandler;
 import org.apache.flink.streaming.runtime.io.CheckpointedInputGate;
 import org.apache.flink.streaming.runtime.io.InputProcessorUtil;
 import org.apache.flink.streaming.runtime.io.PushingAsyncDataInput.DataOutput;
@@ -43,7 +44,13 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.streaming.runtime.streamstatus.StatusWatermarkValve;
 import org.apache.flink.streaming.runtime.streamstatus.StreamStatusMaintainer;
 
+import org.apache.flink.shaded.guava18.com.google.common.collect.Iterables;
+
 import javax.annotation.Nullable;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkState;
@@ -53,6 +60,9 @@ import static org.apache.flink.util.Preconditions.checkState;
  */
 @Internal
 public class OneInputStreamTask<IN, OUT> extends StreamTask<OUT, OneInputStreamOperator<IN, OUT>> {
+
+	@Nullable
+	private CheckpointBarrierHandler checkpointBarrierHandler;
 
 	private final WatermarkGauge inputWatermarkGauge = new WatermarkGauge();
 
@@ -129,17 +139,25 @@ public class OneInputStreamTask<IN, OUT> extends StreamTask<OUT, OneInputStreamO
 		);
 	}
 
+	@SuppressWarnings("unchecked")
 	private CheckpointedInputGate createCheckpointedInputGate() {
 		IndexedInputGate[] inputGates = getEnvironment().getAllInputGates();
 
-		return InputProcessorUtil.createCheckpointedInputGate(
+		checkpointBarrierHandler = InputProcessorUtil.createCheckpointBarrierHandler(
 			this,
 			configuration,
 			getCheckpointCoordinator(),
-			inputGates,
-			getEnvironment().getMetricGroup().getIOMetricGroup(),
 			getTaskNameWithSubtaskAndId(),
-			mainMailboxExecutor);
+			new List[]{ Arrays.asList(inputGates) },
+			Collections.emptyList());
+
+		CheckpointedInputGate[] checkpointedInputGates = InputProcessorUtil.createCheckpointedMultipleInputGate(
+			mainMailboxExecutor,
+			new List[]{ Arrays.asList(inputGates) },
+			getEnvironment().getMetricGroup().getIOMetricGroup(),
+			checkpointBarrierHandler);
+
+		return Iterables.getOnlyElement(Arrays.asList(checkpointedInputGates));
 	}
 
 	private DataOutput<IN> createDataOutput(Counter numRecordsIn) {

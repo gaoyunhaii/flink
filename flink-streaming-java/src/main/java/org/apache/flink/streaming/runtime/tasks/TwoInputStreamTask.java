@@ -23,10 +23,13 @@ import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.runtime.io.network.partition.consumer.IndexedInputGate;
 import org.apache.flink.streaming.api.operators.InputSelectable;
 import org.apache.flink.streaming.api.operators.TwoInputStreamOperator;
+import org.apache.flink.streaming.runtime.io.CheckpointBarrierHandler;
 import org.apache.flink.streaming.runtime.io.CheckpointedInputGate;
 import org.apache.flink.streaming.runtime.io.InputProcessorUtil;
 import org.apache.flink.streaming.runtime.io.StreamTwoInputProcessor;
 import org.apache.flink.streaming.runtime.io.TwoInputSelectionHandler;
+
+import javax.annotation.Nullable;
 
 import java.util.Collections;
 import java.util.List;
@@ -40,10 +43,14 @@ import static org.apache.flink.util.Preconditions.checkState;
 @Internal
 public class TwoInputStreamTask<IN1, IN2, OUT> extends AbstractTwoInputStreamTask<IN1, IN2, OUT> {
 
+	@Nullable
+	private CheckpointBarrierHandler checkpointBarrierHandler;
+
 	public TwoInputStreamTask(Environment env) throws Exception {
 		super(env);
 	}
 
+	@SuppressWarnings("unchecked")
 	@Override
 	protected void createInputProcessor(
 		List<IndexedInputGate> inputGates1,
@@ -55,15 +62,19 @@ public class TwoInputStreamTask<IN1, IN2, OUT> extends AbstractTwoInputStreamTas
 			mainOperator instanceof InputSelectable ? (InputSelectable) mainOperator : null);
 
 		// create an input instance for each input
-		CheckpointedInputGate[] checkpointedInputGates = InputProcessorUtil.createCheckpointedMultipleInputGate(
+		checkpointBarrierHandler = InputProcessorUtil.createCheckpointBarrierHandler(
 			this,
-			getConfiguration(),
+			configuration,
 			getCheckpointCoordinator(),
-			getEnvironment().getMetricGroup().getIOMetricGroup(),
 			getTaskNameWithSubtaskAndId(),
-			mainMailboxExecutor,
-			new List[]{ inputGates1, inputGates2 },
+			new List[]{inputGates1, inputGates2},
 			Collections.emptyList());
+
+		CheckpointedInputGate[] checkpointedInputGates = InputProcessorUtil.createCheckpointedMultipleInputGate(
+			mainMailboxExecutor,
+			new List[]{inputGates1, inputGates2},
+			getEnvironment().getMetricGroup().getIOMetricGroup(),
+			checkpointBarrierHandler);
 		checkState(checkpointedInputGates.length == 2);
 
 		inputProcessor = new StreamTwoInputProcessor<>(
