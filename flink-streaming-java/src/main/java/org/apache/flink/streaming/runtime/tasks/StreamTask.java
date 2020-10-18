@@ -192,7 +192,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>> extends Ab
     /** Our checkpoint storage. We use this to create checkpoint streams. */
     protected final CheckpointStorage checkpointStorage;
 
-    private final SubtaskCheckpointCoordinator subtaskCheckpointCoordinator;
+    protected final SubtaskCheckpointCoordinator subtaskCheckpointCoordinator;
 
     /**
      * The internal {@link TimerService} used to define the current processing time (default =
@@ -210,7 +210,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>> extends Ab
      * Flag to mark the task "in operation", in which case check needs to be initialized to true, so
      * that early cancel() before invoke() behaves correctly.
      */
-    private volatile boolean isRunning;
+    protected volatile boolean isRunning;
 
     /** Flag to mark this task as canceled. */
     private volatile boolean canceled;
@@ -915,11 +915,10 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>> extends Ab
                             .setAlignmentDurationNanos(0L)
                             .setBytesProcessedDuringAlignment(0L);
 
-            subtaskCheckpointCoordinator.initCheckpoint(
-                    checkpointMetaData.getCheckpointId(), checkpointOptions);
-
             boolean success =
-                    performCheckpoint(checkpointMetaData, checkpointOptions, checkpointMetrics);
+                    internalTriggerCheckpoint(
+                            checkpointMetaData, checkpointOptions, checkpointMetrics);
+
             if (!success) {
                 declineCheckpoint(checkpointMetaData.getCheckpointId());
             }
@@ -946,6 +945,14 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>> extends Ab
         } finally {
             FlinkSecurityManager.unmonitorUserSystemExitForCurrentThread();
         }
+    }
+
+    protected boolean internalTriggerCheckpoint(
+            CheckpointMetaData checkpointMetaData,
+            CheckpointOptions checkpointOptions,
+            CheckpointMetricsBuilder checkpointMetrics)
+            throws Exception {
+        return false;
     }
 
     @Override
@@ -988,7 +995,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>> extends Ab
         subtaskCheckpointCoordinator.abortCheckpointOnBarrier(checkpointId, cause, operatorChain);
     }
 
-    private boolean performCheckpoint(
+    protected boolean performCheckpoint(
             CheckpointMetaData checkpointMetaData,
             CheckpointOptions checkpointOptions,
             CheckpointMetricsBuilder checkpointMetrics)

@@ -22,6 +22,7 @@ import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointMetricsBuilder;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.channel.InputChannelInfo;
 import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.io.network.api.CancelCheckpointMarker;
@@ -30,6 +31,7 @@ import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.util.concurrent.CompletableFuture;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -71,6 +73,12 @@ public abstract class CheckpointBarrierHandler implements Closeable {
 
     @Override
     public void close() throws IOException {}
+
+    public boolean triggerCheckpoint(
+            CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions)
+            throws IOException {
+        throw new UnsupportedEncodingException("Not supported yet");
+    }
 
     public abstract void processBarrier(
             CheckpointBarrier receivedBarrier, InputChannelInfo channelInfo) throws IOException;

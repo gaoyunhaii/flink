@@ -19,6 +19,9 @@ package org.apache.flink.streaming.runtime.tasks;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointMetricsBuilder;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.io.BlockingQueueBroker;
@@ -102,6 +105,18 @@ public class StreamIterationHead<OUT> extends OneInputStreamTask<OUT, OUT> {
                 output.emitWatermark(new Watermark(Long.MAX_VALUE));
             }
         }
+    }
+
+    @Override
+    protected boolean internalTriggerCheckpoint(
+            CheckpointMetaData checkpointMetaData,
+            CheckpointOptions checkpointOptions,
+            CheckpointMetricsBuilder checkpointMetrics)
+            throws Exception {
+        subtaskCheckpointCoordinator.initCheckpoint(
+                checkpointMetaData.getCheckpointId(), checkpointOptions);
+
+        return performCheckpoint(checkpointMetaData, checkpointOptions, checkpointMetrics);
     }
 
     @Override
