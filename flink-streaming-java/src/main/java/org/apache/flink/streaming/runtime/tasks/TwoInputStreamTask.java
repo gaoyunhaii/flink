@@ -91,4 +91,10 @@ public class TwoInputStreamTask<IN1, IN2, OUT> extends AbstractTwoInputStreamTas
 			operatorChain,
 			setupNumRecordsInCounter(mainOperator));
 	}
+
+	@Nullable
+	@Override
+	protected CheckpointBarrierHandler getCheckpointBarrierHandler() {
+		return checkpointBarrierHandler;
+	}
 }
