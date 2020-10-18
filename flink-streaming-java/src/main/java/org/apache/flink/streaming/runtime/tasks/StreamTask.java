@@ -178,7 +178,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 	/** Our state backend. We use this to create checkpoint streams and a keyed state backend. */
 	protected final StateBackend stateBackend;
 
-	private final SubtaskCheckpointCoordinator subtaskCheckpointCoordinator;
+	protected final SubtaskCheckpointCoordinator subtaskCheckpointCoordinator;
 
 	/**
 	 * The internal {@link TimerService} used to define the current
@@ -196,7 +196,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 	 * Flag to mark the task "in operation", in which case check needs to be initialized to true,
 	 * so that early cancel() before invoke() behaves correctly.
 	 */
-	private volatile boolean isRunning;
+	protected volatile boolean isRunning;
 
 	/** Flag to mark this task as canceled. */
 	private volatile boolean canceled;
@@ -222,7 +222,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 
 	private Long syncSavepointId = null;
 
-	private long latestAsyncCheckpointStartDelayNanos;
+	protected long latestAsyncCheckpointStartDelayNanos;
 
 	// ------------------------------------------------------------------------
 
@@ -815,51 +815,20 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 
 		CompletableFuture<Boolean> result = new CompletableFuture<>();
 		mainMailboxExecutor.execute(
-				() -> {
-					latestAsyncCheckpointStartDelayNanos = 1_000_000 * Math.max(
-						0,
-						System.currentTimeMillis() - checkpointMetaData.getTimestamp());
-					try {
-						result.complete(triggerCheckpoint(checkpointMetaData, checkpointOptions, advanceToEndOfEventTime));
-					}
-					catch (Exception ex) {
-						// Report the failure both via the Future result but also to the mailbox
-						result.completeExceptionally(ex);
-						throw ex;
-					}
-				},
-				"checkpoint %s with %s",
+			() -> triggerCheckpoint(checkpointMetaData, checkpointOptions, advanceToEndOfEventTime, result),
+			"checkpoint %s with %s",
 			checkpointMetaData,
 			checkpointOptions);
 		return result;
 	}
 
-	private boolean triggerCheckpoint(
-			CheckpointMetaData checkpointMetaData,
-			CheckpointOptions checkpointOptions,
-			boolean advanceToEndOfEventTime) throws Exception {
-		try {
-			// No alignment if we inject a checkpoint
-			CheckpointMetrics checkpointMetrics = new CheckpointMetrics().setAlignmentDurationNanos(0L);
+	protected void triggerCheckpoint(
+		CheckpointMetaData checkpointMetaData,
+		CheckpointOptions checkpointOptions,
+		boolean advanceToEndOfEventTime,
+		CompletableFuture<Boolean> resultFuture) throws Exception {
 
-			subtaskCheckpointCoordinator.initCheckpoint(checkpointMetaData.getCheckpointId(), checkpointOptions);
-
-			boolean success = performCheckpoint(checkpointMetaData, checkpointOptions, checkpointMetrics, advanceToEndOfEventTime);
-			if (!success) {
-				declineCheckpoint(checkpointMetaData.getCheckpointId());
-			}
-			return success;
-		} catch (Exception e) {
-			// propagate exceptions only if the task is still in "running" state
-			if (isRunning) {
-				throw new Exception("Could not perform checkpoint " + checkpointMetaData.getCheckpointId() +
-					" for operator " + getName() + '.', e);
-			} else {
-				LOG.debug("Could not perform checkpoint {} for operator {} while the " +
-					"invokable was not in state running.", checkpointMetaData.getCheckpointId(), getName(), e);
-				return false;
-			}
-		}
+		throw new UnsupportedOperationException("Trigger checkpoint is not supported by default");
 	}
 
 	@Override
@@ -891,11 +860,11 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 		subtaskCheckpointCoordinator.abortCheckpointOnBarrier(checkpointId, cause, operatorChain);
 	}
 
-	private boolean performCheckpoint(
-			CheckpointMetaData checkpointMetaData,
-			CheckpointOptions checkpointOptions,
-			CheckpointMetrics checkpointMetrics,
-			boolean advanceToEndOfTime) throws Exception {
+	protected boolean performCheckpoint(
+		CheckpointMetaData checkpointMetaData,
+		CheckpointOptions checkpointOptions,
+		CheckpointMetrics checkpointMetrics,
+		boolean advanceToEndOfTime) throws Exception {
 
 		LOG.debug("Starting checkpoint ({}) {} on task {}",
 			checkpointMetaData.getCheckpointId(), checkpointOptions.getCheckpointType(), getName());

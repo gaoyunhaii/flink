@@ -48,7 +48,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
 
 /**
  * A {@link StreamTask} for executing a {@link MultipleInputStreamOperator} and supporting
@@ -158,36 +157,31 @@ public class MultipleInputStreamTask<OUT> extends StreamTask<OUT, MultipleInputS
 	}
 
 	@Override
-	public Future<Boolean> triggerCheckpointAsync(
-			CheckpointMetaData metadata,
-			CheckpointOptions options,
-			boolean advanceToEndOfEventTime) {
+	protected void triggerCheckpoint(
+		CheckpointMetaData checkpointMetaData,
+		CheckpointOptions checkpointOptions,
+		boolean advanceToEndOfEventTime,
+		CompletableFuture<Boolean> resultFuture) throws Exception {
 
-		CompletableFuture<Boolean> resultFuture = new CompletableFuture<>();
-		mainMailboxExecutor.execute(
-			() -> {
-				try {
-					/**
-					 * Contrary to {@link SourceStreamTask}, we are not using here
-					 * {@link StreamTask#latestAsyncCheckpointStartDelayNanos} to measure the start delay
-					 * metric, but we will be using {@link CheckpointBarrierHandler#getCheckpointStartDelayNanos()}
-					 * instead.
-					 */
-					pendingCheckpointCompletedFutures.put(metadata.getCheckpointId(), resultFuture);
-					checkPendingCheckpointCompletedFuturesSize();
-					triggerSourcesCheckpoint(new CheckpointBarrier(metadata.getCheckpointId(), metadata.getTimestamp(), options));
-				}
-				catch (Exception ex) {
-					// Report the failure both via the Future result but also to the mailbox
-					pendingCheckpointCompletedFutures.remove(metadata.getCheckpointId());
-					resultFuture.completeExceptionally(ex);
-					throw ex;
-				}
-			},
-			"checkpoint %s with %s",
-			metadata,
-			options);
-		return resultFuture;
+		try {
+			/**
+			 * Contrary to {@link SourceStreamTask}, we are not using here
+			 * {@link StreamTask#latestAsyncCheckpointStartDelayNanos} to measure the start delay
+			 * metric, but we will be using {@link CheckpointBarrierHandler#getCheckpointStartDelayNanos()}
+			 * instead.
+			 */
+			pendingCheckpointCompletedFutures.put(checkpointMetaData.getCheckpointId(), resultFuture);
+			checkPendingCheckpointCompletedFuturesSize();
+			triggerSourcesCheckpoint(new CheckpointBarrier(
+				checkpointMetaData.getCheckpointId(),
+				checkpointMetaData.getTimestamp(),
+				checkpointOptions));
+		}
+		catch (Exception ex) {
+			// Report the failure both via the Future result but also to the mailbox
+			pendingCheckpointCompletedFutures.remove(checkpointMetaData.getCheckpointId());
+			throw ex;
+		}
 	}
 
 	private void checkPendingCheckpointCompletedFuturesSize() {
