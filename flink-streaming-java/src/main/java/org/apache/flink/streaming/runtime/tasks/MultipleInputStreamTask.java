@@ -46,7 +46,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
 
 /**
  * A {@link StreamTask} for executing a {@link MultipleInputStreamOperator} and supporting
@@ -154,12 +153,12 @@ public class MultipleInputStreamTask<OUT> extends StreamTask<OUT, MultipleInputS
 	}
 
 	@Override
-	public Future<Boolean> triggerCheckpointAsync(
+	protected void triggerCheckpoint(
 			CheckpointMetaData metadata,
 			CheckpointOptions options,
-			boolean advanceToEndOfEventTime) {
+			boolean advanceToEndOfEventTime,
+			CompletableFuture<Boolean> resultFuture) throws Exception {
 
-		CompletableFuture<Boolean> resultFuture = new CompletableFuture<>();
 		mainMailboxExecutor.execute(
 			() -> {
 				try {
@@ -183,7 +182,6 @@ public class MultipleInputStreamTask<OUT> extends StreamTask<OUT, MultipleInputS
 			"checkpoint %s with %s",
 			metadata,
 			options);
-		return resultFuture;
 	}
 
 	private void checkPendingCheckpointCompletedFuturesSize() {

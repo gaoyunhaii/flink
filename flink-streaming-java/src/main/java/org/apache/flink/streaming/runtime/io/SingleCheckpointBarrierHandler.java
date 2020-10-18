@@ -22,6 +22,8 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.channel.InputChannelInfo;
 import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.io.network.api.CancelCheckpointMarker;
@@ -249,6 +251,11 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
 	public void close() throws IOException {
 		allBarriersReceivedFuture.cancel(false);
 		super.close();
+	}
+
+	@Override
+	public boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) {
+		throw new UnsupportedOperationException("not supported yet");
 	}
 
 	@Override
