@@ -172,10 +172,21 @@ public class MultipleInputStreamTask<OUT> extends StreamTask<OUT, MultipleInputS
 			 */
 			pendingCheckpointCompletedFutures.put(checkpointMetaData.getCheckpointId(), resultFuture);
 			checkPendingCheckpointCompletedFuturesSize();
-			triggerSourcesCheckpoint(new CheckpointBarrier(
-				checkpointMetaData.getCheckpointId(),
-				checkpointMetaData.getTimestamp(),
-				checkpointOptions));
+
+			// The source input would never marked as EndOfPartition in CheckpointBarrierHandler.
+			// Therefore, if we indeed chained some sources, we should always start the checkpoint
+			// aligned from the source inputs.
+			//
+			// If we do not chained with sources, then we should be a normal non-source task, in
+			// which case all the precedent tasks must be finished and we notify CheckpointBarrierHandler.
+			if (operatorChain.getSourceTaskInputs().size() > 0) {
+				triggerSourcesCheckpoint(new CheckpointBarrier(
+					checkpointMetaData.getCheckpointId(),
+					checkpointMetaData.getTimestamp(),
+					checkpointOptions));
+			} else {
+				checkpointBarrierHandler.triggerCheckpoint(checkpointMetaData, checkpointOptions);
+			}
 		}
 		catch (Exception ex) {
 			// Report the failure both via the Future result but also to the mailbox
