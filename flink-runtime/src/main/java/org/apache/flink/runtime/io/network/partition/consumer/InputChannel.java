@@ -25,6 +25,7 @@ import org.apache.flink.runtime.event.AbstractEvent;
 import org.apache.flink.runtime.event.TaskEvent;
 import org.apache.flink.runtime.execution.CancelTaskException;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
+import org.apache.flink.runtime.io.network.api.EndOfPartitionEvent;
 import org.apache.flink.runtime.io.network.api.serialization.EventSerializer;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.partition.PartitionException;
@@ -182,7 +183,7 @@ public abstract class InputChannel {
 	/**
 	 * Called by task thread when checkpointing is started (e.g., any input channel received barrier).
 	 */
-	public void checkpointStarted(CheckpointBarrier barrier) {
+	public void checkpointStarted(CheckpointBarrier barrier) throws IOException {
 	}
 
 	/**
@@ -373,7 +374,9 @@ public abstract class InputChannel {
 		/** All started checkpoints where a barrier has not been received yet. */
 		private long pendingCheckpointBarrierId = CHECKPOINT_COMPLETED;
 
-		/** Writer must be initialized before usage. {@link #startPersisting(long, List)} enforces this invariant. */
+		private CheckpointBarrier pendingCheckpointBarrier;
+
+		/** Writer must be initialized before usage. {@link #startPersisting(CheckpointBarrier, List)} enforces this invariant. */
 		@Nullable
 		private final ChannelStateWriter channelStateWriter;
 
@@ -381,15 +384,16 @@ public abstract class InputChannel {
 			this.channelStateWriter = channelStateWriter;
 		}
 
-		protected void startPersisting(long barrierId, List<Buffer> knownBuffers) {
+		protected void startPersisting(CheckpointBarrier pendingCheckpointBarrier, List<Buffer> knownBuffers) {
 			checkState(isInitialized(), "Channel state writer not injected");
 
 			if (pendingCheckpointBarrierId != BARRIER_RECEIVED) {
-				pendingCheckpointBarrierId = barrierId;
+				pendingCheckpointBarrierId = pendingCheckpointBarrier.getId();
+				this.pendingCheckpointBarrier = pendingCheckpointBarrier;
 			}
 			if (knownBuffers.size() > 0) {
 				channelStateWriter.addInputData(
-					barrierId,
+					pendingCheckpointBarrier.getId(),
 					channelInfo,
 					ChannelStateWriter.SEQUENCE_NUMBER_UNKNOWN,
 					CloseableIterator.fromList(knownBuffers, Buffer::recycleBuffer));
@@ -402,6 +406,7 @@ public abstract class InputChannel {
 
 		protected void stopPersisting() {
 			pendingCheckpointBarrierId = CHECKPOINT_COMPLETED;
+			pendingCheckpointBarrier = null;
 		}
 
 		protected void maybePersist(Buffer buffer) {
@@ -414,13 +419,24 @@ public abstract class InputChannel {
 			}
 		}
 
-		protected boolean checkForBarrier(Buffer buffer) throws IOException {
+		protected CheckpointBarrier checkForBarrier(Buffer buffer) throws IOException {
 			final AbstractEvent priorityEvent = parsePriorityEvent(buffer);
 			if (priorityEvent instanceof CheckpointBarrier) {
 				pendingCheckpointBarrierId = BARRIER_RECEIVED;
-				return true;
+				pendingCheckpointBarrier = null;
+				return (CheckpointBarrier) priorityEvent;
 			}
-			return false;
+			return null;
+		}
+
+		protected boolean checkForEndOfPartition(Buffer buffer) throws IOException {
+			try {
+				AbstractEvent event = parseEvent(buffer);
+				return event instanceof EndOfPartitionEvent;
+			} catch (Exception e) {
+				e.printStackTrace();
+				throw e;
+			}
 		}
 
 		/**
@@ -433,6 +449,10 @@ public abstract class InputChannel {
 				return null;
 			}
 
+			return parseEvent(buffer);
+		}
+
+		protected AbstractEvent parseEvent(Buffer buffer) throws IOException {
 			AbstractEvent event = EventSerializer.fromBuffer(buffer, getClass().getClassLoader());
 			// reset the buffer because it would be deserialized again in SingleInputGate while getting next buffer.
 			// we can further improve to avoid double deserialization in the future.
@@ -442,6 +462,10 @@ public abstract class InputChannel {
 
 		protected boolean hasBarrierReceived() {
 			return pendingCheckpointBarrierId == BARRIER_RECEIVED;
+		}
+
+		public CheckpointBarrier getPendingCheckpointBarrier() {
+			return pendingCheckpointBarrier;
 		}
 	}
 

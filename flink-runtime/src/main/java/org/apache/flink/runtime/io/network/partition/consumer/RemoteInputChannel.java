@@ -27,6 +27,7 @@ import org.apache.flink.runtime.io.network.ConnectionID;
 import org.apache.flink.runtime.io.network.ConnectionManager;
 import org.apache.flink.runtime.io.network.PartitionRequestClient;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
+import org.apache.flink.runtime.io.network.api.serialization.EventSerializer;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.buffer.Buffer.DataType;
 import org.apache.flink.runtime.io.network.buffer.BufferProvider;
@@ -103,6 +104,15 @@ public class RemoteInputChannel extends InputChannel implements ChannelStateHold
 
 	@GuardedBy("receivedBuffers")
 	private ChannelStatePersister channelStatePersister = new ChannelStatePersister(null);
+
+	@GuardedBy("receivedBuffers")
+	private long lastReceivedCheckpointId = -1;
+
+	@GuardedBy("receivedBuffers")
+	private boolean endOfPartitionReceived;
+
+	@GuardedBy("receivedBuffers")
+	private int nextFakedBarrierSequenceNumber = -1;
 
 	public RemoteInputChannel(
 		SingleInputGate inputGate,
@@ -439,13 +449,28 @@ public class RemoteInputChannel extends InputChannel implements ChannelStateHold
 
 				if (buffer.getDataType().hasPriority()) {
 					receivedBuffers.addPriorityElement(new SequenceBuffer(buffer, sequenceNumber));
-					if (channelStatePersister.checkForBarrier(buffer)) {
+					CheckpointBarrier possibleBarrier = channelStatePersister.checkForBarrier(buffer);
+					if (possibleBarrier != null) {
 						// checkpoint was not yet started by task thread,
 						// so remember the numbers of buffers to spill for the time when it will be started
 						numBuffersOvertaken = receivedBuffers.getNumUnprioritizedElements();
+						lastReceivedCheckpointId = possibleBarrier.getId();
 					}
 					firstPriorityEvent = receivedBuffers.getNumPriorityElements() == 1;
 				} else {
+					if (!buffer.isBuffer() && channelStatePersister.checkForEndOfPartition(buffer)) {
+						endOfPartitionReceived = true;
+
+						// Faked barrier should starts from sequence number of EoP to avoid duplication.
+						nextFakedBarrierSequenceNumber = sequenceNumber;
+
+						// If we have a pending checkpoint, we will need to fake a barrier to finish it.
+						if (channelStatePersister.getPendingCheckpointBarrier() != null) {
+							insertFakeCheckpointBarrier(channelStatePersister.getPendingCheckpointBarrier());
+							firstPriorityEvent = receivedBuffers.getNumPriorityElements() == 1;
+						}
+					}
+
 					receivedBuffers.add(new SequenceBuffer(buffer, sequenceNumber));
 					channelStatePersister.maybePersist(buffer);
 				}
@@ -475,11 +500,42 @@ public class RemoteInputChannel extends InputChannel implements ChannelStateHold
 	 * Spills all queued buffers on checkpoint start. If barrier has already been received (and reordered), spill only
 	 * the overtaken buffers.
 	 */
-	public void checkpointStarted(CheckpointBarrier barrier) {
+	public void checkpointStarted(CheckpointBarrier barrier) throws IOException {
+		boolean barrierInserted = false;
+		boolean wasEmpty = false;
+		boolean firstPriorityEvent = false;
 		synchronized (receivedBuffers) {
+			int numBuffers;
+
+			if (lastReceivedCheckpointId > barrier.getId()) {
+				// The correponding checkpoint is aborted.
+				numBuffers = 0;
+			} else if (lastReceivedCheckpointId == barrier.getId()) {
+				checkState(numBuffersOvertaken != ALL, "Must not be all");
+				numBuffers = numBuffersOvertaken;
+			} else {
+				numBuffers = receivedBuffers.getNumUnprioritizedElements();
+
+				if (endOfPartitionReceived && receivedBuffers.size() > 0) {
+					barrierInserted = true;
+					wasEmpty = receivedBuffers.isEmpty();
+					insertFakeCheckpointBarrier(barrier);
+					firstPriorityEvent = receivedBuffers.getNumPriorityElements() == 1;
+				}
+			}
+
 			channelStatePersister.startPersisting(
-				barrier.getId(),
-				getInflightBuffers(numBuffersOvertaken == ALL ? receivedBuffers.getNumUnprioritizedElements() : numBuffersOvertaken));
+				barrier,
+				getInflightBuffers(numBuffers));
+		}
+
+		if (barrierInserted) {
+			if (firstPriorityEvent) {
+				notifyPriorityEvent(0);
+			}
+			if (wasEmpty) {
+				notifyChannelNonEmpty();
+			}
 		}
 	}
 
@@ -514,6 +570,17 @@ public class RemoteInputChannel extends InputChannel implements ChannelStateHold
 		}
 
 		return inflightBuffers;
+	}
+
+	private void insertFakeCheckpointBarrier(CheckpointBarrier persisting) throws IOException {
+		checkState(nextFakedBarrierSequenceNumber >= 0);
+
+		CheckpointBarrier fakeBarrier = new CheckpointBarrier(
+			persisting.getId(),
+			persisting.getTimestamp(),
+			persisting.getCheckpointOptions());
+		Buffer fakeEventBuffer = EventSerializer.toBuffer(fakeBarrier, true);
+		receivedBuffers.addPriorityElement(new SequenceBuffer(fakeEventBuffer, nextFakedBarrierSequenceNumber++));
 	}
 
 	public void onEmptyBuffer(int sequenceNumber, int backlog) throws IOException {

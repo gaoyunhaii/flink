@@ -19,6 +19,8 @@ package org.apache.flink.runtime.io.network.partition.consumer;
 
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
 
+import java.io.IOException;
+
 /**
  * An {@link InputGate} with a specific index.
  */
@@ -29,7 +31,7 @@ public abstract class IndexedInputGate extends InputGate implements Checkpointab
 	public abstract int getGateIndex();
 
 	@Override
-	public void checkpointStarted(CheckpointBarrier barrier) {
+	public void checkpointStarted(CheckpointBarrier barrier) throws IOException {
 		for (int index = 0, numChannels = getNumberOfInputChannels(); index < numChannels; index++) {
 			getChannel(index).checkpointStarted(barrier);
 		}

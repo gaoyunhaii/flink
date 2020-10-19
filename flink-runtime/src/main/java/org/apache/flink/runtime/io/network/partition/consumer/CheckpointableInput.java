@@ -38,7 +38,7 @@ public interface CheckpointableInput {
 
 	int getNumberOfInputChannels();
 
-	void checkpointStarted(CheckpointBarrier barrier);
+	void checkpointStarted(CheckpointBarrier barrier) throws IOException;
 
 	void checkpointStopped(long cancelledCheckpointId);
 

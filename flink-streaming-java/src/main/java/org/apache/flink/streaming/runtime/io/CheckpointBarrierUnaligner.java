@@ -42,6 +42,7 @@ import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 
 import static org.apache.flink.runtime.checkpoint.CheckpointFailureReason.CHECKPOINT_DECLINED_SUBSUMED;
+import static org.apache.flink.util.Preconditions.checkState;
 
 /**
  * {@link CheckpointBarrierUnaligner} is used for triggering checkpoint while reading the first barrier
@@ -86,6 +87,26 @@ public class CheckpointBarrierUnaligner extends CheckpointBarrierHandler {
 	}
 
 	@Override
+	public boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) throws IOException {
+		if (numOpenChannels == 0) {
+			// all channel is closed, let notify the checkpoint directly
+			notifyCheckpoint(new CheckpointBarrier(
+					checkpointMetaData.getCheckpointId(),
+					checkpointMetaData.getTimestamp(),
+					checkpointOptions),
+				0);
+		} else {
+			checkState(currentCheckpointId < checkpointMetaData.getCheckpointId(), "Should not repeat");
+			beginNewCheckpoint(new CheckpointBarrier(
+				checkpointMetaData.getCheckpointId(),
+				checkpointMetaData.getTimestamp(),
+				checkpointOptions));
+		}
+
+		return true;
+	}
+
+	@Override
 	public void processBarrier(CheckpointBarrier barrier, InputChannelInfo channelInfo) throws IOException {
 		long barrierId = barrier.getId();
 		if (currentCheckpointId > barrierId || (currentCheckpointId == barrierId && !isCheckpointPending())) {
@@ -93,20 +114,7 @@ public class CheckpointBarrierUnaligner extends CheckpointBarrierHandler {
 			return;
 		}
 		if (currentCheckpointId < barrierId) {
-			if (isCheckpointPending()) {
-				cancelSubsumedCheckpoint(barrierId);
-			}
-
-			markCheckpointStart(barrier.getTimestamp());
-			currentCheckpointId = barrierId;
-			numBarriersReceived = 0;
-			allBarriersReceivedFuture = new CompletableFuture<>();
-			checkpointCoordinator.initCheckpoint(barrierId, barrier.getCheckpointOptions());
-
-			for (final CheckpointableInput input : inputs) {
-				input.checkpointStarted(barrier);
-			}
-			notifyCheckpoint(barrier, 0);
+			beginNewCheckpoint(barrier);
 		}
 		if (currentCheckpointId == barrierId) {
 			LOG.debug("{}: Received barrier from channel {} @ {}.", taskName, channelInfo, barrierId);
@@ -155,6 +163,25 @@ public class CheckpointBarrierUnaligner extends CheckpointBarrierHandler {
 		}
 	}
 
+	private void beginNewCheckpoint(CheckpointBarrier barrier) throws IOException {
+		long barrierId = barrier.getId();
+
+		if (isCheckpointPending()) {
+			cancelSubsumedCheckpoint(barrierId);
+		}
+
+		markCheckpointStart(barrier.getTimestamp());
+		currentCheckpointId = barrierId;
+		numBarriersReceived = 0;
+		allBarriersReceivedFuture = new CompletableFuture<>();
+		checkpointCoordinator.initCheckpoint(barrierId, barrier.getCheckpointOptions());
+
+		for (final CheckpointableInput input : inputs) {
+			input.checkpointStarted(barrier);
+		}
+		notifyCheckpoint(barrier, 0);
+	}
+
 	private void resetPendingCheckpoint(long cancelledId) {
 		numBarriersReceived = 0;
 
@@ -177,11 +204,6 @@ public class CheckpointBarrierUnaligner extends CheckpointBarrierHandler {
 	public void close() throws IOException {
 		super.close();
 		allBarriersReceivedFuture.cancel(false);
-	}
-
-	@Override
-	public boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) {
-		throw new RuntimeException("not supported yet");
 	}
 
 	@Override
