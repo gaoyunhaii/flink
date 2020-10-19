@@ -56,7 +56,7 @@ class AlternatingCheckpointBarrierHandler extends CheckpointBarrierHandler {
 	}
 
 	@Override
-	public boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) {
+	public boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) throws IOException {
 		if (checkpointOptions.getCheckpointType().isSavepoint()) {
 			return alignedHandler.triggerCheckpoint(checkpointMetaData, checkpointOptions);
 		} else {

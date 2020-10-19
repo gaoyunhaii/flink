@@ -20,6 +20,7 @@ package org.apache.flink.streaming.runtime.io;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
@@ -34,7 +35,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -76,6 +79,8 @@ public class CheckpointBarrierAligner extends CheckpointBarrierHandler {
 	private long latestAlignmentDurationNanos;
 
 	private final CheckpointableInput[] inputs;
+
+	private final Deque<Tuple2<CheckpointMetaData, CheckpointOptions>> checkpointsAfterEndOfPartition = new ArrayDeque<>();
 
 	CheckpointBarrierAligner(
 			String taskName,
@@ -125,8 +130,17 @@ public class CheckpointBarrierAligner extends CheckpointBarrierHandler {
 	}
 
 	@Override
-	public boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) {
-		throw new UnsupportedOperationException("not supported yet");
+	public boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) throws IOException {
+		if (numClosedChannels < totalNumberOfInputChannels) {
+			checkpointsAfterEndOfPartition.add(new Tuple2<>(checkpointMetaData, checkpointOptions));
+		} else {
+			notifyCheckpoint(new CheckpointBarrier(
+				checkpointMetaData.getCheckpointId(),
+				checkpointMetaData.getTimestamp(),
+				checkpointOptions), 0);
+		}
+
+		return true;
 	}
 
 	@Override
