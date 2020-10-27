@@ -46,7 +46,7 @@ import static org.junit.Assert.assertEquals;
 /**
  * Various tests for the version 3 format serializer of a checkpoint.
  */
-public class MetadataV3SerializerTest {
+public class MetadataV4SerializerTest {
 
 	@Rule
 	public final TemporaryFolder temporaryFolder = new TemporaryFolder();
@@ -156,13 +156,13 @@ public class MetadataV3SerializerTest {
 			Collection<MasterState> masterStates,
 			@Nullable String basePath) throws IOException {
 
-		MetadataV3Serializer serializer = MetadataV3Serializer.INSTANCE;
+		MetadataV4Serializer serializer = MetadataV4Serializer.INSTANCE;
 
 		ByteArrayOutputStreamWithPos baos = new ByteArrayOutputStreamWithPos();
 		DataOutputStream out = new DataOutputViewStreamWrapper(baos);
 
 		CheckpointMetadata metadata = new CheckpointMetadata(checkpointId, operatorStates, masterStates);
-		MetadataV3Serializer.serialize(metadata, out);
+		MetadataV4Serializer.serialize(metadata, out);
 		out.close();
 
 		// The relative pointer resolution in MetadataV2V3SerializerBase currently runs the same

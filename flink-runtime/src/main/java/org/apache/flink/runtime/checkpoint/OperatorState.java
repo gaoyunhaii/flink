@@ -52,6 +52,8 @@ public class OperatorState implements CompositeStateHandle {
 	@Nullable
 	private ByteStreamStateHandle coordinatorState;
 
+	private boolean isFinished;
+
 	/** The parallelism of the operator when it was checkpointed. */
 	private final int parallelism;
 
@@ -104,6 +106,14 @@ public class OperatorState implements CompositeStateHandle {
 	@Nullable
 	public ByteStreamStateHandle getCoordinatorState() {
 		return coordinatorState;
+	}
+
+	public boolean isFinished() {
+		return isFinished;
+	}
+
+	public void setFinished(boolean finished) {
+		isFinished = finished;
 	}
 
 	public Map<Integer, OperatorSubtaskState> getSubtaskStates() {
@@ -166,6 +176,7 @@ public class OperatorState implements CompositeStateHandle {
 			return operatorID.equals(other.operatorID)
 				&& parallelism == other.parallelism
 				&& Objects.equals(coordinatorState, other.coordinatorState)
+				&& isFinished == other.isFinished
 				&& operatorSubtaskStates.equals(other.operatorSubtaskStates);
 		} else {
 			return false;
@@ -174,7 +185,7 @@ public class OperatorState implements CompositeStateHandle {
 
 	@Override
 	public int hashCode() {
-		return parallelism + 31 * Objects.hash(operatorID, operatorSubtaskStates);
+		return parallelism + 31 * Objects.hash(operatorID, isFinished, operatorSubtaskStates);
 	}
 
 	@Override
@@ -185,6 +196,7 @@ public class OperatorState implements CompositeStateHandle {
 			"operatorID: " + operatorID +
 			", parallelism: " + parallelism +
 			", maxParallelism: " + maxParallelism +
+			", isFinished: " + isFinished +
 			", coordinatorState: " + (coordinatorState == null ? "(none)" : coordinatorState.getStateSize() + " bytes") +
 			", sub task states: " + operatorSubtaskStates.size() +
 			", total size (bytes): " + getStateSize() +
