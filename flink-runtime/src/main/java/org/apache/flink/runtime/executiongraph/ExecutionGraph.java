@@ -494,9 +494,8 @@ public class ExecutionGraph implements AccessExecutionGraph {
 
 		CheckpointBriefComputer checkpointBriefComputer = new CheckpointBriefComputer(
 			getJobID(),
-			sourceVertices,
-			allVertices,
-			allVertices);
+			getVerticesTopologically(),
+			this::getJobMasterMainThreadExecutor);
 
 		// create the coordinator that triggers and commits checkpoints and holds the state
 		checkpointCoordinator = new CheckpointCoordinator(
@@ -511,6 +510,8 @@ public class ExecutionGraph implements AccessExecutionGraph {
 			SharedStateRegistry.DEFAULT_FACTORY,
 			failureManager,
 			checkpointBriefComputer);
+
+		checkpointCoordinator.setDisableCheckpointsAfterTaskFinished(true);
 
 		// register the master hooks on the checkpoint coordinator
 		for (MasterTriggerRestoreHook<?> hook : masterHooks) {

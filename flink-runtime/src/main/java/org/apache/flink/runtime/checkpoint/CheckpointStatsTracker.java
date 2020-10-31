@@ -176,12 +176,14 @@ public class CheckpointStatsTracker {
 	 */
 	PendingCheckpointStats reportPendingCheckpoint(
 			List<ExecutionVertex> toAckTasks,
+			List<ExecutionVertex> finishedTasks,
 			long checkpointId,
 			long triggerTimestamp,
 			CheckpointProperties props) {
 
 		ConcurrentHashMap<JobVertexID, TaskStateStats> taskStateStats = initializeTaskStateStatsMap(
-			toAckTasks);
+			toAckTasks,
+			finishedTasks);
 
 		PendingCheckpointStats pending = new PendingCheckpointStats(
 				checkpointId,
@@ -268,14 +270,29 @@ public class CheckpointStatsTracker {
 	 * @return An empty map with an {@link TaskStateStats} entry for each task that is involved in the checkpoint.
 	 */
 	private ConcurrentHashMap<JobVertexID, TaskStateStats> initializeTaskStateStatsMap(
-		List<ExecutionVertex> toAckTask) {
+		List<ExecutionVertex> toAckTasks,
+		List<ExecutionVertex> finishedTasks) {
 
 		ConcurrentHashMap<JobVertexID, TaskStateStats> taskStatsMap = new ConcurrentHashMap<>();
 
-		for (ExecutionVertex executionVertex : toAckTask) {
+		for (ExecutionVertex executionVertex : toAckTasks) {
 			taskStatsMap.computeIfAbsent(
 				executionVertex.getJobvertexId(),
 				jobVertexID -> new TaskStateStats(jobVertexID, executionVertex.getJobVertex().getParallelism()));
+		}
+
+		for (ExecutionVertex executionVertex : finishedTasks) {
+			TaskStateStats state = taskStatsMap.computeIfAbsent(
+				executionVertex.getJobvertexId(),
+				jobVertexID -> new TaskStateStats(jobVertexID, executionVertex.getJobVertex().getParallelism()));
+			state.reportSubtaskStats(new SubtaskStateStats(
+				executionVertex.getParallelSubtaskIndex(),
+				System.currentTimeMillis(),
+				0,
+				0,
+				0,
+				0,
+				0));
 		}
 
 		return taskStatsMap;

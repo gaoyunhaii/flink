@@ -34,6 +34,8 @@ public enum CheckpointFailureReason {
 
 	NOT_ALL_REQUIRED_TASKS_RUNNING(true, "Not all required tasks are currently running."),
 
+	SOME_SOURCE_TASKS_PARTIALLY_FINISHED(true, "Some source vertex have both running and finished tasks."),
+
 	EXCEPTION(true, "An Exception occurred while triggering the checkpoint."),
 
 	CHECKPOINT_EXPIRED(false, "Checkpoint expired before completing."),
