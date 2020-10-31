@@ -826,10 +826,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 		CheckpointMetaData checkpointMetaData,
 		CheckpointOptions checkpointOptions,
 		boolean advanceToEndOfEventTime,
-		CompletableFuture<Boolean> resultFuture) throws Exception {
-
-		throw new UnsupportedOperationException("Trigger checkpoint is not supported by default");
-	}
+		CompletableFuture<Boolean> resultFuture) throws Exception { }
 
 	@Override
 	public void triggerCheckpointOnBarrier(

@@ -30,6 +30,7 @@ import org.apache.flink.streaming.api.graph.StreamConfig;
 import org.apache.flink.streaming.api.operators.StreamOperator;
 import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
+import org.apache.flink.streaming.runtime.tasks.AbstractSourceStreamTask;
 import org.apache.flink.streaming.runtime.tasks.StreamTask;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
@@ -184,7 +185,7 @@ public class BufferDataOverWindowOperatorTest {
 
 	private void test(OverWindowFrame[] frames, GenericRowData[] expect) throws Exception {
 		MockEnvironment env = new MockEnvironmentBuilder().setIOManager(ioManager).setMemoryManager(memoryManager).build();
-		StreamTask<Object, StreamOperator<Object>> task = new StreamTask<Object, StreamOperator<Object>>(env) {
+		StreamTask<Object, StreamOperator<Object>> task = new AbstractSourceStreamTask<Object, StreamOperator<Object>>(env) {
 			@Override
 			protected void init() {
 			}

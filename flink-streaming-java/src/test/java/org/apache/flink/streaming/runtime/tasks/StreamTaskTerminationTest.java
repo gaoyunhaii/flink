@@ -214,7 +214,7 @@ public class StreamTaskTerminationTest extends TestLogger {
 	 * Blocking stream task which waits on and triggers a set of one shot latches to establish a certain
 	 * interleaving with a concurrently running checkpoint operation.
 	 */
-	public static class BlockingStreamTask<T, OP extends StreamOperator<T>> extends StreamTask<T, OP> {
+	public static class BlockingStreamTask<T, OP extends StreamOperator<T>> extends AbstractSourceStreamTask<T, OP> {
 
 		private boolean isRunning;
 
