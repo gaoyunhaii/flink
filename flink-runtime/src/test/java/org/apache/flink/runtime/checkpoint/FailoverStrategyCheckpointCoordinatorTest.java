@@ -18,15 +18,15 @@
 
 package org.apache.flink.runtime.checkpoint;
 
-import java.util.concurrent.Executor;
-import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.concurrent.Executors;
 import org.apache.flink.runtime.concurrent.ManuallyTriggeredScheduledExecutor;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
+import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.executiongraph.failover.FailoverStrategy;
+import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.tasks.CheckpointCoordinatorConfiguration;
 import org.apache.flink.runtime.state.SharedStateRegistry;
 import org.apache.flink.runtime.state.memory.MemoryStateBackend;
@@ -60,10 +60,13 @@ public class FailoverStrategyCheckpointCoordinatorTest extends TestLogger {
 	 * called on job failover could handle the {@code currentPeriodicTrigger} null case well.
 	 */
 	@Test
-	public void testAbortPendingCheckpointsWithTriggerValidation() {
+	public void testAbortPendingCheckpointsWithTriggerValidation() throws Exception {
+		JobVertexID jobVertexID = new JobVertexID();
 		final int maxConcurrentCheckpoints = ThreadLocalRandom.current().nextInt(10) + 1;
-		ExecutionVertex executionVertex = mockExecutionVertex();
-		JobID jobId = new JobID();
+		ExecutionGraph graph = new CheckpointCoordinatorTestingUtils.CheckpointExecutionGraphBuilder()
+			.addJobVertex(jobVertexID)
+			.build();
+
 		CheckpointCoordinatorConfiguration checkpointCoordinatorConfiguration = new CheckpointCoordinatorConfiguration(
 			Integer.MAX_VALUE,
 			Integer.MAX_VALUE,
@@ -75,7 +78,7 @@ public class FailoverStrategyCheckpointCoordinatorTest extends TestLogger {
 			false,
 			0);
 		CheckpointCoordinator checkpointCoordinator = new CheckpointCoordinator(
-			jobId,
+			graph.getJobID(),
 			checkpointCoordinatorConfiguration,
 			Collections.emptyList(),
 			new StandaloneCheckpointIDCounter(),
@@ -86,13 +89,9 @@ public class FailoverStrategyCheckpointCoordinatorTest extends TestLogger {
 			SharedStateRegistry.DEFAULT_FACTORY,
 			mock(CheckpointFailureManager.class),
 			new CheckpointBriefComputer(
-				jobId,
-				Collections.singletonList(executionVertex),
-				Collections.singletonList(executionVertex),
-				Collections.singletonList(executionVertex)));
-
-		// switch current execution's state to running to allow checkpoint could be triggered.
-		mockExecutionRunning(executionVertex);
+				graph.getJobID(),
+				graph.getVerticesTopologically(),
+				graph::getJobMasterMainThreadExecutor));
 
 		checkpointCoordinator.startCheckpointScheduler();
 		assertTrue(checkpointCoordinator.isCurrentPeriodicTriggerAvailable());
