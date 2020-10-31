@@ -396,6 +396,8 @@ public class OperatorChain<OUT, OP extends StreamOperator<OUT>> implements Strea
 	 */
 	protected void initializeStateAndOpenOperators(StreamTaskStateInitializer streamTaskStateInitializer) throws Exception {
 		for (StreamOperatorWrapper<?, ?> operatorWrapper : getAllOperators(true)) {
+			operatorWrapper.setFullyFinishedOnStartup(
+				streamTaskStateInitializer.isFullyFinished(operatorWrapper.getStreamOperator().getOperatorID()));
 			StreamOperator<?> operator = operatorWrapper.getStreamOperator();
 			operator.initializeState(streamTaskStateInitializer);
 			operator.open();
@@ -494,6 +496,10 @@ public class OperatorChain<OUT, OP extends StreamOperator<OUT>> implements Strea
 	@Nullable
 	public OP getMainOperator() {
 		return (mainOperatorWrapper == null) ? null : mainOperatorWrapper.getStreamOperator();
+	}
+
+	public StreamOperatorWrapper<OUT, OP> getMainOperatorWrapper() {
+		return mainOperatorWrapper;
 	}
 
 	// ------------------------------------------------------------------------

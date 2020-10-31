@@ -34,6 +34,8 @@ import javax.annotation.Nullable;
  */
 public interface StreamTaskStateInitializer {
 
+	boolean isFullyFinished(OperatorID operatorID);
+
 	/**
 	 * Returns the {@link StreamOperatorStateContext} for an {@link AbstractStreamOperator} that runs in the stream
 	 * task that owns this manager.

@@ -216,14 +216,14 @@ public class StateAssignmentOperation {
 
 				OperatorSubtaskState operatorSubtaskState = operatorSubtaskStateFrom(instanceID, assignment);
 
-				if (operatorSubtaskState.hasState()) {
+				if (operatorSubtaskState.hasState() || assignment.fullyFinishedOperators.contains(operatorID.getGeneratedOperatorID())) {
 					statelessTask = false;
 				}
 				taskState.putSubtaskStateByOperatorID(operatorID.getGeneratedOperatorID(), operatorSubtaskState);
 			}
 
 			if (!statelessTask) {
-				JobManagerTaskRestore taskRestore = new JobManagerTaskRestore(restoreCheckpointId, taskState);
+				JobManagerTaskRestore taskRestore = new JobManagerTaskRestore(restoreCheckpointId, taskState, assignment.fullyFinishedOperators);
 				currentExecutionAttempt.setInitialState(taskRestore);
 			}
 		}

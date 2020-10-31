@@ -35,6 +35,8 @@ public interface StreamOperatorStateContext {
 	 */
 	boolean isRestored();
 
+	boolean isFullyFinished();
+
 	/**
 	 * Returns the operator state backend for the stream operator.
 	 */

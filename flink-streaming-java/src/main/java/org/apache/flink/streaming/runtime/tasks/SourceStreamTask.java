@@ -33,10 +33,11 @@ import org.apache.flink.streaming.api.operators.StreamSource;
 import org.apache.flink.streaming.runtime.tasks.mailbox.MailboxDefaultAction;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.FlinkException;
-import org.apache.flink.util.Preconditions;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
+
+import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * {@link StreamTask} for executing a {@link StreamSource}.
@@ -50,7 +51,7 @@ import java.util.concurrent.Future;
  *
  * @param <OUT> Type of the output elements of this source.
  * @param <SRC> Type of the source function for the stream source operator
- * @param <OP> Type of the stream source operator
+ * @param <OP>  Type of the stream source operator
  */
 @Internal
 public class SourceStreamTask<OUT, SRC extends SourceFunction<OUT>, OP extends StreamSource<OUT, SRC>>
@@ -73,7 +74,7 @@ public class SourceStreamTask<OUT, SRC extends SourceFunction<OUT>, OP extends S
 
 	private SourceStreamTask(Environment env, Object lock) throws Exception {
 		super(env, null, FatalExitExceptionHandler.INSTANCE, StreamTaskActionExecutor.synchronizedExecutor(lock));
-		this.lock = Preconditions.checkNotNull(lock);
+		this.lock = checkNotNull(lock);
 		this.sourceThread = new LegacySourceFunctionThread();
 	}
 
@@ -105,11 +106,9 @@ public class SourceStreamTask<OUT, SRC extends SourceFunction<OUT>, OP extends S
 					try {
 						SourceStreamTask.super.triggerCheckpointAsync(checkpointMetaData, checkpointOptions, false)
 							.get();
-					}
-					catch (RuntimeException e) {
+					} catch (RuntimeException e) {
 						throw e;
-					}
-					catch (Exception e) {
+					} catch (Exception e) {
 						throw new FlinkException(e.getMessage(), e);
 					}
 				}
@@ -132,12 +131,12 @@ public class SourceStreamTask<OUT, SRC extends SourceFunction<OUT>, OP extends S
 
 	@Override
 	protected void processInput(MailboxDefaultAction.Controller controller) throws Exception {
-
 		controller.suspendDefaultAction();
 
 		// Against the usual contract of this method, this implementation is not step-wise but blocking instead for
 		// compatibility reasons with the current source interface (source functions run as a loop, not in steps).
 		sourceThread.setTaskDescription(getName());
+		sourceThread.setSkipExecution(checkNotNull(operatorChain.getMainOperatorWrapper()).isFullyFinishedOnStartup());
 		sourceThread.start();
 		sourceThread.getCompletionFuture().whenComplete((Void ignore, Throwable sourceThreadThrowable) -> {
 			if (isCanceled() && ExceptionUtils.findThrowable(sourceThreadThrowable, InterruptedException.class).isPresent()) {
@@ -156,8 +155,7 @@ public class SourceStreamTask<OUT, SRC extends SourceFunction<OUT>, OP extends S
 			if (mainOperator != null) {
 				mainOperator.cancel();
 			}
-		}
-		finally {
+		} finally {
 			if (sourceThread.isAlive()) {
 				sourceThread.interrupt();
 			} else if (!sourceThread.getCompletionFuture().isDone()) {
@@ -186,8 +184,7 @@ public class SourceStreamTask<OUT, SRC extends SourceFunction<OUT>, OP extends S
 	public Future<Boolean> triggerCheckpointAsync(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions, boolean advanceToEndOfEventTime) {
 		if (!externallyInducedCheckpoints) {
 			return super.triggerCheckpointAsync(checkpointMetaData, checkpointOptions, advanceToEndOfEventTime);
-		}
-		else {
+		} else {
 			// we do not trigger checkpoints here, we simply state whether we can trigger them
 			synchronized (lock) {
 				return CompletableFuture.completedFuture(isRunning());
@@ -209,23 +206,34 @@ public class SourceStreamTask<OUT, SRC extends SourceFunction<OUT>, OP extends S
 
 		private final CompletableFuture<Void> completionFuture;
 
+		private boolean skipExecution;
+
 		LegacySourceFunctionThread() {
 			this.completionFuture = new CompletableFuture<>();
 		}
 
 		@Override
 		public void run() {
-			try {
-				mainOperator.run(lock, getStreamStatusMaintainer(), operatorChain);
+			if (skipExecution) {
+				LOG.info("Legacy source {} skip execution since the main operator is finished", getTaskNameWithSubtaskAndId());
 				completionFuture.complete(null);
-			} catch (Throwable t) {
-				// Note, t can be also an InterruptedException
-				completionFuture.completeExceptionally(t);
+			} else {
+				try {
+					mainOperator.run(lock, getStreamStatusMaintainer(), operatorChain);
+					completionFuture.complete(null);
+				} catch (Throwable t) {
+					// Note, t can be also an InterruptedException
+					completionFuture.completeExceptionally(t);
+				}
 			}
 		}
 
 		public void setTaskDescription(final String taskDescription) {
 			setName("Legacy Source Thread - " + taskDescription);
+		}
+
+		public void setSkipExecution(boolean skipExecution) {
+			this.skipExecution = skipExecution;
 		}
 
 		/**

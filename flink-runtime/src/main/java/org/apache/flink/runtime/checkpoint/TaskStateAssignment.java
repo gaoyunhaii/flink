@@ -28,6 +28,7 @@ import org.apache.flink.runtime.state.ResultSubpartitionStateHandle;
 import org.apache.flink.runtime.state.StateObject;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -54,6 +55,7 @@ class TaskStateAssignment {
 	final Map<OperatorInstanceID, List<OperatorStateHandle>> subRawOperatorState;
 	final Map<OperatorInstanceID, List<KeyedStateHandle>> subManagedKeyedState;
 	final Map<OperatorInstanceID, List<KeyedStateHandle>> subRawKeyedState;
+	final Set<OperatorID> fullyFinishedOperators;
 
 	final Map<OperatorInstanceID, List<InputChannelStateHandle>> inputChannelStates;
 	final Map<OperatorInstanceID, List<ResultSubpartitionStateHandle>> resultSubpartitionStates;
@@ -71,7 +73,7 @@ class TaskStateAssignment {
 		this.executionJobVertex = executionJobVertex;
 		this.oldState = oldState;
 		this.hasState =
-			oldState.values().stream().anyMatch(operatorState -> operatorState.getNumberCollectedStates() > 0);
+			oldState.values().stream().anyMatch(operatorState -> operatorState.getNumberCollectedStates() > 0 || operatorState.isFinished());
 
 		newParallelism = executionJobVertex.getParallelism();
 		final int expectedNumberOfSubtasks = newParallelism * oldState.size();
@@ -82,6 +84,12 @@ class TaskStateAssignment {
 		resultSubpartitionStates = new HashMap<>(expectedNumberOfSubtasks);
 		subManagedKeyedState = new HashMap<>(expectedNumberOfSubtasks);
 		subRawKeyedState = new HashMap<>(expectedNumberOfSubtasks);
+		fullyFinishedOperators = new HashSet<>();
+		oldState.forEach((id, operatorState) -> {
+			if (operatorState.isFinished()) {
+				fullyFinishedOperators.add(id);
+			}
+		});
 
 		final List<OperatorIDPair> operatorIDs = executionJobVertex.getOperatorIDs();
 		outputOperatorID = operatorIDs.get(0).getGeneratedOperatorID();

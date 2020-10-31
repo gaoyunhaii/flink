@@ -280,7 +280,9 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 			LOG.debug("Notification of complete checkpoint for task {}", taskName);
 
 			for (StreamOperatorWrapper<?, ?> operatorWrapper : operatorChain.getAllOperators(true)) {
-				operatorWrapper.notifyCheckpointComplete(checkpointId);
+				if (!operatorWrapper.isFullyFinishedOnStartup() && !operatorWrapper.isClosed()) {
+					operatorWrapper.notifyCheckpointComplete(checkpointId);
+				}
 			}
 		} else {
 			LOG.debug("Ignoring notification of complete checkpoint for not-running task {}", taskName);
@@ -308,7 +310,9 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 
 			for (StreamOperatorWrapper<?, ?> operatorWrapper : operatorChain.getAllOperators(true)) {
 				try {
-					operatorWrapper.getStreamOperator().notifyCheckpointAborted(checkpointId);
+					if (!operatorWrapper.isFullyFinishedOnStartup() && !operatorWrapper.isClosed()) {
+						operatorWrapper.getStreamOperator().notifyCheckpointAborted(checkpointId);
+					}
 				} catch (Exception e) {
 					previousException = e;
 				}
