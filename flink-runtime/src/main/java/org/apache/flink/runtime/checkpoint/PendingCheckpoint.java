@@ -22,6 +22,7 @@ import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.OperatorIDPair;
 import org.apache.flink.runtime.checkpoint.metadata.CheckpointMetadata;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
+import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.operators.coordination.OperatorInfo;
@@ -92,13 +93,15 @@ public class PendingCheckpoint implements Checkpoint {
 
 	private final Map<ExecutionAttemptID, ExecutionVertex> notYetAcknowledgedTasks;
 
-	private final List<ExecutionVertex> tasksToCommitTo;
+	private final List<ExecutionVertex> runningTasks;
 
 	private final Set<OperatorID> notYetAcknowledgedOperatorCoordinators;
 
 	private final List<MasterState> masterStates;
 
 	private final Set<String> notYetAcknowledgedMasterStates;
+
+	private final boolean checkpointAfterTasksFinished;
 
 	/** Set of acknowledged tasks. */
 	private final Set<ExecutionAttemptID> acknowledgedTasks;
@@ -133,7 +136,8 @@ public class PendingCheckpoint implements Checkpoint {
 			long checkpointId,
 			long checkpointTimestamp,
 			Map<ExecutionAttemptID, ExecutionVertex> verticesToConfirm,
-			List<ExecutionVertex> tasksToCommitTo,
+			List<ExecutionVertex> runningTasks,
+			Map<OperatorID, ExecutionJobVertex> fullyFinishedOperators,
 			Collection<OperatorID> operatorCoordinatorsToConfirm,
 			Collection<String> masterStateIdentifiers,
 			CheckpointProperties props,
@@ -147,9 +151,10 @@ public class PendingCheckpoint implements Checkpoint {
 		this.checkpointId = checkpointId;
 		this.checkpointTimestamp = checkpointTimestamp;
 		this.notYetAcknowledgedTasks = checkNotNull(verticesToConfirm);
-		this.tasksToCommitTo = checkNotNull(tasksToCommitTo);
+		this.runningTasks = checkNotNull(runningTasks);
 		this.props = checkNotNull(props);
 		this.targetLocation = checkNotNull(targetLocation);
+		this.checkpointAfterTasksFinished = runningTasks.size() < notYetAcknowledgedTasks.size();
 
 		this.operatorStates = new HashMap<>();
 		this.masterStates = new ArrayList<>(masterStateIdentifiers.size());
@@ -159,6 +164,16 @@ public class PendingCheckpoint implements Checkpoint {
 				? Collections.emptySet() : new HashSet<>(operatorCoordinatorsToConfirm);
 		this.acknowledgedTasks = new HashSet<>(verticesToConfirm.size());
 		this.onCompletionPromise = checkNotNull(onCompletionPromise);
+
+		// Directly labels the finished operators
+		fullyFinishedOperators.forEach((operatorId, vertex) -> {
+			OperatorState state = new OperatorState(
+				operatorId,
+				vertex.getParallelism(),
+				vertex.getMaxParallelism());
+			state.setFinished(true);
+			operatorStates.put(operatorId, state);
+		});
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -205,7 +220,7 @@ public class PendingCheckpoint implements Checkpoint {
 	}
 
 	public List<ExecutionVertex> getTasksToCommitTo() {
-		return tasksToCommitTo;
+		return runningTasks;
 	}
 
 	public Map<OperatorID, OperatorState> getOperatorStates() {
@@ -290,6 +305,10 @@ public class PendingCheckpoint implements Checkpoint {
 
 	public CheckpointException getFailureCause() {
 		return failureCause;
+	}
+
+	public boolean isCheckpointAfterTasksFinished() {
+		 return checkpointAfterTasksFinished;
 	}
 
 	// ------------------------------------------------------------------------

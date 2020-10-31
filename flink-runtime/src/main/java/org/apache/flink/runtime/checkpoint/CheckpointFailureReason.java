@@ -34,6 +34,8 @@ public enum CheckpointFailureReason {
 
 	NOT_ALL_REQUIRED_TASKS_RUNNING(true, "Not all required tasks are currently running."),
 
+	SOME_LEGACY_SOURCE_TASKS_PARTIALLY_FINISHED(true, "Some source vertex have both running and finished tasks."),
+
 	EXCEPTION(true, "An Exception occurred while triggering the checkpoint."),
 
 	CHECKPOINT_ASYNC_EXCEPTION(false, "Asynchronous task checkpoint failed."),
