@@ -25,17 +25,22 @@ import org.apache.flink.core.fs.FSDataInputStream;
 import org.apache.flink.core.io.SimpleVersionedSerializer;
 import org.apache.flink.mock.Whitebox;
 import org.apache.flink.runtime.OperatorIDPair;
+import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.concurrent.Executors;
 import org.apache.flink.runtime.concurrent.ManuallyTriggeredScheduledExecutor;
 import org.apache.flink.runtime.concurrent.ScheduledExecutor;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
+import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.executiongraph.utils.SimpleAckingTaskManagerGateway;
 import org.apache.flink.runtime.executiongraph.utils.SimpleAckingTaskManagerGateway.CheckpointConsumer;
+import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
+import org.apache.flink.runtime.jobgraph.DistributionPattern;
+import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobgraph.tasks.CheckpointCoordinatorConfiguration;
@@ -55,6 +60,7 @@ import org.apache.flink.runtime.state.SharedStateRegistryFactory;
 import org.apache.flink.runtime.state.StateBackend;
 import org.apache.flink.runtime.state.memory.ByteStreamStateHandle;
 import org.apache.flink.runtime.state.memory.MemoryStateBackend;
+import org.apache.flink.runtime.testtasks.NoOpInvokable;
 import org.apache.flink.runtime.testutils.CommonTestUtils;
 import org.apache.flink.util.InstantiationUtil;
 import org.apache.flink.util.Preconditions;
@@ -78,8 +84,10 @@ import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -324,159 +332,159 @@ public class CheckpointCoordinatorTestingUtils {
 		}
 	}
 
-	static ExecutionJobVertex mockExecutionJobVertex(
-		JobVertexID jobVertexID,
-		int parallelism,
-		int maxParallelism) throws Exception {
+//	static ExecutionJobVertex mockExecutionJobVertex(
+//		JobVertexID jobVertexID,
+//		int parallelism,
+//		int maxParallelism) throws Exception {
+//
+//		return mockExecutionJobVertex(
+//			jobVertexID,
+//			Collections.singletonList(OperatorID.fromJobVertexID(jobVertexID)),
+//			parallelism,
+//			maxParallelism
+//		);
+//	}
+//
+//	static ExecutionJobVertex mockExecutionJobVertex(
+//		JobVertexID jobVertexID,
+//		List<OperatorID> jobVertexIDs,
+//		int parallelism,
+//		int maxParallelism) throws Exception {
+//		final ExecutionJobVertex executionJobVertex = mock(ExecutionJobVertex.class);
+//
+//		ExecutionVertex[] executionVertices = new ExecutionVertex[parallelism];
+//
+//		for (int i = 0; i < parallelism; i++) {
+//			executionVertices[i] = mockExecutionVertex(
+//				new ExecutionAttemptID(),
+//				jobVertexID,
+//				jobVertexIDs,
+//				parallelism,
+//				maxParallelism,
+//				ExecutionState.RUNNING);
+//
+//			when(executionVertices[i].getParallelSubtaskIndex()).thenReturn(i);
+//			when(executionVertices[i].getJobVertex()).thenReturn(executionJobVertex);
+//		}
+//
+//		when(executionJobVertex.getJobVertexId()).thenReturn(jobVertexID);
+//		when(executionJobVertex.getTaskVertices()).thenReturn(executionVertices);
+//		when(executionJobVertex.getParallelism()).thenReturn(parallelism);
+//		when(executionJobVertex.getMaxParallelism()).thenReturn(maxParallelism);
+//		when(executionJobVertex.isMaxParallelismConfigured()).thenReturn(true);
+//		List<OperatorIDPair> operatorIDPairs = new ArrayList<>();
+//		for (OperatorID operatorID : jobVertexIDs) {
+//			operatorIDPairs.add(OperatorIDPair.generatedIDOnly(operatorID));
+//		}
+//		when(executionJobVertex.getOperatorIDs()).thenReturn(operatorIDPairs);
+//
+//		return executionJobVertex;
+//	}
 
-		return mockExecutionJobVertex(
-			jobVertexID,
-			Collections.singletonList(OperatorID.fromJobVertexID(jobVertexID)),
-			parallelism,
-			maxParallelism
-		);
-	}
+//	static ExecutionVertex mockExecutionVertex(ExecutionAttemptID attemptID) {
+//		return mockExecutionVertex(attemptID, (LogicalSlot) null);
+//	}
 
-	static ExecutionJobVertex mockExecutionJobVertex(
-		JobVertexID jobVertexID,
-		List<OperatorID> jobVertexIDs,
-		int parallelism,
-		int maxParallelism) throws Exception {
-		final ExecutionJobVertex executionJobVertex = mock(ExecutionJobVertex.class);
-
-		ExecutionVertex[] executionVertices = new ExecutionVertex[parallelism];
-
-		for (int i = 0; i < parallelism; i++) {
-			executionVertices[i] = mockExecutionVertex(
-				new ExecutionAttemptID(),
-				jobVertexID,
-				jobVertexIDs,
-				parallelism,
-				maxParallelism,
-				ExecutionState.RUNNING);
-
-			when(executionVertices[i].getParallelSubtaskIndex()).thenReturn(i);
-			when(executionVertices[i].getJobVertex()).thenReturn(executionJobVertex);
-		}
-
-		when(executionJobVertex.getJobVertexId()).thenReturn(jobVertexID);
-		when(executionJobVertex.getTaskVertices()).thenReturn(executionVertices);
-		when(executionJobVertex.getParallelism()).thenReturn(parallelism);
-		when(executionJobVertex.getMaxParallelism()).thenReturn(maxParallelism);
-		when(executionJobVertex.isMaxParallelismConfigured()).thenReturn(true);
-		List<OperatorIDPair> operatorIDPairs = new ArrayList<>();
-		for (OperatorID operatorID : jobVertexIDs) {
-			operatorIDPairs.add(OperatorIDPair.generatedIDOnly(operatorID));
-		}
-		when(executionJobVertex.getOperatorIDs()).thenReturn(operatorIDPairs);
-
-		return executionJobVertex;
-	}
-
-	static ExecutionVertex mockExecutionVertex(ExecutionAttemptID attemptID) {
-		return mockExecutionVertex(attemptID, (LogicalSlot) null);
-	}
-
-	static ExecutionVertex mockExecutionVertex(
-		ExecutionAttemptID attemptID,
-		CheckpointConsumer checkpointConsumer) {
-
-		final SimpleAckingTaskManagerGateway taskManagerGateway = new SimpleAckingTaskManagerGateway();
-		taskManagerGateway.setCheckpointConsumer(checkpointConsumer);
-		return mockExecutionVertex(attemptID, taskManagerGateway);
-	}
-
-	static ExecutionVertex mockExecutionVertex(
-		ExecutionAttemptID attemptID,
-		TaskManagerGateway taskManagerGateway) {
-
-		TestingLogicalSlotBuilder slotBuilder = new TestingLogicalSlotBuilder();
-		slotBuilder.setTaskManagerGateway(taskManagerGateway);
-		LogicalSlot	slot = slotBuilder.createTestingLogicalSlot();
-		return mockExecutionVertex(attemptID, slot);
-	}
-
-	static ExecutionVertex mockExecutionVertex(
-		ExecutionAttemptID attemptID,
-		@Nullable LogicalSlot slot) {
-
-		JobVertexID jobVertexID = new JobVertexID();
-		return mockExecutionVertex(
-			attemptID,
-			jobVertexID,
-			Collections.singletonList(OperatorID.fromJobVertexID(jobVertexID)),
-			slot,
-			1,
-			1,
-			ExecutionState.RUNNING);
-	}
-
-	static ExecutionVertex mockExecutionVertex(
-		ExecutionAttemptID attemptID,
-		JobVertexID jobVertexID,
-		List<OperatorID> jobVertexIDs,
-		int parallelism,
-		int maxParallelism,
-		ExecutionState state,
-		ExecutionState ... successiveStates) {
-
-		return mockExecutionVertex(
-			attemptID,
-			jobVertexID,
-			jobVertexIDs,
-			null,
-			parallelism,
-			maxParallelism,
-			state,
-			successiveStates);
-	}
-
-	static ExecutionVertex mockExecutionVertex(
-		ExecutionAttemptID attemptID,
-		JobVertexID jobVertexID,
-		List<OperatorID> jobVertexIDs,
-		@Nullable LogicalSlot slot,
-		int parallelism,
-		int maxParallelism,
-		ExecutionState state,
-		ExecutionState ... successiveStates) {
-
-		ExecutionVertex vertex = mock(ExecutionVertex.class);
-		when(vertex.getID()).thenReturn(ExecutionGraphTestUtils.createRandomExecutionVertexId());
-		when(vertex.getJobId()).thenReturn(new JobID());
-
-		final Execution exec = spy(new Execution(
-			mock(Executor.class),
-			vertex,
-			1,
-			1L,
-			1L,
-			Time.milliseconds(500L)
-		));
-		if (slot != null) {
-			// is there a better way to do this?
-			Whitebox.setInternalState(exec, "assignedResource", slot);
-		}
-
-		when(exec.getAttemptId()).thenReturn(attemptID);
-		when(exec.getState()).thenReturn(state, successiveStates);
-
-		when(vertex.getJobvertexId()).thenReturn(jobVertexID);
-		when(vertex.getCurrentExecutionAttempt()).thenReturn(exec);
-		when(vertex.getTotalNumberOfParallelSubtasks()).thenReturn(parallelism);
-		when(vertex.getMaxParallelism()).thenReturn(maxParallelism);
-
-		ExecutionJobVertex jobVertex = mock(ExecutionJobVertex.class);
-		List<OperatorIDPair> operatorIDPairs = new ArrayList<>();
-		for (OperatorID operatorID : jobVertexIDs) {
-			operatorIDPairs.add(OperatorIDPair.generatedIDOnly(operatorID));
-		}
-		when(jobVertex.getOperatorIDs()).thenReturn(operatorIDPairs);
-
-		when(vertex.getJobVertex()).thenReturn(jobVertex);
-
-		return vertex;
-	}
+//	static ExecutionVertex mockExecutionVertex(
+//		ExecutionAttemptID attemptID,
+//		CheckpointConsumer checkpointConsumer) {
+//
+//		final SimpleAckingTaskManagerGateway taskManagerGateway = new SimpleAckingTaskManagerGateway();
+//		taskManagerGateway.setCheckpointConsumer(checkpointConsumer);
+//		return mockExecutionVertex(attemptID, taskManagerGateway);
+//	}
+//
+//	static ExecutionVertex mockExecutionVertex(
+//		ExecutionAttemptID attemptID,
+//		TaskManagerGateway taskManagerGateway) {
+//
+//		TestingLogicalSlotBuilder slotBuilder = new TestingLogicalSlotBuilder();
+//		slotBuilder.setTaskManagerGateway(taskManagerGateway);
+//		LogicalSlot	slot = slotBuilder.createTestingLogicalSlot();
+//		return mockExecutionVertex(attemptID, slot);
+//	}
+//
+//	static ExecutionVertex mockExecutionVertex(
+//		ExecutionAttemptID attemptID,
+//		@Nullable LogicalSlot slot) {
+//
+//		JobVertexID jobVertexID = new JobVertexID();
+//		return mockExecutionVertex(
+//			attemptID,
+//			jobVertexID,
+//			Collections.singletonList(OperatorID.fromJobVertexID(jobVertexID)),
+//			slot,
+//			1,
+//			1,
+//			ExecutionState.RUNNING);
+//	}
+//
+//	static ExecutionVertex mockExecutionVertex(
+//		ExecutionAttemptID attemptID,
+//		JobVertexID jobVertexID,
+//		List<OperatorID> jobVertexIDs,
+//		int parallelism,
+//		int maxParallelism,
+//		ExecutionState state,
+//		ExecutionState ... successiveStates) {
+//
+//		return mockExecutionVertex(
+//			attemptID,
+//			jobVertexID,
+//			jobVertexIDs,
+//			null,
+//			parallelism,
+//			maxParallelism,
+//			state,
+//			successiveStates);
+//	}
+//
+//	static ExecutionVertex mockExecutionVertex(
+//		ExecutionAttemptID attemptID,
+//		JobVertexID jobVertexID,
+//		List<OperatorID> jobVertexIDs,
+//		@Nullable LogicalSlot slot,
+//		int parallelism,
+//		int maxParallelism,
+//		ExecutionState state,
+//		ExecutionState ... successiveStates) {
+//
+//		ExecutionVertex vertex = mock(ExecutionVertex.class);
+//		when(vertex.getID()).thenReturn(ExecutionGraphTestUtils.createRandomExecutionVertexId());
+//		when(vertex.getJobId()).thenReturn(new JobID());
+//
+//		final Execution exec = spy(new Execution(
+//			mock(Executor.class),
+//			vertex,
+//			1,
+//			1L,
+//			1L,
+//			Time.milliseconds(500L)
+//		));
+//		if (slot != null) {
+//			// is there a better way to do this?
+//			Whitebox.setInternalState(exec, "assignedResource", slot);
+//		}
+//
+//		when(exec.getAttemptId()).thenReturn(attemptID);
+//		when(exec.getState()).thenReturn(state, successiveStates);
+//
+//		when(vertex.getJobvertexId()).thenReturn(jobVertexID);
+//		when(vertex.getCurrentExecutionAttempt()).thenReturn(exec);
+//		when(vertex.getTotalNumberOfParallelSubtasks()).thenReturn(parallelism);
+//		when(vertex.getMaxParallelism()).thenReturn(maxParallelism);
+//
+//		ExecutionJobVertex jobVertex = mock(ExecutionJobVertex.class);
+//		List<OperatorIDPair> operatorIDPairs = new ArrayList<>();
+//		for (OperatorID operatorID : jobVertexIDs) {
+//			operatorIDPairs.add(OperatorIDPair.generatedIDOnly(operatorID));
+//		}
+//		when(jobVertex.getOperatorIDs()).thenReturn(operatorIDPairs);
+//
+//		when(vertex.getJobVertex()).thenReturn(jobVertex);
+//
+//		return vertex;
+//	}
 
 	static TaskStateSnapshot mockSubtaskState(
 		JobVertexID jobVertexID,
@@ -530,74 +538,149 @@ public class CheckpointCoordinatorTestingUtils {
 		return new KeyGroupsStateHandle(keyGroupRangeOffsets, allSerializedStatesHandle);
 	}
 
-	static Execution mockExecution() {
-		Execution mock = mock(Execution.class);
-		when(mock.getAttemptId()).thenReturn(new ExecutionAttemptID());
-		when(mock.getState()).thenReturn(ExecutionState.RUNNING);
-		return mock;
+//	static Execution mockExecution() {
+//		Execution mock = mock(Execution.class);
+//		when(mock.getAttemptId()).thenReturn(new ExecutionAttemptID());
+//		when(mock.getState()).thenReturn(ExecutionState.RUNNING);
+//		return mock;
+//	}
+//
+//	static Execution mockExecution(CheckpointConsumer checkpointConsumer) {
+//		ExecutionVertex executionVertex = mock(ExecutionVertex.class);
+//		final JobID jobId = new JobID();
+//		when(executionVertex.getJobId()).thenReturn(jobId);
+//		Execution mock = mock(Execution.class);
+//		ExecutionAttemptID executionAttemptID = new ExecutionAttemptID();
+//		when(mock.getAttemptId()).thenReturn(executionAttemptID);
+//		when(mock.getState()).thenReturn(ExecutionState.RUNNING);
+//		when(mock.getVertex()).thenReturn(executionVertex);
+//		doAnswer((InvocationOnMock invocation) -> {
+//			final Object[] args = invocation.getArguments();
+//			checkpointConsumer.accept(
+//				executionAttemptID,
+//				jobId,
+//				(long) args[0],
+//				(long) args[1],
+//				(CheckpointOptions) args[2],
+//				false);
+//			return null;
+//		}).when(mock).triggerCheckpoint(anyLong(), anyLong(), any(CheckpointOptions.class));
+//		return mock;
+//	}
+
+//	static ExecutionVertex mockExecutionVertex(Execution execution, JobVertexID vertexId, int subtask, int parallelism) {
+//		ExecutionVertex mock = mock(ExecutionVertex.class);
+//		when(mock.getJobvertexId()).thenReturn(vertexId);
+//		when(mock.getParallelSubtaskIndex()).thenReturn(subtask);
+//		when(mock.getCurrentExecutionAttempt()).thenReturn(execution);
+//		when(mock.getTotalNumberOfParallelSubtasks()).thenReturn(parallelism);
+//		when(mock.getMaxParallelism()).thenReturn(parallelism);
+//		return mock;
+//	}
+//
+//	static ExecutionJobVertex mockExecutionJobVertex(JobVertexID id, ExecutionVertex[] vertices) {
+//		ExecutionJobVertex vertex = mock(ExecutionJobVertex.class);
+//		when(vertex.getParallelism()).thenReturn(vertices.length);
+//		when(vertex.getMaxParallelism()).thenReturn(vertices.length);
+//		when(vertex.getJobVertexId()).thenReturn(id);
+//		when(vertex.getTaskVertices()).thenReturn(vertices);
+//		when(vertex.getOperatorIDs()).thenReturn(Collections.singletonList(OperatorIDPair.generatedIDOnly(OperatorID.fromJobVertexID(id))));
+//
+//		for (ExecutionVertex v : vertices) {
+//			when(v.getJobVertex()).thenReturn(vertex);
+//		}
+//		return vertex;
+//	}
+
+	static ExecutionGraph createAllRunningTestGraph(JobVertexID... jobVertexId) throws Exception {
+		return createAllRunningTestGraph(Arrays.asList(jobVertexId), Collections.emptyList());
 	}
 
-	static Execution mockExecution(CheckpointConsumer checkpointConsumer) {
-		ExecutionVertex executionVertex = mock(ExecutionVertex.class);
-		final JobID jobId = new JobID();
-		when(executionVertex.getJobId()).thenReturn(jobId);
-		Execution mock = mock(Execution.class);
-		ExecutionAttemptID executionAttemptID = new ExecutionAttemptID();
-		when(mock.getAttemptId()).thenReturn(executionAttemptID);
-		when(mock.getState()).thenReturn(ExecutionState.RUNNING);
-		when(mock.getVertex()).thenReturn(executionVertex);
-		doAnswer((InvocationOnMock invocation) -> {
-			final Object[] args = invocation.getArguments();
-			checkpointConsumer.accept(
-				executionAttemptID,
-				jobId,
-				(long) args[0],
-				(long) args[1],
-				(CheckpointOptions) args[2],
-				false);
-			return null;
-		}).when(mock).triggerCheckpoint(anyLong(), anyLong(), any(CheckpointOptions.class));
-		return mock;
+	static ExecutionGraph createAllRunningTestGraph(
+		List<JobVertexID> sourceVertexIds,
+		List<JobVertexID> nonSourceVertexIds) throws Exception {
+
+		ExecutionGraph executionGraph = createTestGraph(sourceVertexIds, nonSourceVertexIds, null);
+		executionGraph.transitionToRunning();
+		executionGraph.getAllExecutionVertices().forEach(
+			task -> task.getCurrentExecutionAttempt().transitionState(ExecutionState.RUNNING));
+		return executionGraph;
 	}
 
-	static ExecutionVertex mockExecutionVertex(Execution execution, JobVertexID vertexId, int subtask, int parallelism) {
-		ExecutionVertex mock = mock(ExecutionVertex.class);
-		when(mock.getJobvertexId()).thenReturn(vertexId);
-		when(mock.getParallelSubtaskIndex()).thenReturn(subtask);
-		when(mock.getCurrentExecutionAttempt()).thenReturn(execution);
-		when(mock.getTotalNumberOfParallelSubtasks()).thenReturn(parallelism);
-		when(mock.getMaxParallelism()).thenReturn(parallelism);
-		return mock;
+	static ExecutionGraph createAllRunningTestGraph(List<JobVertex> allVertices) throws Exception {
+		ExecutionGraph executionGraph = createTestGraph(allVertices, null);
+		executionGraph.transitionToRunning();
+		executionGraph.getAllExecutionVertices().forEach(
+			task -> task.getCurrentExecutionAttempt().transitionState(ExecutionState.RUNNING));
+		return executionGraph;
 	}
 
-	static ExecutionJobVertex mockExecutionJobVertex(JobVertexID id, ExecutionVertex[] vertices) {
-		ExecutionJobVertex vertex = mock(ExecutionJobVertex.class);
-		when(vertex.getParallelism()).thenReturn(vertices.length);
-		when(vertex.getMaxParallelism()).thenReturn(vertices.length);
-		when(vertex.getJobVertexId()).thenReturn(id);
-		when(vertex.getTaskVertices()).thenReturn(vertices);
-		when(vertex.getOperatorIDs()).thenReturn(Collections.singletonList(OperatorIDPair.generatedIDOnly(OperatorID.fromJobVertexID(id))));
+	static ExecutionGraph createAllRunningTestGraph(List<JobVertex> allVertices, ScheduledExecutorService executorService) throws Exception {
+		ExecutionGraph executionGraph = createTestGraph(allVertices, executorService);
+		executionGraph.transitionToRunning();
+		executionGraph.getAllExecutionVertices().forEach(
+			task -> task.getCurrentExecutionAttempt().transitionState(ExecutionState.RUNNING));
+		return executionGraph;
+	}
 
-		for (ExecutionVertex v : vertices) {
-			when(v.getJobVertex()).thenReturn(vertex);
+	static ExecutionGraph createTestGraph(
+		List<JobVertexID> sourceVertexIds,
+		List<JobVertexID> nonSourceVertexIds,
+		ScheduledExecutorService executorService) throws Exception {
+
+		List<JobVertex> sourceVertices = sourceVertexIds
+			.stream()
+			.map(id -> createJobVertex(id, 1, 32768))
+			.collect(Collectors.toList());
+		List<JobVertex> nonSourceVertices = nonSourceVertexIds
+			.stream()
+			.map(id -> createJobVertex(id, 1, 32768))
+			.collect(Collectors.toList());
+
+		// Lets connect source vertices and non-source vertices
+		for (JobVertex source : sourceVertices) {
+			for (JobVertex nonSource : nonSourceVertices) {
+				nonSource.connectNewDataSetAsInput(source, DistributionPattern.ALL_TO_ALL, ResultPartitionType.PIPELINED);
+			}
 		}
-		return vertex;
+
+		List<JobVertex> allVertices = new ArrayList<>();
+		allVertices.addAll(sourceVertices);
+		allVertices.addAll(nonSourceVertices);
+		return createTestGraph(allVertices, executorService);
+	}
+
+	static ExecutionGraph createTestGraph(List<JobVertex> vertices, ScheduledExecutorService executorService) throws Exception {
+		ExecutionGraph simpleGraph = ExecutionGraphTestUtils.createSimpleTestGraph(vertices.toArray(new JobVertex[0]));
+		simpleGraph.start(
+			executorService == null ?
+				ComponentMainThreadExecutorServiceAdapter.forMainThread() :
+				ComponentMainThreadExecutorServiceAdapter.forSingleThreadExecutor(executorService));
+		return simpleGraph;
+	}
+
+	static JobVertex createJobVertex(JobVertexID id, int parallelism, int maxParallelism) {
+		return createJobVertex(id, parallelism, maxParallelism, null);
+	}
+
+	static JobVertex createJobVertex(JobVertexID id, int parallelism, int maxParallelism, List<OperatorIDPair> operators) {
+		JobVertex jobVertex = operators == null ?
+			new JobVertex("anon", id) :
+			new JobVertex("anon", id, operators);
+		jobVertex.setParallelism(parallelism);
+		jobVertex.setMaxParallelism(maxParallelism);
+		jobVertex.setInvokableClass(NoOpInvokable.class);
+		return jobVertex;
 	}
 
 	/**
 	 * A helper builder for {@link CheckpointCoordinator} to deduplicate test codes.
 	 */
 	public static class CheckpointCoordinatorBuilder {
-		private JobID jobId = new JobID();
-
 		private CheckpointCoordinatorConfiguration checkpointCoordinatorConfiguration =
 			new CheckpointCoordinatorConfigurationBuilder().setMaxConcurrentCheckpoints(Integer.MAX_VALUE).build();
 
-		private ExecutionVertex[] tasksToTrigger;
-
-		private ExecutionVertex[] tasksToWaitFor;
-
-		private ExecutionVertex[] tasksToCommitTo;
+		private ExecutionGraph executionGraph;
 
 		private Collection<OperatorCoordinatorCheckpointContext> coordinatorsToCheckpoint = Collections.emptyList();
 
@@ -619,17 +702,10 @@ public class CheckpointCoordinatorTestingUtils {
 		private CheckpointFailureManager failureManager =
 			new CheckpointFailureManager(0, NoOpFailJobCall.INSTANCE);
 
-		public CheckpointCoordinatorBuilder() {
-			ExecutionVertex vertex = mockExecutionVertex(new ExecutionAttemptID());
-			ExecutionVertex[] defaultVertices = new ExecutionVertex[] { vertex };
-			tasksToTrigger = defaultVertices;
-			tasksToWaitFor = defaultVertices;
-			tasksToCommitTo = defaultVertices;
-		}
-
-		public CheckpointCoordinatorBuilder setJobId(JobID jobId) {
-			this.jobId = jobId;
-			return this;
+		public CheckpointCoordinatorBuilder() throws Exception {
+			executionGraph = createAllRunningTestGraph(
+				Collections.singletonList(new JobVertexID()),
+				Collections.emptyList());
 		}
 
 		public CheckpointCoordinatorBuilder setCheckpointCoordinatorConfiguration(
@@ -638,25 +714,8 @@ public class CheckpointCoordinatorTestingUtils {
 			return this;
 		}
 
-		public CheckpointCoordinatorBuilder setTasks(ExecutionVertex[] tasks) {
-			this.tasksToTrigger = tasks;
-			this.tasksToWaitFor = tasks;
-			this.tasksToCommitTo = tasks;
-			return this;
-		}
-
-		public CheckpointCoordinatorBuilder setTasksToTrigger(ExecutionVertex[] tasksToTrigger) {
-			this.tasksToTrigger = tasksToTrigger;
-			return this;
-		}
-
-		public CheckpointCoordinatorBuilder setTasksToWaitFor(ExecutionVertex[] tasksToWaitFor) {
-			this.tasksToWaitFor = tasksToWaitFor;
-			return this;
-		}
-
-		public CheckpointCoordinatorBuilder setTasksToCommitTo(ExecutionVertex[] tasksToCommitTo) {
-			this.tasksToCommitTo = tasksToCommitTo;
+		public CheckpointCoordinatorBuilder setExecutionGraph(ExecutionGraph executionGraph) {
+			this.executionGraph = executionGraph;
 			return this;
 		}
 
@@ -710,9 +769,9 @@ public class CheckpointCoordinatorTestingUtils {
 			return this;
 		}
 
-		public CheckpointCoordinator build() {
+		public CheckpointCoordinator build() throws Exception {
 			return new CheckpointCoordinator(
-				jobId,
+				executionGraph.getJobID(),
 				checkpointCoordinatorConfiguration,
 				coordinatorsToCheckpoint,
 				checkpointIDCounter,
@@ -723,10 +782,9 @@ public class CheckpointCoordinatorTestingUtils {
 				sharedStateRegistryFactory,
 				failureManager,
 				new CheckpointBriefComputer(
-					jobId,
-					Arrays.asList(tasksToTrigger),
-					Arrays.asList(tasksToWaitFor),
-					Arrays.asList(tasksToCommitTo)));
+					executionGraph.getJobID(),
+					executionGraph.getVerticesTopologically(),
+					executionGraph::getJobMasterMainThreadExecutor));
 		}
 	}
 
