@@ -18,10 +18,15 @@
 
 package org.apache.flink.runtime.checkpoint;
 
+import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.runtime.jobgraph.OperatorID;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import java.io.Serializable;
+import java.util.Set;
 
 /**
  * This class encapsulates the data from the job manager to restore a task.
@@ -36,9 +41,24 @@ public class JobManagerTaskRestore implements Serializable {
 	/** The state for this task to restore. */
 	private final TaskStateSnapshot taskStateSnapshot;
 
-	public JobManagerTaskRestore(@Nonnegative long restoreCheckpointId, @Nonnull TaskStateSnapshot taskStateSnapshot) {
+	private final Set<OperatorID> fullyFinishedOperators;
+
+	@VisibleForTesting
+	public JobManagerTaskRestore(
+		@Nonnegative long restoreCheckpointId,
+		@Nonnull TaskStateSnapshot taskStateSnapshot) {
+
+		this(restoreCheckpointId, taskStateSnapshot, null);
+	}
+
+	public JobManagerTaskRestore(
+		@Nonnegative long restoreCheckpointId,
+		@Nonnull TaskStateSnapshot taskStateSnapshot,
+		@Nullable Set<OperatorID> fullyFinishedOperators) {
+
 		this.restoreCheckpointId = restoreCheckpointId;
 		this.taskStateSnapshot = taskStateSnapshot;
+		this.fullyFinishedOperators = fullyFinishedOperators;
 	}
 
 	public long getRestoreCheckpointId() {
@@ -50,11 +70,17 @@ public class JobManagerTaskRestore implements Serializable {
 		return taskStateSnapshot;
 	}
 
+	@Nullable
+	public Set<OperatorID> getFullyFinishedOperators() {
+		return fullyFinishedOperators;
+	}
+
 	@Override
 	public String toString() {
 		return "JobManagerTaskRestore{" +
 			"restoreCheckpointId=" + restoreCheckpointId +
 			", taskStateSnapshot=" + taskStateSnapshot +
+			", fullyFinishedOperators=" + fullyFinishedOperators +
 			'}';
 	}
 }

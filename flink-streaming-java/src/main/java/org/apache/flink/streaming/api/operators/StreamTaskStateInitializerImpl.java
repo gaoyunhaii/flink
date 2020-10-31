@@ -116,6 +116,13 @@ public class StreamTaskStateInitializerImpl implements StreamTaskStateInitialize
 	// -----------------------------------------------------------------------------------------------------------------
 
 	@Override
+	public boolean isFullyFinished(OperatorID operatorID) {
+		PrioritizedOperatorSubtaskState prioritizedOperatorSubtaskStates =
+			taskStateManager.prioritizedOperatorState(operatorID);
+		return prioritizedOperatorSubtaskStates.isFullyFinished();
+	}
+
+	@Override
 	public StreamOperatorStateContext streamOperatorStateContext(
 		@Nonnull OperatorID operatorID,
 		@Nonnull String operatorClassName,
@@ -181,6 +188,7 @@ public class StreamTaskStateInitializerImpl implements StreamTaskStateInitialize
 
 			return new StreamOperatorStateContextImpl(
 				prioritizedOperatorSubtaskStates.isRestored(),
+				prioritizedOperatorSubtaskStates.isFullyFinished(),
 				operatorStateBackend,
 				keyedStatedBackend,
 				timeServiceManager,
@@ -562,6 +570,7 @@ public class StreamTaskStateInitializerImpl implements StreamTaskStateInitialize
 	private static class StreamOperatorStateContextImpl implements StreamOperatorStateContext {
 
 		private final boolean restored;
+		private final boolean isFullyFinished;
 
 		private final OperatorStateBackend operatorStateBackend;
 		private final CheckpointableKeyedStateBackend<?> keyedStateBackend;
@@ -572,6 +581,7 @@ public class StreamTaskStateInitializerImpl implements StreamTaskStateInitialize
 
 		StreamOperatorStateContextImpl(
 			boolean restored,
+			boolean isFullyFinished,
 			OperatorStateBackend operatorStateBackend,
 			CheckpointableKeyedStateBackend<?> keyedStateBackend,
 			InternalTimeServiceManager<?> internalTimeServiceManager,
@@ -579,6 +589,7 @@ public class StreamTaskStateInitializerImpl implements StreamTaskStateInitialize
 			CloseableIterable<KeyGroupStatePartitionStreamProvider> rawKeyedStateInputs) {
 
 			this.restored = restored;
+			this.isFullyFinished = isFullyFinished;
 			this.operatorStateBackend = operatorStateBackend;
 			this.keyedStateBackend = keyedStateBackend;
 			this.internalTimeServiceManager = internalTimeServiceManager;
@@ -589,6 +600,10 @@ public class StreamTaskStateInitializerImpl implements StreamTaskStateInitialize
 		@Override
 		public boolean isRestored() {
 			return restored;
+		}
+
+		public boolean isFullyFinished() {
+			return isFullyFinished;
 		}
 
 		@Override

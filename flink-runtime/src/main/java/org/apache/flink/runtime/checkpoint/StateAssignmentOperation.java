@@ -99,7 +99,7 @@ public class StateAssignmentOperation {
 						operatorID,
 						executionJobVertex.getParallelism(),
 						executionJobVertex.getMaxParallelism());
-				} else if (operatorState.getNumberCollectedStates() > 0) {
+				} else if (operatorState.getNumberCollectedStates() > 0 || operatorState.isFinished()) {
 					statelessSubTasks = false;
 				}
 				operatorStates.add(operatorState);
@@ -181,6 +181,13 @@ public class StateAssignmentOperation {
 			newManagedKeyedState,
 			newRawKeyedState);
 
+		Set<OperatorID> fullyFinishedOperators = new HashSet<>();
+		for (OperatorState operatorState : operatorStates) {
+			if (operatorState.isFinished()) {
+				fullyFinishedOperators.add(operatorState.getOperatorID());
+			}
+		}
+
 		/*
 		 *  An executionJobVertex's all state handles needed to restore are something like a matrix
 		 *
@@ -199,6 +206,7 @@ public class StateAssignmentOperation {
 			newResultSubpartitionState,
 			newManagedKeyedState,
 			newRawKeyedState,
+			fullyFinishedOperators,
 			newParallelism);
 	}
 
@@ -210,6 +218,7 @@ public class StateAssignmentOperation {
 			Map<OperatorInstanceID, List<ResultSubpartitionStateHandle>> resultSubpartitionStates,
 			Map<OperatorInstanceID, List<KeyedStateHandle>> subManagedKeyedState,
 			Map<OperatorInstanceID, List<KeyedStateHandle>> subRawKeyedState,
+			Set<OperatorID> fullyFinishedOperators,
 			int newParallelism) {
 
 		List<OperatorIDPair> operatorIDs = executionJobVertex.getOperatorIDs();
@@ -234,14 +243,14 @@ public class StateAssignmentOperation {
 					subManagedKeyedState,
 					subRawKeyedState);
 
-				if (operatorSubtaskState.hasState()) {
+				if (operatorSubtaskState.hasState() || fullyFinishedOperators.contains(operatorID.getGeneratedOperatorID())) {
 					statelessTask = false;
 				}
 				taskState.putSubtaskStateByOperatorID(operatorID.getGeneratedOperatorID(), operatorSubtaskState);
 			}
 
 			if (!statelessTask) {
-				JobManagerTaskRestore taskRestore = new JobManagerTaskRestore(restoreCheckpointId, taskState);
+				JobManagerTaskRestore taskRestore = new JobManagerTaskRestore(restoreCheckpointId, taskState, fullyFinishedOperators);
 				currentExecutionAttempt.setInitialState(taskRestore);
 			}
 		}

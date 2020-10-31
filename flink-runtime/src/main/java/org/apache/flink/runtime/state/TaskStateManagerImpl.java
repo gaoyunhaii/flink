@@ -39,6 +39,7 @@ import javax.annotation.Nullable;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 /**
  * This class is the default implementation of {@link TaskStateManager} and collaborates with the job manager
@@ -159,10 +160,13 @@ public class TaskStateManagerImpl implements TaskStateManager {
 		LOG.debug("Operator {} has remote state {} from job manager and local state alternatives {} from local " +
 				"state store {}.", operatorID, jobManagerSubtaskState, alternativesByPriority, localStateStore);
 
+		Set<OperatorID> fullyFinishedOperators = jobManagerTaskRestore.getFullyFinishedOperators();
+		boolean isFullyFinished = fullyFinishedOperators != null && fullyFinishedOperators.contains(operatorID);
 		PrioritizedOperatorSubtaskState.Builder builder = new PrioritizedOperatorSubtaskState.Builder(
 			jobManagerSubtaskState,
 			alternativesByPriority,
-			true);
+			!isFullyFinished,
+			isFullyFinished);
 
 		return builder.build();
 	}

@@ -58,6 +58,8 @@ public class StreamOperatorWrapper<OUT, OP extends StreamOperator<OUT>> {
 
 	private StreamOperatorWrapper<?, ?> next;
 
+	private boolean isFullyFinishedOnStartup;
+
 	private boolean closed;
 
 	StreamOperatorWrapper(
@@ -70,6 +72,14 @@ public class StreamOperatorWrapper<OUT, OP extends StreamOperator<OUT>> {
 		this.processingTimeService = checkNotNull(processingTimeService);
 		this.mailboxExecutor = checkNotNull(mailboxExecutor);
 		this.isHead = isHead;
+	}
+
+	public boolean isFullyFinishedOnStartup() {
+		return isFullyFinishedOnStartup;
+	}
+
+	public void setFullyFinishedOnStartup(boolean fullyFinishedOnStartup) {
+		isFullyFinishedOnStartup = fullyFinishedOnStartup;
 	}
 
 	/**
