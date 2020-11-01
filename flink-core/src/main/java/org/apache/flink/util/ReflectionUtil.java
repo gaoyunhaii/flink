@@ -20,6 +20,7 @@ package org.apache.flink.util;
 
 import org.apache.flink.annotation.Internal;
 
+import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.Arrays;
@@ -264,6 +265,20 @@ public final class ReflectionUtil {
 			}
 		}
 	}
+
+	public static boolean hasOverrideMethod(Class<?> targetClass, Method method) {
+		if (!method.getDeclaringClass().isAssignableFrom(targetClass)) {
+			return false;
+		}
+
+		try {
+			targetClass.getDeclaredMethod(method.getName(), method.getParameterTypes());
+			return true;
+		} catch (NoSuchMethodException e) {
+			return false;
+		}
+	}
+
 
 	/**
 	 * Private constructor to prevent instantiation.

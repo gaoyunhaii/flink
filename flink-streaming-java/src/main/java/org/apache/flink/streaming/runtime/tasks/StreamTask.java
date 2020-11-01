@@ -102,6 +102,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
 
 import static org.apache.flink.runtime.concurrent.FutureUtils.assertNoException;
+import static org.apache.flink.streaming.runtime.tasks.mailbox.TaskMailbox.MIN_PRIORITY;
 
 /**
  * Base class for all streaming tasks. A task is the unit of local processing that is deployed
@@ -216,6 +217,8 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 
 	private final RecordWriterDelegate<SerializationDelegate<StreamRecord<OUT>>> recordWriter;
 
+	protected final CheckpointLatch checkpointLatch;
+
 	protected final MailboxProcessor mailboxProcessor;
 
 	final MailboxExecutor mainMailboxExecutor;
@@ -292,6 +295,15 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 		this.mailboxProcessor = new MailboxProcessor(this::processInput, mailbox, actionExecutor);
 		this.mailboxProcessor.initMetric(environment.getMetricGroup());
 		this.mainMailboxExecutor = mailboxProcessor.getMainMailboxExecutor();
+
+		if (configuration.isCheckpointingEnabled()) {
+			this.checkpointLatch = new CheckpointLatchImpl(
+				mailboxProcessor.getMailboxExecutor(MIN_PRIORITY),
+				mailboxProcessor::isMailboxThread);
+		} else {
+			this.checkpointLatch = new EmptyCheckpointLatch();
+		}
+
 		this.asyncExceptionHandler = new StreamTaskAsyncExceptionHandler(environment);
 		this.asyncOperationsThreadPool = Executors.newCachedThreadPool(
 			new ExecutorThreadFactory("AsyncOperations", uncaughtExceptionHandler));
@@ -582,7 +594,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 		final CompletableFuture<Void> timersFinishedFuture = new CompletableFuture<>();
 
 		// close all operators in a chain effect way
-		operatorChain.closeOperators(actionExecutor);
+		operatorChain.closeOperators(actionExecutor, checkpointLatch);
 
 		// make sure no further checkpoint and notification actions happen.
 		// at the same time, this makes sure that during any "regular" exit where still
@@ -888,6 +900,9 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 
 		if (isRunning) {
 			actionExecutor.runThrowing(() -> {
+				if (!checkpointOptions.getCheckpointType().isSavepoint()) {
+					checkpointLatch.onCheckpointTriggered();
+				}
 
 				if (checkpointOptions.getCheckpointType().isSynchronous()) {
 					setSynchronousSavepointId(checkpointMetaData.getCheckpointId());
@@ -964,6 +979,9 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 
 	private void notifyCheckpointComplete(long checkpointId) throws Exception {
 		subtaskCheckpointCoordinator.notifyCheckpointComplete(checkpointId, operatorChain, this::isRunning);
+
+		checkpointLatch.onCheckpointCompleted();
+
 		if (isRunning && isSynchronousSavepointId(checkpointId)) {
 			finishTask();
 			// Reset to "notify" the internal synchronous savepoint mailbox loop.

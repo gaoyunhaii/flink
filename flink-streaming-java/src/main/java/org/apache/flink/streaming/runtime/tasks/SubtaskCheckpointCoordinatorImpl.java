@@ -475,13 +475,13 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 			OperatorChain<?, ?> operatorChain,
 			Supplier<Boolean> isCanceled) throws Exception {
 
-		for (final StreamOperatorWrapper<?, ?> operatorWrapper : operatorChain.getAllOperators(true)) {
-			if (operatorWrapper.isClosed()) {
-				env.declineCheckpoint(checkpointMetaData.getCheckpointId(),
-					new CheckpointException("Task Name" + taskName, CheckpointFailureReason.CHECKPOINT_DECLINED_TASK_CLOSING));
-				return false;
-			}
-		}
+//		for (final StreamOperatorWrapper<?, ?> operatorWrapper : operatorChain.getAllOperators(true)) {
+//			if (operatorWrapper.isClosed()) {
+//				env.declineCheckpoint(checkpointMetaData.getCheckpointId(),
+//					new CheckpointException("Task Name" + taskName, CheckpointFailureReason.CHECKPOINT_DECLINED_TASK_CLOSING));
+//				return false;
+//			}
+//		}
 
 		long checkpointId = checkpointMetaData.getCheckpointId();
 		long started = System.nanoTime();

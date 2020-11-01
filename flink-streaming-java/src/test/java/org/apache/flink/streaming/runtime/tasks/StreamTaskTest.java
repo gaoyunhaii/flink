@@ -977,7 +977,9 @@ public class StreamTaskTest extends TestLogger {
 		assertEquals(false, operator.closed.get());
 
 		// close operators directly, so that task is still fully running
-		harness.streamTask.operatorChain.closeOperators(harness.streamTask.getActionExecutor());
+		harness.streamTask.operatorChain.closeOperators(
+			harness.streamTask.getActionExecutor(),
+			new EmptyCheckpointLatch());
 		harness.streamTask.notifyCheckpointCompleteAsync(2);
 		harness.streamTask.runMailboxStep();
 		assertEquals(1, operator.notified.get());
@@ -1030,7 +1032,9 @@ public class StreamTaskTest extends TestLogger {
 		harness.setAutoProcess(false);
 		harness.processElement(new StreamRecord<>(1));
 
-		harness.streamTask.operatorChain.closeOperators(harness.streamTask.getActionExecutor());
+		harness.streamTask.operatorChain.closeOperators(
+			harness.streamTask.getActionExecutor(),
+			new EmptyCheckpointLatch());
 		assertEquals(true, operator.closed.get());
 
 		harness.streamTask.triggerCheckpointOnBarrier(new CheckpointMetaData(1, 0), CheckpointOptions.forCheckpointWithDefaultLocation(), new CheckpointMetricsBuilder());

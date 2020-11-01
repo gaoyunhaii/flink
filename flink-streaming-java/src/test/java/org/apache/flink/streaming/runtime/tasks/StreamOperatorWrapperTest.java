@@ -127,7 +127,7 @@ public class StreamOperatorWrapperTest extends TestLogger {
 	@Test
 	public void testClose() throws Exception {
 		output.clear();
-		operatorWrappers.get(0).close(containingTask.getActionExecutor());
+		operatorWrappers.get(0).close(containingTask.getActionExecutor(), new EmptyCheckpointLatch());
 
 		List<Object> expected = new ArrayList<>();
 		for (int i = 0; i < operatorWrappers.size(); i++) {
@@ -162,7 +162,7 @@ public class StreamOperatorWrapperTest extends TestLogger {
 			true);
 
 		try {
-			operatorWrapper.close(containingTask.getActionExecutor());
+			operatorWrapper.close(containingTask.getActionExecutor(), new EmptyCheckpointLatch());
 			fail("should throw an exception");
 		} catch (Throwable t) {
 			Optional<Throwable> optional = ExceptionUtils.findThrowableWithMessage(t, "test exception at closing");

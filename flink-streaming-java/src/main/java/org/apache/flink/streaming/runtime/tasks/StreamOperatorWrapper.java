@@ -18,13 +18,20 @@
 package org.apache.flink.streaming.runtime.tasks;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.runtime.state.CheckpointListener;
+import org.apache.flink.streaming.api.operators.AbstractUdfStreamOperator;
 import org.apache.flink.streaming.api.operators.BoundedMultiInput;
 import org.apache.flink.streaming.api.operators.BoundedOneInput;
 import org.apache.flink.streaming.api.operators.MailboxExecutor;
 import org.apache.flink.streaming.api.operators.StreamOperator;
+import org.apache.flink.util.ReflectionUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
 
+import java.lang.reflect.Method;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -39,11 +46,12 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  * This class handles the close, endInput and other related logic of a {@link StreamOperator}.
  * It also automatically propagates the close operation to the next wrapper that the {@link #next}
  * points to, so we can use {@link #next} to link all operator wrappers in the operator chain and
- * close all operators only by calling the {@link #close(StreamTaskActionExecutor)} method of the
+ * close all operators only by calling the {@link #close(StreamTaskActionExecutor, CheckpointLatch)} method of the
  * header operator wrapper.
  */
 @Internal
 public class StreamOperatorWrapper<OUT, OP extends StreamOperator<OUT>> {
+	private static final Logger LOG = LoggerFactory.getLogger(StreamOperatorWrapper.class);
 
 	private final OP wrapped;
 
@@ -130,19 +138,45 @@ public class StreamOperatorWrapper<OUT, OP extends StreamOperator<OUT>> {
 	 * {@link MailboxExecutor#yield()} to take the mails of closing operator and running timers and
 	 * run them.
 	 */
-	public void close(StreamTaskActionExecutor actionExecutor) throws Exception {
+	public void close(StreamTaskActionExecutor actionExecutor, CheckpointLatch checkpointLatch) throws Exception {
 		if (!isHead) {
 			// NOTE: This only do for the case where the operator is one-input operator. At present,
 			// any non-head operator on the operator chain is one-input operator.
 			actionExecutor.runThrowing(() -> endOperatorInput(1));
 		}
 
+		if (needWaitingCheckpointOnFinish()) {
+			LOG.info("{} need to wait for one checkpoint before close", getStreamOperator().getOperatorID());
+			checkpointLatch.waitForCheckpointComplete();
+		}
+
 		quiesceTimeServiceAndCloseOperator(actionExecutor);
 
 		// propagate the close operation to the next wrapper
 		if (next != null) {
-			next.close(actionExecutor);
+			next.close(actionExecutor, checkpointLatch);
 		}
+	}
+
+	@VisibleForTesting
+	boolean needWaitingCheckpointOnFinish() throws Exception {
+		Method checkpointCompleteMethod =
+			CheckpointListener.class.getMethod("notifyCheckpointComplete", long.class);
+
+		OP operator = getStreamOperator();
+		if (ReflectionUtil.hasOverrideMethod(operator.getClass(), checkpointCompleteMethod)) {
+			return true;
+		}
+
+		if (operator instanceof AbstractUdfStreamOperator) {
+			Object udf = ((AbstractUdfStreamOperator<?, ?>) operator).getUserFunction();
+
+			if (ReflectionUtil.hasOverrideMethod(udf.getClass(), checkpointCompleteMethod)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	private void quiesceTimeServiceAndCloseOperator(StreamTaskActionExecutor actionExecutor)
