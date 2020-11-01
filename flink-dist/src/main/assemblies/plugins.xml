@@ -45,12 +45,12 @@
 			<fileMode>0644</fileMode>
 		</file>
 
-		<file>
-			<source>../flink-metrics/flink-metrics-influxdb/target/flink-metrics-influxdb_${scala.binary.version}-${project.version}.jar</source>
-			<outputDirectory>plugins/metrics-influx/</outputDirectory>
-			<destName>flink-metrics-influxdb-${project.version}.jar</destName>
-			<fileMode>0644</fileMode>
-		</file>
+<!--		<file>-->
+<!--			<source>../flink-metrics/flink-metrics-influxdb/target/flink-metrics-influxdb_${scala.binary.version}-${project.version}.jar</source>-->
+<!--			<outputDirectory>plugins/metrics-influx/</outputDirectory>-->
+<!--			<destName>flink-metrics-influxdb-${project.version}.jar</destName>-->
+<!--			<fileMode>0644</fileMode>-->
+<!--		</file>-->
 
 		<file>
 			<source>../flink-metrics/flink-metrics-prometheus/target/flink-metrics-prometheus_${scala.binary.version}-${project.version}.jar</source>
