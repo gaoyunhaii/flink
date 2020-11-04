@@ -511,7 +511,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 			failureManager,
 			checkpointBriefComputer);
 
-		checkpointCoordinator.setDisableCheckpointsAfterTaskFinished(true);
+		// checkpointCoordinator.setDisableCheckpointsAfterTaskFinished(true);
 
 		// register the master hooks on the checkpoint coordinator
 		for (MasterTriggerRestoreHook<?> hook : masterHooks) {

@@ -38,7 +38,9 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.concurrent.NotThreadSafe;
 
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.concurrent.CompletableFuture;
 
 import static org.apache.flink.runtime.checkpoint.CheckpointFailureReason.CHECKPOINT_DECLINED_SUBSUMED;
@@ -72,6 +74,8 @@ public class CheckpointBarrierUnaligner extends CheckpointBarrierHandler {
 	private final SubtaskCheckpointCoordinator checkpointCoordinator;
 
 	private final CheckpointableInput[] inputs;
+
+	private final Deque<CheckpointBarrier> checkpointsAfterEndOfPartition = new ArrayDeque<>();
 
 	CheckpointBarrierUnaligner(
 			SubtaskCheckpointCoordinator checkpointCoordinator,
@@ -151,16 +155,8 @@ public class CheckpointBarrierUnaligner extends CheckpointBarrierHandler {
 	public void processEndOfPartition() throws IOException {
 		numOpenChannels--;
 
-		if (isCheckpointPending()) {
-			LOG.warn(
-				"{}: Received EndOfPartition(-1) before completing current checkpoint {}. Skipping current checkpoint.",
-				taskName,
-				currentCheckpointId);
-			resetPendingCheckpoint(currentCheckpointId);
-			notifyAbort(
-				currentCheckpointId,
-				new CheckpointException(CheckpointFailureReason.CHECKPOINT_DECLINED_INPUT_END_OF_STREAM));
-		}
+		// The checkpoint would always finished by checkpoint barrier, and we should do not need to
+		// do anything for the eof.
 	}
 
 	private void beginNewCheckpoint(CheckpointBarrier barrier) throws IOException {
