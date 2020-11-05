@@ -231,7 +231,7 @@ public class CheckpointBarrierAligner extends CheckpointBarrierHandler {
 			InputChannelInfo channelInfo,
 			long checkpointTimestamp) throws IOException {
 		markCheckpointStart(checkpointTimestamp);
-		currentCheckpointId = currentCheckpointBarrier.getId();
+		currentCheckpointId = checkpointBarrier.getId();
 		currentCheckpointBarrier = checkpointBarrier;
 		onBarrier(channelInfo);
 
@@ -358,13 +358,13 @@ public class CheckpointBarrierAligner extends CheckpointBarrierHandler {
 
 				releaseBlocksAndResetBarriers();
 				notifyCheckpoint(currentCheckpointBarrier, latestAlignmentDurationNanos);
-			} else {
-				checkState(numClosedChannels == totalNumberOfInputChannels, "Changing state");
+			}
+		} else {
+			checkState(numClosedChannels == totalNumberOfInputChannels, "Changing state");
 
-				while (!checkpointsAfterEndOfPartition.isEmpty()) {
-					CheckpointBarrier partialCheckpoint = checkpointsAfterEndOfPartition.poll();
-					notifyCheckpoint(partialCheckpoint, 0);
-				}
+			while (!checkpointsAfterEndOfPartition.isEmpty()) {
+				CheckpointBarrier partialCheckpoint = checkpointsAfterEndOfPartition.poll();
+				notifyCheckpoint(partialCheckpoint, 0);
 			}
 		}
 	}

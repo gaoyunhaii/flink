@@ -75,8 +75,6 @@ public class CheckpointBarrierUnaligner extends CheckpointBarrierHandler {
 
 	private final CheckpointableInput[] inputs;
 
-	private final Deque<CheckpointBarrier> checkpointsAfterEndOfPartition = new ArrayDeque<>();
-
 	CheckpointBarrierUnaligner(
 			SubtaskCheckpointCoordinator checkpointCoordinator,
 			String taskName,
