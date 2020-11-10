@@ -77,6 +77,7 @@ public class AlternatingController implements CheckpointBarrierBehaviourControll
 	@Override
 	public Optional<CheckpointBarrier> barrierReceived(InputChannelInfo channelInfo, CheckpointBarrier barrier) throws IOException, CheckpointException {
 		if (barrier.getCheckpointOptions().isUnalignedCheckpoint() && activeController == alignedController) {
+			barrier = barrier.asUnaligned();
 			switchToUnaligned(channelInfo, barrier);
 			activeController.barrierReceived(channelInfo, barrier);
 			return Optional.of(barrier);
@@ -89,7 +90,7 @@ public class AlternatingController implements CheckpointBarrierBehaviourControll
 
 		if (maybeTimedOut.isPresent()) {
 			if (activeController == alignedController) {
-				switchToUnaligned(channelInfo, barrier);
+				switchToUnaligned(channelInfo, maybeTimedOut.get());
 				return maybeTimedOut;
 			}
 			else {
