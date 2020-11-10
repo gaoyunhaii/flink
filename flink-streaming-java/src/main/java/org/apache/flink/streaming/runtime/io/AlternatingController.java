@@ -52,6 +52,7 @@ public class AlternatingController implements CheckpointBarrierBehaviourControll
 	@Override
 	public void preProcessFirstBarrierOrAnnouncement(CheckpointBarrier barrier) {
 		activeController = chooseController(barrier);
+		activeController.preProcessFirstBarrierOrAnnouncement(barrier);
 	}
 
 	@Override
