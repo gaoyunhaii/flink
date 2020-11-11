@@ -23,6 +23,7 @@ import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.channel.InputChannelInfo;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
 import org.apache.flink.runtime.io.network.partition.consumer.CheckpointableInput;
+import org.apache.flink.util.Preconditions;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -92,6 +93,7 @@ public class AlignedController implements CheckpointBarrierBehaviourController {
 	public Optional<CheckpointBarrier> preProcessFirstBarrier(
 			InputChannelInfo channelInfo,
 			CheckpointBarrier barrier) {
+		Preconditions.checkArgument(!barrier.getCheckpointOptions().isUnalignedCheckpoint(), "Unaligned barrier is not expected");
 		return Optional.empty();
 	}
 
@@ -99,6 +101,7 @@ public class AlignedController implements CheckpointBarrierBehaviourController {
 	public Optional<CheckpointBarrier> postProcessLastBarrier(
 			InputChannelInfo channelInfo,
 			CheckpointBarrier barrier) throws IOException {
+		Preconditions.checkState(!barrier.getCheckpointOptions().isUnalignedCheckpoint());
 		resumeConsumption();
 		return Optional.of(barrier);
 	}
