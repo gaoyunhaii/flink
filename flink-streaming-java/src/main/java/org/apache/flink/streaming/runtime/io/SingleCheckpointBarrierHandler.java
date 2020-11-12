@@ -196,7 +196,7 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
 		long barrierId = barrier.getId();
 		if (currentCheckpointId < barrierId) {
 			if (isCheckpointPending()) {
-				cancelSubsumedCheckpoint(barrierId);
+				cancelSubsumedCheckpoint(currentCheckpointId);
 			}
 			currentCheckpointId = barrierId;
 			numBarriersReceived = 0;
