@@ -173,6 +173,7 @@ public class DeserializationSchemaAdapter implements BulkFormat<RowData, FileSou
 		@Nullable
 		@Override
 		public RecordIterator<RowData> readBatch() throws IOException {
+			// ArrayResultIterator<RowData> iterator = new ArrayResultIterator<>();
 			Object[] records = new Object[DEFAULT_SIZE];
 			int num = 0;
 			final long skipCount = numRead;
