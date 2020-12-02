@@ -220,7 +220,7 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
 		// by setting the currentCheckpointId to this checkpoint while keeping the numBarriers
 		// at zero means that no checkpoint barrier can start a new alignment
 		currentCheckpointId = Math.max(cancelledId, currentCheckpointId);
-		lastCancelledOrCompletedCheckpointId = cancelledId;
+		lastCancelledOrCompletedCheckpointId = Math.max(lastCancelledOrCompletedCheckpointId, cancelledId);
 		numBarriersReceived = 0;
 		controller.abortPendingCheckpoint(cancelledId, exception);
 		allBarriersReceivedFuture.completeExceptionally(exception);
