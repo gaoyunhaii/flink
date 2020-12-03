@@ -114,6 +114,7 @@ public class AlternatingController implements CheckpointBarrierBehaviourControll
 			lastSeenBarrier = barrier.getId();
 			firstBarrierArrivalTime = getArrivalTime(barrier);
 		}
+		activeController = chooseController(barrier);
 		return activeController.preProcessFirstBarrier(channelInfo, barrier);
 	}
 
