@@ -569,12 +569,21 @@ public class RemoteInputChannel extends InputChannel {
 				"Attempted to convertToPriorityEvent an event [%s] that has already been prioritized [%s]",
 				toPrioritize,
 				numPriorityElementsBeforeRemoval);
+			// set the priority flag (checked on poll)
+			// don't convert the barrier itself (barrier controller might not have been switched yet)
+			AbstractEvent e = EventSerializer.fromBuffer(toPrioritize.buffer, this.getClass().getClassLoader());
+			toPrioritize.buffer.setReaderIndex(0);
+			toPrioritize = new SequenceBuffer(EventSerializer.toBuffer(e, true), toPrioritize.sequenceNumber);
 			firstPriorityEvent = addPriorityBuffer(toPrioritize); 	// note that only position of the element is changed
 																	// converting the event itself would require switching the controller sooner
 		}
 		if (firstPriorityEvent) {
-			notifyPriorityEvent(sequenceNumber);
+			notifyPriorityEventForce(); // use force here because the barrier SQN might be seen by gate during the announcement
 		}
+	}
+
+	private void notifyPriorityEventForce() {
+		inputGate.notifyPriorityEventForce(this);
 	}
 
 	/**
