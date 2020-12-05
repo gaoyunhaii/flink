@@ -611,6 +611,8 @@ function get_job_metric {
   local json=$(curl ${CURL_SSL_ARGS} -s ${REST_PROTOCOL}://${NODENAME}:8081/jobs/${job_id}/metrics?get=${metric_name})
   local metric_value=$(echo ${json} | sed -n 's/.*"value":"\(.*\)".*/\1/p')
 
+  echo "Get job metric $job_id $metric_name get $metric_value" > /tmp/metric_log
+
   echo ${metric_value}
 }
 
@@ -751,6 +753,8 @@ function wait_for_restart_to_complete {
         echo "Still waiting for restarts. Expected: $expected_num_restarts Current: $current_num_restarts"
         sleep 5
         current_num_restarts=$(get_job_metric ${jobid} "fullRestarts")
+
+        cat /tmp/metric_log
         if [[ -z ${current_num_restarts} ]]; then
             current_num_restarts=${base_num_restarts}
         fi
