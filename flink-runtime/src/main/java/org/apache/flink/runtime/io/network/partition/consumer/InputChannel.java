@@ -186,6 +186,9 @@ public abstract class InputChannel {
 	public void convertToPriorityEvent(int sequenceNumber) throws IOException {
 	}
 
+	public void insertBarrierBeforeEndOfPartition(CheckpointBarrier barrier) throws IOException {
+	}
+
 	// ------------------------------------------------------------------------
 	// Task events
 	// ------------------------------------------------------------------------
@@ -353,6 +356,25 @@ public abstract class InputChannel {
 				", buffersInBacklog=" + buffersInBacklog +
 				", sequenceNumber=" + sequenceNumber +
 				'}';
+		}
+	}
+
+	static final class SequenceBuffer {
+		final Buffer buffer;
+		final int sequenceNumber;
+
+		SequenceBuffer(Buffer buffer, int sequenceNumber) {
+			this.buffer = buffer;
+			this.sequenceNumber = sequenceNumber;
+		}
+
+		@Override
+		public String toString() {
+			return String.format(
+				"SequenceBuffer(isEvent = %s, dataType = %s, sequenceNumber = %s)",
+				!buffer.isBuffer(),
+				buffer.getDataType(),
+				sequenceNumber);
 		}
 	}
 

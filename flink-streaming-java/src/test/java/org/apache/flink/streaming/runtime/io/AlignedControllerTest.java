@@ -137,7 +137,8 @@ public class AlignedControllerTest {
 					@Override
 					protected void resetPendingCheckpoint(long cancelledId) {
 					}
-				}),
+				},
+				new FinalBarrierComplementProcessor(gate)),
 			new SyncMailboxExecutor());
 	}
 

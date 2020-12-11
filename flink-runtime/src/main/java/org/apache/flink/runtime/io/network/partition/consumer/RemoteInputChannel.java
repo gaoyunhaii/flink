@@ -30,7 +30,9 @@ import org.apache.flink.runtime.io.network.ConnectionID;
 import org.apache.flink.runtime.io.network.ConnectionManager;
 import org.apache.flink.runtime.io.network.PartitionRequestClient;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
+import org.apache.flink.runtime.io.network.api.EndOfPartitionEvent;
 import org.apache.flink.runtime.io.network.api.EventAnnouncement;
+import org.apache.flink.runtime.io.network.api.FinalizeBarrier;
 import org.apache.flink.runtime.io.network.api.serialization.EventSerializer;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.buffer.Buffer.DataType;
@@ -108,6 +110,8 @@ public class RemoteInputChannel extends InputChannel {
 	private long lastBarrierId = NONE;
 
 	private final ChannelStatePersister channelStatePersister;
+
+	private boolean receivedEndOfPartition;
 
 	public RemoteInputChannel(
 		SingleInputGate inputGate,
@@ -327,12 +331,16 @@ public class RemoteInputChannel extends InputChannel {
 
 	@Override
 	public void resumeConsumption() throws IOException {
-		checkState(!isReleased.get(), "Channel released.");
-		checkPartitionRequestQueueInitialized();
+		// There are cases that this channel has received EndOfPartition, but the remaining channel
+		// finished another checkpoint
+		if (!receivedEndOfPartition) {
+			checkState(!isReleased.get(), "Channel released.");
+			checkPartitionRequestQueueInitialized();
 
-		// notifies the producer that this channel is ready to
-		// unblock from checkpoint and resume data consumption
-		partitionRequestClient.resumeConsumption(this);
+			// notifies the producer that this channel is ready to
+			// unblock from checkpoint and resume data consumption
+			partitionRequestClient.resumeConsumption(this);
+		}
 	}
 
 	// ------------------------------------------------------------------------
@@ -433,7 +441,7 @@ public class RemoteInputChannel extends InputChannel {
 			}
 
 			final boolean wasEmpty;
-			boolean firstPriorityEvent = false;
+			final boolean firstPriorityEvent;
 			synchronized (receivedBuffers) {
 				// Similar to notifyBufferAvailable(), make sure that we never add a buffer
 				// after releaseAllResources() released all buffers from receivedBuffers
@@ -445,23 +453,7 @@ public class RemoteInputChannel extends InputChannel {
 				wasEmpty = receivedBuffers.isEmpty();
 
 				SequenceBuffer sequenceBuffer = new SequenceBuffer(buffer, sequenceNumber);
-				DataType dataType = buffer.getDataType();
-				if (dataType.hasPriority()) {
-					firstPriorityEvent = addPriorityBuffer(sequenceBuffer);
-				}
-				else {
-					receivedBuffers.add(sequenceBuffer);
-					if (dataType.requiresAnnouncement()) {
-						firstPriorityEvent = addPriorityBuffer(announce(sequenceBuffer));
-					}
-				}
-				channelStatePersister.checkForBarrier(sequenceBuffer.buffer).ifPresent(id -> {
-					// checkpoint was not yet started by task thread,
-					// so remember the numbers of buffers to spill for the time when it will be started
-					lastBarrierSequenceNumber = sequenceBuffer.sequenceNumber;
-					lastBarrierId = id;
-				});
-				channelStatePersister.maybePersist(buffer);
+				firstPriorityEvent = addBuffer(sequenceBuffer);
 				++expectedSequenceNumber;
 			}
 			recycleBuffer = false;
@@ -469,7 +461,18 @@ public class RemoteInputChannel extends InputChannel {
 			if (firstPriorityEvent) {
 				notifyPriorityEvent(sequenceNumber);
 			}
-			if (wasEmpty) {
+
+			// In considering of the case of inserting two buffers at one call, we must avoid
+			// repeat notification (this would be ok for one buffer case due to the deduplication):
+			//   1. Netty thread add two buffers, and found firstPriorityEvent && wasEmpty
+			//   2. NotifyPriorityEvent and add the channel
+			//   3. The main thread reads one buffer, found more available and re-enqueue the channel
+			//   4. The main thread reads the next buffer
+			//   5. NotifyChannelNonEmpty re-adds the input channel to the queue
+			// For announcing barriers, it would be ok since the last notification only trigger another empty
+			// read. But for EndOfPartition, the step 4 would release the input channel, and the step 5 would
+			// then cause CancelTaskException.
+			else if (wasEmpty) {
 				notifyChannelNonEmpty();
 			}
 
@@ -481,6 +484,58 @@ public class RemoteInputChannel extends InputChannel {
 				buffer.recycleBuffer();
 			}
 		}
+	}
+
+	private boolean addBuffer(SequenceBuffer sequenceBuffer) throws IOException {
+		assert Thread.holdsLock(receivedBuffers);
+
+		boolean firstPriorityEvent = false;
+		DataType dataType = sequenceBuffer.buffer.getDataType();
+
+		if (dataType.hasPriority()) {
+			firstPriorityEvent = addPriorityBuffer(sequenceBuffer);
+		}
+		else if (isEndOfPartitionEvent(sequenceBuffer)) {
+			firstPriorityEvent = addPriorityBuffer(new SequenceBuffer(
+				createFinalizeBarrierEvent(),
+				sequenceBuffer.sequenceNumber));
+
+			receivedEndOfPartition = true;
+			receivedBuffers.add(increaseSequenceNumber(sequenceBuffer));
+			expectedSequenceNumber++;
+		}
+		else {
+			receivedBuffers.add(sequenceBuffer);
+
+			if (dataType.requiresAnnouncement()) {
+				firstPriorityEvent = addPriorityBuffer(announce(sequenceBuffer));
+			}
+		}
+		channelStatePersister.checkForBarrier(sequenceBuffer.buffer).ifPresent(id -> {
+			// checkpoint was not yet started by task thread,
+			// so remember the numbers of buffers to spill for the time when it will be started
+			lastBarrierSequenceNumber = sequenceBuffer.sequenceNumber;
+			lastBarrierId = id;
+		});
+		channelStatePersister.maybePersist(sequenceBuffer.buffer);
+
+		return firstPriorityEvent;
+	}
+
+	private boolean isEndOfPartitionEvent(SequenceBuffer sequenceBuffer) throws IOException {
+		return sequenceBuffer.buffer.getDataType().isEvent() &&
+				EventSerializer.fromBuffer(sequenceBuffer.buffer, getClass().getClassLoader())
+						instanceof EndOfPartitionEvent;
+	}
+
+	private Buffer createFinalizeBarrierEvent() throws IOException {
+		return EventSerializer.toBuffer(
+				new FinalizeBarrier(lastBarrierId + 1),
+				true);
+	}
+
+	private SequenceBuffer increaseSequenceNumber(SequenceBuffer sequenceBuffer) {
+		return new SequenceBuffer(sequenceBuffer.buffer, sequenceBuffer.sequenceNumber + 1);
 	}
 
 	/**
@@ -579,6 +634,32 @@ public class RemoteInputChannel extends InputChannel {
 		}
 		if (firstPriorityEvent) {
 			notifyPriorityEventForce(); // use force here because the barrier SQN might be seen by gate during the announcement
+		}
+	}
+
+	@Override
+	public void insertBarrierBeforeEndOfPartition(CheckpointBarrier barrier) throws IOException {
+		final boolean firstPriorityEvent;
+		final int sequenceNumber;
+
+		synchronized (receivedBuffers) {
+			SequenceBuffer endOfPartitionBuffer = receivedBuffers.removeLast();
+			checkState(!endOfPartitionBuffer.buffer.isBuffer());
+
+			AbstractEvent e = EventSerializer.fromBuffer(endOfPartitionBuffer.buffer, this.getClass().getClassLoader());
+			checkState(e instanceof EndOfPartitionEvent);
+
+			Buffer barrierEventBuffer = EventSerializer.toBuffer(barrier, barrier.getCheckpointOptions().isUnalignedCheckpoint());
+			SequenceBuffer sequenceBuffer = new SequenceBuffer(barrierEventBuffer, endOfPartitionBuffer.sequenceNumber);
+			firstPriorityEvent = addBuffer(sequenceBuffer);
+			sequenceNumber = sequenceBuffer.sequenceNumber;
+
+			receivedBuffers.add(increaseSequenceNumber(endOfPartitionBuffer));
+			expectedSequenceNumber++;
+		}
+
+		if (firstPriorityEvent) {
+			notifyPriorityEvent(sequenceNumber);
 		}
 	}
 
@@ -695,25 +776,6 @@ public class RemoteInputChannel extends InputChannel {
 		public String getMessage() {
 			return String.format("Buffer re-ordering: expected buffer with sequence number %d, but received %d.",
 				expectedSequenceNumber, actualSequenceNumber);
-		}
-	}
-
-	private static final class SequenceBuffer {
-		final Buffer buffer;
-		final int sequenceNumber;
-
-		private SequenceBuffer(Buffer buffer, int sequenceNumber) {
-			this.buffer = buffer;
-			this.sequenceNumber = sequenceNumber;
-		}
-
-		@Override
-		public String toString() {
-			return String.format(
-				"SequenceBuffer(isEvent = %s, dataType = %s, sequenceNumber = %s)",
-				!buffer.isBuffer(),
-				buffer.getDataType(),
-				sequenceNumber);
 		}
 	}
 }

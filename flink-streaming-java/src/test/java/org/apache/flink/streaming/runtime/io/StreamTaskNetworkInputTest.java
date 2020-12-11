@@ -34,6 +34,8 @@ import org.apache.flink.runtime.io.network.buffer.BufferBuilder;
 import org.apache.flink.runtime.io.network.buffer.BufferBuilderTestUtils;
 import org.apache.flink.runtime.io.network.buffer.BufferConsumer;
 import org.apache.flink.runtime.io.network.partition.consumer.BufferOrEvent;
+import org.apache.flink.runtime.io.network.partition.consumer.IndexedInputGate;
+import org.apache.flink.runtime.io.network.partition.consumer.InputGate;
 import org.apache.flink.runtime.io.network.partition.consumer.StreamTestSingleInputGate;
 import org.apache.flink.runtime.operators.testutils.DummyCheckpointInvokable;
 import org.apache.flink.runtime.plugable.DeserializationDelegate;
@@ -181,7 +183,10 @@ public class StreamTaskNetworkInputTest {
 		StreamTaskNetworkInput input = new StreamTaskNetworkInput<>(
 			new CheckpointedInputGate(
 				inputGate.getInputGate(),
-				new CheckpointBarrierTracker(1, new DummyCheckpointInvokable()),
+				new CheckpointBarrierTracker(
+					1,
+					new DummyCheckpointInvokable(),
+					new FinalBarrierComplementProcessor(inputGate.getInputGate())),
 				new SyncMailboxExecutor()),
 			inSerializer,
 			new StatusWatermarkValve(1),
@@ -207,10 +212,14 @@ public class StreamTaskNetworkInputTest {
 	}
 
 	private StreamTaskNetworkInput createStreamTaskNetworkInput(List<BufferOrEvent> buffers) {
+		IndexedInputGate inputGate = new MockInputGate(1, buffers, false);
 		return new StreamTaskNetworkInput<>(
 			new CheckpointedInputGate(
-				new MockInputGate(1, buffers, false),
-				new CheckpointBarrierTracker(1, new DummyCheckpointInvokable()),
+				inputGate,
+				new CheckpointBarrierTracker(
+					1,
+					new DummyCheckpointInvokable(),
+					new FinalBarrierComplementProcessor(inputGate)),
 				new SyncMailboxExecutor()),
 			LongSerializer.INSTANCE,
 			ioManager,

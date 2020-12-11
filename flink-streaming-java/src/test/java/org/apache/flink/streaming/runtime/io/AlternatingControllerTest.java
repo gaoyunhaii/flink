@@ -590,7 +590,8 @@ public class AlternatingControllerTest {
 			inputGate.getNumberOfInputChannels(),
 			new AlternatingController(
 				new AlignedController(inputGate),
-				new UnalignedController(new TestSubtaskCheckpointCoordinator(stateWriter), inputGate)));
+				new UnalignedController(new TestSubtaskCheckpointCoordinator(stateWriter), inputGate)),
+			new FinalBarrierComplementProcessor(inputGate));
 	}
 
 	private static CheckpointedInputGate buildGate(AbstractInvokable target, int numChannels) {

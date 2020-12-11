@@ -31,6 +31,8 @@ import org.apache.flink.runtime.io.network.PartitionRequestClient;
 import org.apache.flink.runtime.io.network.TestingConnectionManager;
 import org.apache.flink.runtime.io.network.TestingPartitionRequestClient;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
+import org.apache.flink.runtime.io.network.api.EndOfPartitionEvent;
+import org.apache.flink.runtime.io.network.api.serialization.EventSerializer;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.buffer.Buffer.DataType;
 import org.apache.flink.runtime.io.network.buffer.BufferListener.NotificationResult;
@@ -44,6 +46,7 @@ import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
 import org.apache.flink.runtime.io.network.partition.consumer.InputChannel.BufferAndAvailability;
 import org.apache.flink.runtime.io.network.util.TestBufferFactory;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
+import org.apache.flink.runtime.state.CheckpointStorageLocationReference;
 import org.apache.flink.runtime.taskexecutor.PartitionProducerStateChecker;
 import org.apache.flink.runtime.taskmanager.Task;
 import org.apache.flink.runtime.taskmanager.TestTaskBuilder;
@@ -1443,6 +1446,49 @@ public class RemoteInputChannelTest {
 			assertAvailability(inputGate, true, true, () -> {
 				channel.onBuffer(toBuffer(new CheckpointBarrier(2L, 123L, options), true), 1, 0);
 			}));
+	}
+
+	@Test
+	public void testInsertBarrierBeforeEndOfPartition() throws IOException, InterruptedException {
+		NetworkBufferPool networkBufferPool = new NetworkBufferPool(16, 32);
+		BufferPool bufferPool = networkBufferPool.createBufferPool(2, 16);
+		final SingleInputGate inputGate = new SingleInputGateBuilder()
+				.setSegmentProvider(networkBufferPool)
+				.setBufferPoolFactory(bufferPool)
+				.setNumberOfChannels(1)
+				.build();
+		final RemoteInputChannel inputChannel = createRemoteInputChannel(inputGate);
+		inputGate.setInputChannels(inputChannel);
+		inputGate.setup();
+		inputChannel.requestSubpartition(0);
+
+		inputChannel.setExpectedSequenceNumber(50);
+
+		// Let's first insert some normal buffers
+		for (int i = 0; i < 4; ++i) {
+			Buffer buffer = inputChannel.requestBuffer();
+			System.out.println("get buffer: " + buffer);
+			inputChannel.onBuffer(buffer, 50 + i, 0);
+		}
+
+		inputChannel.onBuffer(EventSerializer.toBuffer(EndOfPartitionEvent.INSTANCE, false), 54, 0);
+
+		CheckpointBarrier barrier = new CheckpointBarrier(
+				9,
+				1L,
+				// CheckpointOptions.alignedNoTimeout(CHECKPOINT, CheckpointStorageLocationReference.getDefault()));
+				// CheckpointOptions.unaligned(CheckpointStorageLocationReference.getDefault()));
+				CheckpointOptions.alignedWithTimeout(CheckpointStorageLocationReference.getDefault(), 100));
+		inputChannel.insertBarrierBeforeEndOfPartition(barrier);
+
+		while (!inputGate.isFinished()) {
+			Optional<BufferOrEvent> next = inputGate.getNext();
+			if (next.isPresent()) {
+				System.out.println("get next: " + (next.get().isBuffer() ? " buffer " + next.get() : next.get().getEvent()));
+			} else {
+				System.out.println("get None");
+			}
+		}
 	}
 
 	/**

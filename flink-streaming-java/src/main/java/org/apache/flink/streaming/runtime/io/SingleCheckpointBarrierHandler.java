@@ -28,6 +28,7 @@ import org.apache.flink.runtime.checkpoint.channel.InputChannelInfo;
 import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.io.network.api.CancelCheckpointMarker;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
+import org.apache.flink.runtime.io.network.api.FinalizeBarrier;
 import org.apache.flink.runtime.io.network.partition.consumer.CheckpointableInput;
 import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
 import org.apache.flink.streaming.runtime.tasks.SubtaskCheckpointCoordinator;
@@ -62,7 +63,17 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
 
 	private final CheckpointBarrierBehaviourController controller;
 
+	private final FinalBarrierComplementProcessor finalBarrierComplementProcessor;
+
 	private int numBarriersReceived;
+
+	// If during one checkpoint, we have received 8 barriers and 10 channels are open.
+	//  1. we received the barrier from channel 9, number barriers received = 9, open = 10
+	//  2. we received eof from channel 9, num barriers received = 9, open = 9, but not aligned yet
+	//  3. we received barrier from channel 10, num berriers received = 10, open = 9. Now is aligned, but the current condition is wrong since 
+	//     now num barrier received != num open
+	// Thus we need to bookkeep the target num channel on startup.
+	private int targetNumChannels;
 
 	/**
 	 * The checkpoint id to guarantee that we would trigger only one checkpoint when reading the same barrier from
@@ -86,19 +97,22 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
 			taskName,
 			toNotifyOnCheckpoint,
 			(int) Arrays.stream(inputs).flatMap(gate -> gate.getChannelInfos().stream()).count(),
-			new UnalignedController(checkpointCoordinator, inputs));
+			new UnalignedController(checkpointCoordinator, inputs),
+			new FinalBarrierComplementProcessor(inputs));
 	}
 
 	SingleCheckpointBarrierHandler(
 			String taskName,
 			AbstractInvokable toNotifyOnCheckpoint,
 			int numOpenChannels,
-			CheckpointBarrierBehaviourController controller) {
+			CheckpointBarrierBehaviourController controller,
+			FinalBarrierComplementProcessor finalBarrierComplementProcessor) {
 		super(toNotifyOnCheckpoint);
 
 		this.taskName = taskName;
 		this.numOpenChannels = numOpenChannels;
 		this.controller = controller;
+		this.finalBarrierComplementProcessor = finalBarrierComplementProcessor;
 	}
 
 	@Override
@@ -114,10 +128,12 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
 		checkSubsumedCheckpoint(channelInfo, barrier);
 
 		if (numBarriersReceived == 0) {
-			if (getNumOpenChannels() == 1) {
+			targetNumChannels = numOpenChannels;
+			if (targetNumChannels == 1) {
 				markAlignmentStartAndEnd(barrier.getTimestamp());
 			} else {
 				markAlignmentStart(barrier.getTimestamp());
+				finalBarrierComplementProcessor.onCheckpointAlignmentStart(barrier);
 			}
 			allBarriersReceivedFuture = new CompletableFuture<>();
 
@@ -131,9 +147,10 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
 		}
 
 		if (currentCheckpointId == barrierId) {
-			if (++numBarriersReceived == numOpenChannels) {
-				if (getNumOpenChannels() > 1) {
+			if (++numBarriersReceived == targetNumChannels) {
+				if (targetNumChannels > 1) {
 					markAlignmentEnd();
+					finalBarrierComplementProcessor.onCheckpointAlignmentStop(barrier.getId());
 				}
 				numBarriersReceived = 0;
 				lastCancelledOrCompletedCheckpointId = currentCheckpointId;
@@ -141,6 +158,11 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
 				allBarriersReceivedFuture.complete(null);
 			}
 		}
+	}
+
+	@Override
+	public void processFinalizeBarrier(FinalizeBarrier finalizeBarrier, InputChannelInfo channelInfo) throws IOException {
+		finalBarrierComplementProcessor.processFinalBarrier(finalizeBarrier, channelInfo);
 	}
 
 	private boolean handleBarrier(
@@ -227,11 +249,13 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
 		controller.abortPendingCheckpoint(cancelledId, exception);
 		allBarriersReceivedFuture.completeExceptionally(exception);
 		notifyAbort(cancelledId, exception);
+		finalBarrierComplementProcessor.onCheckpointAlignmentStop(cancelledId);
 	}
 
 	@Override
-	public void processEndOfPartition() throws IOException {
+	public void processEndOfPartition(InputChannelInfo inputChannelInfo) throws IOException {
 		numOpenChannels--;
+		finalBarrierComplementProcessor.onEndOfPartition(inputChannelInfo);
 
 		if (isCheckpointPending()) {
 			LOG.warn(
@@ -254,8 +278,19 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
 	}
 
 	@Override
-	public boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) {
-		throw new UnsupportedOperationException("not supported yet");
+	public boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) throws IOException {
+		if (numOpenChannels == 0) {
+			markAlignmentStartAndEnd(checkpointMetaData.getTimestamp());
+			lastCancelledOrCompletedCheckpointId = currentCheckpointId;
+			notifyCheckpoint(new CheckpointBarrier(
+				checkpointMetaData.getCheckpointId(),
+				checkpointMetaData.getTimestamp(),
+				checkpointOptions));
+		} else {
+			finalBarrierComplementProcessor.onTriggeringCheckpoint(checkpointMetaData, checkpointOptions);
+		}
+
+		return true;
 	}
 
 	@Override

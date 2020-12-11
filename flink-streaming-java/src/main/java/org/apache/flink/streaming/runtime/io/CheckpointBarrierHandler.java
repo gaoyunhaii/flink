@@ -27,6 +27,7 @@ import org.apache.flink.runtime.checkpoint.channel.InputChannelInfo;
 import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.io.network.api.CancelCheckpointMarker;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
+import org.apache.flink.runtime.io.network.api.FinalizeBarrier;
 import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
 
 import java.io.Closeable;
@@ -73,9 +74,11 @@ public abstract class CheckpointBarrierHandler implements Closeable {
 	public void close() throws IOException {
 	}
 
-	public abstract boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions);
+	public abstract boolean triggerCheckpoint(CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions) throws IOException;
 
 	public abstract void processBarrier(CheckpointBarrier receivedBarrier, InputChannelInfo channelInfo) throws IOException;
+
+	public abstract void processFinalizeBarrier(FinalizeBarrier finalizeBarrier, InputChannelInfo channelInfo) throws IOException;
 
 	public abstract void processBarrierAnnouncement(
 			CheckpointBarrier announcedBarrier,
@@ -84,7 +87,7 @@ public abstract class CheckpointBarrierHandler implements Closeable {
 
 	public abstract void processCancellationBarrier(CancelCheckpointMarker cancelBarrier) throws IOException;
 
-	public abstract void processEndOfPartition() throws IOException;
+	public abstract void processEndOfPartition(InputChannelInfo inputChannelInfo) throws IOException;
 
 	public abstract long getLatestCheckpointId();
 

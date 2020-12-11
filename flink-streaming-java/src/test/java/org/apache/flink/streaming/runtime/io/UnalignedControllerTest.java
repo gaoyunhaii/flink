@@ -594,7 +594,7 @@ public class UnalignedControllerTest {
 		assertEquals(numberOfChannels, handler.getNumOpenChannels());
 
 		// should abort current checkpoint while processing eof
-		handler.processEndOfPartition();
+		handler.processEndOfPartition(new InputChannelInfo(0, 0));
 
 		assertFalse(handler.isCheckpointPending());
 		assertEquals(DEFAULT_CHECKPOINT_ID, handler.getLatestCheckpointId());

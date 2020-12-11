@@ -85,11 +85,14 @@ public class CheckpointedInputGateTest {
 			.setNumberOfChannels(numberOfChannels)
 			.build();
 		singleInputGate.setup();
-		CheckpointBarrierTracker barrierHandler = new CheckpointBarrierTracker(numberOfChannels, new AbstractInvokable(new DummyEnvironment()) {
-			@Override
-			public void invoke() {
-			}
-		});
+		CheckpointBarrierTracker barrierHandler = new CheckpointBarrierTracker(
+			numberOfChannels,
+			new AbstractInvokable(new DummyEnvironment()) {
+				@Override
+				public void invoke() {
+				}
+			},
+			new FinalBarrierComplementProcessor(singleInputGate));
 		MailboxExecutorImpl mailboxExecutor = new MailboxExecutorImpl(new TaskMailboxImpl(), 0, StreamTaskActionExecutor.IMMEDIATE);
 
 		CheckpointedInputGate checkpointedInputGate = new CheckpointedInputGate(

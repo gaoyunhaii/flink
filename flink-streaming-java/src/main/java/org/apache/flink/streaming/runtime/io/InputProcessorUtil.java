@@ -94,14 +94,18 @@ public class InputProcessorUtil {
 						taskName,
 						toNotifyOnCheckpoint,
 						numberOfChannels,
-						controller);
+						controller,
+						new FinalBarrierComplementProcessor(inputs));
 			case AT_LEAST_ONCE:
 				if (config.isUnalignedCheckpointsEnabled()) {
 					throw new IllegalStateException("Cannot use unaligned checkpoints with AT_LEAST_ONCE " +
 						"checkpointing mode");
 				}
 				int numInputChannels = Arrays.stream(inputs).mapToInt(CheckpointableInput::getNumberOfInputChannels).sum();
-				return new CheckpointBarrierTracker(numInputChannels, toNotifyOnCheckpoint);
+				return new CheckpointBarrierTracker(
+					numInputChannels,
+					toNotifyOnCheckpoint,
+					new FinalBarrierComplementProcessor(inputs));
 			default:
 				throw new UnsupportedOperationException("Unrecognized Checkpointing Mode: " + config.getCheckpointMode());
 		}

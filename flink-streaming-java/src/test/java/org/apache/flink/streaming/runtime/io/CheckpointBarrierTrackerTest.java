@@ -496,7 +496,10 @@ public class CheckpointBarrierTrackerTest {
 			@Nullable AbstractInvokable toNotifyOnCheckpoint) {
 		return new CheckpointedInputGate(
 			inputGate,
-			new CheckpointBarrierTracker(inputGate.getNumberOfInputChannels(), toNotifyOnCheckpoint),
+			new CheckpointBarrierTracker(
+				inputGate.getNumberOfInputChannels(),
+				toNotifyOnCheckpoint,
+				new FinalBarrierComplementProcessor(inputGate)),
 			new SyncMailboxExecutor());
 	}
 

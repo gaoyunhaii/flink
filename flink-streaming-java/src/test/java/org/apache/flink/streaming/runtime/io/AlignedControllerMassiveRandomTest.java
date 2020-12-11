@@ -75,7 +75,7 @@ public class AlignedControllerMassiveRandomTest {
 							@Override
 							protected void resetPendingCheckpoint(long cancelledId) {
 							}
-					}),
+					}, new FinalBarrierComplementProcessor(myIG)),
 					new SyncMailboxExecutor());
 
 			for (int i = 0; i < 2000000; i++) {

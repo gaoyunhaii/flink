@@ -163,6 +163,10 @@ public final class PrioritizedDeque<T> implements Iterable<T> {
 		throw new NoSuchElementException();
 	}
 
+	public T removeLast() {
+		return deque.removeLast();
+	}
+
 	/**
 	 * Polls the first priority element or non-priority element if the former does not exist.
 	 *
