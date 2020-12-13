@@ -39,7 +39,7 @@ import org.apache.flink.runtime.io.network.util.TestBufferFactory;
 import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
 import org.apache.flink.runtime.operators.testutils.DummyEnvironment;
 import org.apache.flink.streaming.api.operators.SyncMailboxExecutor;
-import org.apache.flink.streaming.runtime.tasks.StreamTask;
+import org.apache.flink.streaming.runtime.tasks.AbstractSourceStreamTask;
 import org.apache.flink.streaming.runtime.tasks.TestSubtaskCheckpointCoordinator;
 import org.apache.flink.streaming.runtime.tasks.mailbox.MailboxDefaultAction;
 
@@ -757,7 +757,7 @@ public class UnalignedControllerTest {
 	 * Specific {@link AbstractInvokable} implementation to record and validate which checkpoint
 	 * id is executed and how many checkpoints are executed.
 	 */
-	private static final class ValidatingCheckpointInvokable extends StreamTask {
+	private static final class ValidatingCheckpointInvokable extends AbstractSourceStreamTask {
 
 		private long expectedCheckpointId;
 
