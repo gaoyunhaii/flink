@@ -251,14 +251,6 @@ public class CheckpointBarrierTracker extends CheckpointBarrierHandler {
 	public void processEndOfPartition(InputChannelInfo inputChannelInfo) throws IOException {
 		numOpenChannels--;
 		finalBarrierComplementProcessor.onEndOfPartition(inputChannelInfo);
-
-		while (!pendingCheckpoints.isEmpty()) {
-			CheckpointBarrierCount barrierCount = pendingCheckpoints.removeFirst();
-			if (barrierCount.markAborted()) {
-				notifyAbort(barrierCount.checkpointId(),
-					new CheckpointException(CheckpointFailureReason.CHECKPOINT_DECLINED_INPUT_END_OF_STREAM));
-			}
-		}
 	}
 
 	public long getLatestCheckpointId() {

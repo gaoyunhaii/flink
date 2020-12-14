@@ -73,7 +73,6 @@ public class CheckpointAfterTaskFinishTest {
 	private static final int SLOW_SOURCE_RECORDS = 8;
 	private static final int FAILOVER_RECORDS = 4;
 
-	@Ignore
 	@Test(timeout = 60000)
 	public void testCheckpointsAfterTasksFinished() throws Exception {
 		final File checkpointDir = TEMPORARY_FOLDER.newFolder();
@@ -111,7 +110,6 @@ public class CheckpointAfterTaskFinishTest {
 		checkResult(resultId);
 	}
 
-	@Ignore
 	@Test(timeout = 60000)
 	public void testCheckpointsAfterTasksFinishedWithFailover() throws Exception {
 		final File checkpointDir = TEMPORARY_FOLDER.newFolder();

@@ -203,9 +203,6 @@ public class CheckpointCoordinator {
 
 	private final CheckpointBriefComputer checkpointBriefComputer;
 
-	// We temporarily disable the checkpoints after tasks finished
-	private boolean disableCheckpointsAfterTaskFinished;
-
 	// --------------------------------------------------------------------------------------------
 
 	public CheckpointCoordinator(
@@ -325,10 +322,6 @@ public class CheckpointCoordinator {
 	// --------------------------------------------------------------------------------------------
 	//  Configuration
 	// --------------------------------------------------------------------------------------------
-
-	public void setDisableCheckpointsAfterTaskFinished(boolean disableCheckpointsAfterTaskFinished) {
-		this.disableCheckpointsAfterTaskFinished = disableCheckpointsAfterTaskFinished;
-	}
 
 	/**
 	 * Adds the given master hook to the checkpoint coordinator. This method does nothing, if
@@ -533,11 +526,6 @@ public class CheckpointCoordinator {
 							throw new CompletionException(
 								new CheckpointException(CheckpointFailureReason.NOT_ALL_REQUIRED_TASKS_RUNNING));
 						}
-					}
-
-					if (brief.getFinishedTasks().size() > 0 && disableCheckpointsAfterTaskFinished) {
-						throw new CompletionException(
-							new CheckpointException(CheckpointFailureReason.NOT_ALL_REQUIRED_TASKS_RUNNING));
 					}
 
 					LOG.info("TMP log {} {} (rough): finished = {}, to trigger = {}, ack = {}",

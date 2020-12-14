@@ -46,6 +46,7 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.apache.flink.runtime.checkpoint.CheckpointFailureReason.CHECKPOINT_DECLINED_INPUT_END_OF_STREAM;
 import static org.apache.flink.runtime.checkpoint.CheckpointFailureReason.CHECKPOINT_DECLINED_SUBSUMED;
+import static org.apache.flink.util.Preconditions.checkState;
 
 /**
  * {@link SingleCheckpointBarrierHandler} is used for triggering checkpoint while reading the first barrier
@@ -253,17 +254,9 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
 	}
 
 	@Override
-	public void processEndOfPartition(InputChannelInfo inputChannelInfo) throws IOException {
+	public void processEndOfPartition(InputChannelInfo inputChannelInfo) {
 		numOpenChannels--;
 		finalBarrierComplementProcessor.onEndOfPartition(inputChannelInfo);
-
-		if (isCheckpointPending()) {
-			LOG.warn(
-				"{}: Received EndOfPartition(-1) before completing current checkpoint {}. Skipping current checkpoint.",
-				taskName,
-				currentCheckpointId);
-			abortInternal(currentCheckpointId, CHECKPOINT_DECLINED_INPUT_END_OF_STREAM);
-		}
 	}
 
 	@Override

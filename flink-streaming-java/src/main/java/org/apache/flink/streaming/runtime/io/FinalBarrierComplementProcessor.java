@@ -38,8 +38,6 @@ import static org.apache.flink.util.Preconditions.checkState;
  */
 public class FinalBarrierComplementProcessor {
 
-	private boolean isEnableInsertingBarrier;
-
 	private final CheckpointableInput[] inputs;
 
 	private final Map<InputChannelInfo, Long> nextBarrierIds = new HashMap<>();
@@ -48,12 +46,6 @@ public class FinalBarrierComplementProcessor {
 
 	public FinalBarrierComplementProcessor(CheckpointableInput... inputs) {
 		this.inputs = inputs;
-
-		this.isEnableInsertingBarrier = false;
-	}
-
-	public void enableInsertingBarrier() {
-		this.isEnableInsertingBarrier = true;
 	}
 
 	public void processFinalBarrier(FinalizeBarrier finalizeBarrier, InputChannelInfo inputChannelInfo) throws IOException {
@@ -102,12 +94,9 @@ public class FinalBarrierComplementProcessor {
 		NavigableMap<Long, CheckpointBarrier> barriersToInsert = barriersToCheck.tailMap(nextBarrierId, true);
 		if (barriersToInsert.size() > 0) {
 			for (Map.Entry<Long, CheckpointBarrier> entry : barriersToInsert.entrySet()) {
-
-				if (isEnableInsertingBarrier) {
-					inputs[inputChannelInfo.getGateIdx()].insertBarrierBeforeEndOfPartition(
-						inputChannelInfo.getInputChannelIdx(),
-						entry.getValue());
-				}
+				inputs[inputChannelInfo.getGateIdx()].insertBarrierBeforeEndOfPartition(
+					inputChannelInfo.getInputChannelIdx(),
+					entry.getValue());
 			}
 
 			nextBarrierIds.put(inputChannelInfo, barriersToInsert.lastEntry().getKey() + 1);
