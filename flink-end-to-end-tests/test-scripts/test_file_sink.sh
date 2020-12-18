@@ -27,7 +27,8 @@ source "$(dirname "$0")"/common.sh
 source "$(dirname "$0")"/common_s3.sh
 
 # randomly set up openSSL with dynamically/statically linked libraries
-OPENSSL_LINKAGE=$(if (( RANDOM % 2 )) ; then echo "dynamic"; else echo "static"; fi)
+# OPENSSL_LINKAGE=$(if (( RANDOM % 2 )) ; then echo "dynamic"; else echo "static"; fi)
+OPENSSL_LINKAGE="static"
 echo "Executing test with ${OPENSSL_LINKAGE} openSSL linkage (random selection between 'dynamic' and 'static')"
 
 s3_setup hadoop
