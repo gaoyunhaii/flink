@@ -540,13 +540,18 @@ public class CheckpointCoordinator {
 							new CheckpointException(CheckpointFailureReason.NOT_ALL_REQUIRED_TASKS_RUNNING));
 					}
 
-					LOG.info("TMP log: finished = {}, to trigger = {}, ack = {}",
+					LOG.info("TMP log {} {} (rough): finished = {}, to trigger = {}, ack = {}",
+							job,
+							checkpointIdCounter.get(),
 							brief.getFinishedTasks(),
 							brief.getTasksToTrigger(),
 							brief.getTasksToAck());
 
 					return brief;
-				}, timer);
+				}, timer).exceptionally(exception -> {
+					LOG.error("Trigger checkpoint failed", exception);
+					throw new CompletionException(exception);
+				});
 
 			final CompletableFuture<PendingCheckpoint> pendingCheckpointCompletableFuture =
 				briefFuture.thenApplyAsync(brief -> {
@@ -710,6 +715,7 @@ public class CheckpointCoordinator {
 			timestamp,
 			ackTasks,
 			runningTasks,
+			finishedTasks,
 			fullyFinishedOperators,
 			OperatorInfo.getIds(coordinatorsToCheckpoint),
 			masterHooks.keySet(),

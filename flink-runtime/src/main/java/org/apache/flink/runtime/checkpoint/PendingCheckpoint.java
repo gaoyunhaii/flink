@@ -137,6 +137,7 @@ public class PendingCheckpoint implements Checkpoint {
 			long checkpointTimestamp,
 			Map<ExecutionAttemptID, ExecutionVertex> verticesToConfirm,
 			List<ExecutionVertex> runningTasks,
+			List<ExecutionVertex> finishedTasks,
 			Map<OperatorID, ExecutionJobVertex> fullyFinishedOperators,
 			Collection<OperatorID> operatorCoordinatorsToConfirm,
 			Collection<String> masterStateIdentifiers,
@@ -154,7 +155,7 @@ public class PendingCheckpoint implements Checkpoint {
 		this.runningTasks = checkNotNull(runningTasks);
 		this.props = checkNotNull(props);
 		this.targetLocation = checkNotNull(targetLocation);
-		this.checkpointAfterTasksFinished = runningTasks.size() < notYetAcknowledgedTasks.size();
+		this.checkpointAfterTasksFinished = finishedTasks.size() == 0;
 
 		this.operatorStates = new HashMap<>();
 		this.masterStates = new ArrayList<>(masterStateIdentifiers.size());
@@ -332,6 +333,13 @@ public class PendingCheckpoint implements Checkpoint {
 
 			// make sure we fulfill the promise with an exception if something fails
 			try {
+				// Mark operatorStates with no reported subtask state as finished
+				operatorStates.forEach((operatorId, state) -> {
+					if (!state.isFinished() && state.getStates().size() == 0) {
+						state.setFinished(true);
+					}
+				});
+
 				// write out the metadata
 				final CheckpointMetadata savepoint = new CheckpointMetadata(checkpointId, operatorStates.values(), masterStates);
 				final CompletedCheckpointStorageLocation finalizedLocation;
