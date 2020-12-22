@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.checkpoint;
 
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.OperatorIDPair;
 import org.apache.flink.runtime.concurrent.ScheduledExecutor;
@@ -27,6 +28,7 @@ import org.apache.flink.runtime.executiongraph.ExecutionEdge;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.jobgraph.JobEdge;
+import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
@@ -39,7 +41,9 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -78,6 +82,13 @@ public class CheckpointBriefComputer {
 		CompletableFuture<CheckpointBrief> resultFuture = new CompletableFuture<>();
 
 		mainThreadExecutorSupplier.get().execute(() -> {
+			// Let's first compute which execution vertex is finished yet.
+			// The ExecutionGraph might not be accurate, since for job like A -> B -> C,
+			// It is possible that C first notify JM about finished.
+			// Since if a vertex is finished, all its precedent tasks should be finished,
+			// We use this logic to refine the finished state...
+			Set<ExecutionVertexID> allFinishedVertices = findFinishedExecutionVertex();
+
 			List<Execution> tasksToTrigger = new ArrayList<>();
 			Map<ExecutionAttemptID, ExecutionVertex> tasksToAck = initTasksToAck();
 			List<ExecutionVertex> finishedTasks = new ArrayList<>();
@@ -105,7 +116,7 @@ public class CheckpointBriefComputer {
 				// Checks the tasks to see if they are finished
 				List<ExecutionVertex> tasksCheckedFinished = new ArrayList<>();
 				for (ExecutionVertex task : tasksToCheck) {
-					if (!task.getCurrentExecutionAttempt().isFinished()) {
+					if (!allFinishedVertices.contains(task.getID())) {
 						tasksToTrigger.add(task.getCurrentExecutionAttempt());
 					} else {
 						tasksCheckedFinished.add(task);
@@ -123,6 +134,11 @@ public class CheckpointBriefComputer {
 					resultFuture.completeExceptionally(new CheckpointException(
 						CheckpointFailureReason.SOME_LEGACY_SOURCE_TASKS_PARTIALLY_FINISHED));
 					return;
+				} else if (vertex.getJobVertex().isInputVertex()
+					&& tasksCheckedFinished.size() > 0
+					&& tasksCheckedFinished.size() < vertex.getTaskVertices().length) {
+
+					LOG.warn("Vertex {} {}/{} finished, be careful.", vertex.getName(), tasksCheckedFinished.size(), vertex.getTaskVertices().length);
 				}
 
 				// Update the results
@@ -172,6 +188,48 @@ public class CheckpointBriefComputer {
 		});
 
 		return resultFuture;
+	}
+
+	@VisibleForTesting
+	Set<ExecutionVertexID> findFinishedExecutionVertex() {
+		Set<ExecutionVertexID> allFinishedVertices = new HashSet<>();
+
+		ListIterator<ExecutionJobVertex> jobVertexIterator = jobVerticesInTopologyOrder.listIterator(jobVerticesInTopologyOrder.size());
+		while (jobVertexIterator.hasPrevious()) {
+			ExecutionJobVertex jobVertex = jobVertexIterator.previous();
+
+			// See if the job vertex has finished execution vertex
+			List<ExecutionVertex> finishedVertex =
+				Arrays.stream(jobVertex.getTaskVertices())
+					.filter(v -> v.getCurrentExecutionAttempt().isFinished() || allFinishedVertices.contains(v.getID()))
+					.collect(Collectors.toList());
+
+			if (finishedVertex.size() == 0) {
+				continue;
+			}
+
+			finishedVertex.forEach(v -> allFinishedVertices.add(v.getID()));
+
+			for (JobEdge jobEdge : jobVertex.getJobVertex().getInputs()) {
+				ExecutionJobVertex source = jobVertex.getGraph().getJobVertex(jobEdge.getSource().getProducer().getID());
+				checkState(source != null);
+
+				switch (jobEdge.getDistributionPattern()) {
+					case ALL_TO_ALL:
+						for (ExecutionVertex sourceTask : source.getTaskVertices()) {
+							allFinishedVertices.add(sourceTask.getID());
+						}
+						break;
+					case POINTWISE:
+						finishedVertex.forEach(v -> getPrecedent(v).forEach(pv -> allFinishedVertices.add(pv.getID())));
+						break;
+					default:
+						throw new UnsupportedOperationException("Not supported type");
+				}
+			}
+		}
+
+		return allFinishedVertices;
 	}
 
 	/**
@@ -259,6 +317,13 @@ public class CheckpointBriefComputer {
 			.collect(Collectors.toList());
 	}
 
+	private List<ExecutionVertex> getPrecedent(ExecutionVertex task) {
+		return Arrays.stream(task.getAllInputEdges())
+			.flatMap(Arrays::stream)
+			.map(edge -> edge.getSource().getProducer())
+			.collect(Collectors.toList());
+	}
+
 	private enum VertexTaskCheckingType {
 		ALL_TASKS_TO_CHECK,
 		SOME_TASKS_TO_CHECK,
@@ -286,7 +351,7 @@ public class CheckpointBriefComputer {
 				"The state could not change in reverse order.");
 
 			if (type == VertexTaskCheckingType.ALL_TASKS_TO_CHECK) {
-				type = VertexTaskCheckingType.NO_TASKS_TO_CHECK;
+				type = VertexTaskCheckingType.SOME_TASKS_TO_CHECK;
 				tasksToCheck = precedentResult;
 			} else if (type == VertexTaskCheckingType.SOME_TASKS_TO_CHECK) {
 				checkState(tasksToCheck != null);

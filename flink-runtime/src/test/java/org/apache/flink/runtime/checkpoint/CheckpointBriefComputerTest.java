@@ -22,22 +22,68 @@ import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAda
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils;
+import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.JobVertex;
+import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
 import org.junit.Ignore;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 /**
  * Tests the logic for the brief computer.
  */
 public class CheckpointBriefComputerTest {
+
+	@Test
+	public void testFindAllFinishedVertices() throws Exception {
+		JobVertex first = ExecutionGraphTestUtils.createJobVertex("first", 10, NoOpInvokable.class);
+		JobVertex second = ExecutionGraphTestUtils.createJobVertex("second", 10, NoOpInvokable.class);
+		JobVertex third = ExecutionGraphTestUtils.createJobVertex("third", 10, NoOpInvokable.class);
+		second.connectNewDataSetAsInput(first, DistributionPattern.ALL_TO_ALL, ResultPartitionType.PIPELINED);
+		third.connectNewDataSetAsInput(second, DistributionPattern.POINTWISE, ResultPartitionType.PIPELINED);
+
+		ExecutionGraph simpleGraph = ExecutionGraphTestUtils.createSimpleTestGraph(first, second, third);
+		simpleGraph.start(ComponentMainThreadExecutorServiceAdapter.forMainThread());
+
+		ExecutionVertex[] firstVertices = simpleGraph.getJobVertex(first.getID()).getTaskVertices();
+		ExecutionVertex[] secondVertices = simpleGraph.getJobVertex(second.getID()).getTaskVertices();
+		ExecutionVertex[] thirdVertices = simpleGraph.getJobVertex(third.getID()).getTaskVertices();
+		for (int i = 0; i < thirdVertices.length; ++i) {
+			if (i % 2 == 0) {
+				thirdVertices[i].getCurrentExecutionAttempt().transitionState(ExecutionState.FINISHED);
+			}
+		}
+
+		CheckpointBriefComputer computer = new CheckpointBriefComputer(
+			simpleGraph.getJobID(),
+			simpleGraph.getVerticesTopologically(),
+			simpleGraph::getJobMasterMainThreadExecutor);
+
+		Set<ExecutionVertexID> finished = computer.findFinishedExecutionVertex();
+
+		assertEquals(20, finished.size());
+		for (int i = 0; i < firstVertices.length; ++i) {
+			assertTrue(finished.contains(firstVertices[i].getID()));
+		}
+
+		for (int i = 0; i < firstVertices.length; i += 2) {
+			assertTrue(finished.contains(secondVertices[i].getID()));
+		}
+
+		for (int i = 0; i < firstVertices.length; i += 2) {
+			assertTrue(finished.contains(thirdVertices[i].getID()));
+		}
+	}
 
 	@Ignore
 	@Test
