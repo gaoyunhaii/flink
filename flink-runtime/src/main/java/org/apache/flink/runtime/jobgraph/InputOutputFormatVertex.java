@@ -49,9 +49,10 @@ public class InputOutputFormatVertex extends JobVertex {
 	public InputOutputFormatVertex(
 		String name,
 		JobVertexID id,
-		List<OperatorIDPair> operatorIDPairs) {
+		List<OperatorIDPair> operatorIDPairs,
+		boolean hasLegacySourceOperators) {
 
-		super(name, id, operatorIDPairs);
+		super(name, id, operatorIDPairs, hasLegacySourceOperators);
 	}
 
 	@Override

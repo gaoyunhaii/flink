@@ -296,7 +296,7 @@ public class StreamingJobGraphGenerator {
 
 					final OperatorChainInfo chainInfo = chainEntryPoints.computeIfAbsent(
 						sourceOutEdge.getTargetId(),
-						(k) -> new OperatorChainInfo(sourceOutEdge.getTargetId(), hashes, legacyHashes, chainedSources, streamGraph));
+						(k) -> new OperatorChainInfo(sourceOutEdge.getTargetId(), false, hashes, legacyHashes, chainedSources, streamGraph));
 					chainInfo.addCoordinatorProvider(coord);
 					continue;
 				}
@@ -304,7 +304,7 @@ public class StreamingJobGraphGenerator {
 
 			chainEntryPoints.put(
 				sourceNodeId,
-				new OperatorChainInfo(sourceNodeId, hashes, legacyHashes, chainedSources, streamGraph));
+				new OperatorChainInfo(sourceNodeId, !(sourceNode.getOperatorFactory() instanceof SourceOperatorFactory), hashes, legacyHashes, chainedSources, streamGraph));
 		}
 
 		return chainEntryPoints;
@@ -492,7 +492,8 @@ public class StreamingJobGraphGenerator {
 			jobVertex = new InputOutputFormatVertex(
 					chainedNames.get(streamNodeId),
 					jobVertexId,
-					operatorIDPairs);
+					operatorIDPairs,
+					chainInfo.hasLegacySourceOperators);
 
 			chainedInputOutputFormats
 				.get(streamNodeId)
@@ -501,7 +502,8 @@ public class StreamingJobGraphGenerator {
 			jobVertex = new JobVertex(
 					chainedNames.get(streamNodeId),
 					jobVertexId,
-					operatorIDPairs);
+					operatorIDPairs,
+					chainInfo.hasLegacySourceOperators);
 		}
 
 		for (OperatorCoordinator.Provider coordinatorProvider : chainInfo.getCoordinatorProviders()) {
@@ -1166,6 +1168,7 @@ public class StreamingJobGraphGenerator {
 	 */
 	private static class OperatorChainInfo {
 		private final Integer startNodeId;
+		private final boolean hasLegacySourceOperators;
 		private final Map<Integer, byte[]> hashes;
 		private final List<Map<Integer, byte[]>> legacyHashes;
 		private final Map<Integer, List<Tuple2<byte[], byte[]>>> chainedOperatorHashes;
@@ -1175,11 +1178,13 @@ public class StreamingJobGraphGenerator {
 
 		private OperatorChainInfo(
 				int startNodeId,
+				boolean hasLegacySourceOperators,
 				Map<Integer, byte[]> hashes,
 				List<Map<Integer, byte[]>> legacyHashes,
 				Map<Integer, ChainedSourceInfo> chainedSources,
 				StreamGraph streamGraph) {
 			this.startNodeId = startNodeId;
+			this.hasLegacySourceOperators = hasLegacySourceOperators;
 			this.hashes = hashes;
 			this.legacyHashes = legacyHashes;
 			this.chainedOperatorHashes = new HashMap<>();
@@ -1230,7 +1235,7 @@ public class StreamingJobGraphGenerator {
 		}
 
 		private OperatorChainInfo newChain(Integer startNodeId) {
-			return new OperatorChainInfo(startNodeId, hashes, legacyHashes, chainedSources, streamGraph);
+			return new OperatorChainInfo(startNodeId, false, hashes, legacyHashes, chainedSources, streamGraph);
 		}
 	}
 

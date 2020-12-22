@@ -75,6 +75,8 @@ public class JobVertex implements java.io.Serializable {
 	/** The list of factories for operator coordinators. */
 	private final ArrayList<SerializedValue<OperatorCoordinator.Provider>> operatorCoordinators = new ArrayList<>();
 
+	private final boolean hasLegacySourceOperators;
+
 	/** Number of subtasks to split this task into at runtime.*/
 	private int parallelism = ExecutionConfig.PARALLELISM_DEFAULT;
 
@@ -149,6 +151,11 @@ public class JobVertex implements java.io.Serializable {
 		this.id = id == null ? new JobVertexID() : id;
 		OperatorIDPair operatorIDPair = OperatorIDPair.generatedIDOnly(OperatorID.fromJobVertexID(this.id));
 		this.operatorIDs = Collections.singletonList(operatorIDPair);
+		this.hasLegacySourceOperators = false;
+	}
+
+	public JobVertex(String name, JobVertexID primaryId, List<OperatorIDPair> operatorIDPairs) {
+		this(name, primaryId, operatorIDPairs, false);
 	}
 
 	/**
@@ -158,10 +165,11 @@ public class JobVertex implements java.io.Serializable {
 	 * @param primaryId The id of the job vertex.
 	 * @param operatorIDPairs The operator ID pairs of the job vertex.
 	 */
-	public JobVertex(String name, JobVertexID primaryId, List<OperatorIDPair> operatorIDPairs) {
+	public JobVertex(String name, JobVertexID primaryId, List<OperatorIDPair> operatorIDPairs, boolean hasLegacySourceOperators) {
 		this.name = name == null ? DEFAULT_NAME : name;
 		this.id = primaryId == null ? new JobVertexID() : primaryId;
 		this.operatorIDs = Collections.unmodifiableList(operatorIDPairs);
+		this.hasLegacySourceOperators = hasLegacySourceOperators;
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -213,6 +221,10 @@ public class JobVertex implements java.io.Serializable {
 
 	public List<OperatorIDPair> getOperatorIDs() {
 		return operatorIDs;
+	}
+
+	public boolean isHasLegacySourceOperators() {
+		return hasLegacySourceOperators;
 	}
 
 	/**

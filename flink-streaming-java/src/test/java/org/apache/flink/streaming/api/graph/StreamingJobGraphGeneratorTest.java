@@ -32,6 +32,12 @@ import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.api.connector.source.Boundedness;
+import org.apache.flink.api.connector.source.Source;
+import org.apache.flink.api.connector.source.SourceReader;
+import org.apache.flink.api.connector.source.SourceReaderContext;
+import org.apache.flink.api.connector.source.SourceSplit;
+import org.apache.flink.api.connector.source.SplitEnumerator;
+import org.apache.flink.api.connector.source.SplitEnumeratorContext;
 import org.apache.flink.api.connector.source.lib.NumberSequenceSource;
 import org.apache.flink.api.connector.source.mocks.MockSource;
 import org.apache.flink.api.dag.Transformation;
@@ -40,6 +46,7 @@ import org.apache.flink.api.java.io.TypeSerializerInputFormat;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.TaskManagerOptions;
+import org.apache.flink.core.io.SimpleVersionedSerializer;
 import org.apache.flink.core.memory.ManagedMemoryUseCase;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.InputOutputFormatContainer;
@@ -62,10 +69,12 @@ import org.apache.flink.streaming.api.datastream.IterativeStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.co.CoFlatMapFunction;
 import org.apache.flink.streaming.api.functions.sink.DiscardingSink;
 import org.apache.flink.streaming.api.functions.sink.SinkFunction;
 import org.apache.flink.streaming.api.functions.source.InputFormatSourceFunction;
 import org.apache.flink.streaming.api.functions.source.ParallelSourceFunction;
+import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperatorFactory;
 import org.apache.flink.streaming.api.operators.ChainingStrategy;
 import org.apache.flink.streaming.api.operators.CoordinatedOperatorFactory;
@@ -1054,6 +1063,46 @@ public class StreamingJobGraphGeneratorTest extends TestLogger {
 		JobGraph graph = createGraphWithMultipleInputs(false, sources);
 		JobVertex head = Iterables.find(graph.getVertices(), vertex -> vertex.getInvokableClassName().equals(MultipleInputStreamTask.class.getName()));
 		assertFalse(head.getName(), head.getName().contains("source-1"));
+	}
+
+	@Test
+	public void testLegacySourceOperatorsFlag() {
+		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+		DataStream<Object> first = env.addSource(new SourceFunction<Object>() {
+			@Override
+			public void run(SourceContext<Object> ctx) throws Exception {
+
+			}
+
+			@Override
+			public void cancel() {
+
+			}
+		}).name("LegacySource");
+
+		SingleOutputStreamOperator<Integer> second = env.fromSource(new MockSource(Boundedness.BOUNDED, 1), WatermarkStrategy.noWatermarks(), "second").name("NewSource");
+
+		first.connect(second).flatMap(new CoFlatMapFunction<Object, Integer, Object>() {
+			@Override
+			public void flatMap1(Object value, Collector<Object> out) throws Exception {
+
+			}
+
+			@Override
+			public void flatMap2(Integer value, Collector<Object> out) throws Exception {
+
+			}
+		}).name("Ordinary");
+
+		JobGraph jobGraph = env.getStreamGraph().getJobGraph();
+		assertEquals(3, jobGraph.getVerticesAsArray().length);
+		jobGraph.getVertices().forEach(v -> {
+			if (v.getName().contains("LegacySource")) {
+				assertTrue(v.isHasLegacySourceOperators());
+			} else {
+				assertFalse(v.isHasLegacySourceOperators());
+			}
+		});
 	}
 
 	public JobGraph createGraphWithMultipleInputs(boolean chain, String ...inputNames) {
