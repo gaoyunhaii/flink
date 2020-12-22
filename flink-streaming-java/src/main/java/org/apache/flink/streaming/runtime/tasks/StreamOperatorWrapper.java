@@ -139,18 +139,20 @@ public class StreamOperatorWrapper<OUT, OP extends StreamOperator<OUT>> {
 	 * run them.
 	 */
 	public void close(StreamTaskActionExecutor actionExecutor, CheckpointLatch checkpointLatch) throws Exception {
-		if (!isHead) {
-			// NOTE: This only do for the case where the operator is one-input operator. At present,
-			// any non-head operator on the operator chain is one-input operator.
-			actionExecutor.runThrowing(() -> endOperatorInput(1));
-		}
+		if (!isFullyFinishedOnStartup) {
+			if (!isHead) {
+				// NOTE: This only do for the case where the operator is one-input operator. At present,
+				// any non-head operator on the operator chain is one-input operator.
+				actionExecutor.runThrowing(() -> endOperatorInput(1));
+			}
 
-		if (needWaitingCheckpointOnFinish()) {
-			LOG.info("{} need to wait for one checkpoint before close", getStreamOperator().getOperatorID());
-			checkpointLatch.waitForCheckpointComplete();
-		}
+			if (needWaitingCheckpointOnFinish()) {
+				LOG.info("{} need to wait for one checkpoint before close", getStreamOperator().getOperatorID());
+				checkpointLatch.waitForCheckpointComplete();
+			}
 
-		quiesceTimeServiceAndCloseOperator(actionExecutor);
+			quiesceTimeServiceAndCloseOperator(actionExecutor);
+		}
 
 		// propagate the close operation to the next wrapper
 		if (next != null) {

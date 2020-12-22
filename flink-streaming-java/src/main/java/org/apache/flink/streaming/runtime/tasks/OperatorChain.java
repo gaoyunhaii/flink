@@ -384,8 +384,15 @@ public class OperatorChain<OUT, OP extends StreamOperator<OUT>> implements Strea
 	 */
 	@Override
 	public void endInput(int inputId) throws Exception {
-		if (mainOperatorWrapper != null) {
+		if (mainOperatorWrapper != null && !mainOperatorWrapper.isFullyFinishedOnStartup()) {
 			mainOperatorWrapper.endOperatorInput(inputId);
+		}
+	}
+
+	protected void initializeOperatorFinishedState(StreamTaskStateInitializer streamTaskStateInitializer) {
+		for (StreamOperatorWrapper<?, ?> operatorWrapper : getAllOperators(true)) {
+			operatorWrapper.setFullyFinishedOnStartup(
+				streamTaskStateInitializer.isFullyFinished(operatorWrapper.getStreamOperator().getOperatorID()));
 		}
 	}
 
@@ -396,11 +403,11 @@ public class OperatorChain<OUT, OP extends StreamOperator<OUT>> implements Strea
 	 */
 	protected void initializeStateAndOpenOperators(StreamTaskStateInitializer streamTaskStateInitializer) throws Exception {
 		for (StreamOperatorWrapper<?, ?> operatorWrapper : getAllOperators(true)) {
-			operatorWrapper.setFullyFinishedOnStartup(
-				streamTaskStateInitializer.isFullyFinished(operatorWrapper.getStreamOperator().getOperatorID()));
-			StreamOperator<?> operator = operatorWrapper.getStreamOperator();
-			operator.initializeState(streamTaskStateInitializer);
-			operator.open();
+			if (!operatorWrapper.isFullyFinishedOnStartup()) {
+				StreamOperator<?> operator = operatorWrapper.getStreamOperator();
+				operator.initializeState(streamTaskStateInitializer);
+				operator.open();
+			}
 		}
 	}
 

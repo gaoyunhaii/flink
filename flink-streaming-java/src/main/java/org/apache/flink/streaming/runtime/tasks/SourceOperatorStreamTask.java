@@ -30,6 +30,7 @@ import org.apache.flink.streaming.api.operators.Output;
 import org.apache.flink.streaming.api.operators.SourceOperator;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.io.AbstractDataOutput;
+import org.apache.flink.streaming.runtime.io.DirectlyFinishedSourceInput;
 import org.apache.flink.streaming.runtime.io.PushingAsyncDataInput.DataOutput;
 import org.apache.flink.streaming.runtime.io.StreamOneInputProcessor;
 import org.apache.flink.streaming.runtime.io.StreamTaskExternallyInducedSourceInput;
@@ -72,7 +73,9 @@ public class SourceOperatorStreamTask<T> extends AbstractSourceStreamTask<T, Sou
 		final SourceReader<T, ?> sourceReader = mainOperator.getSourceReader();
 		final StreamTaskInput<T> input;
 
-		if (sourceReader instanceof ExternallyInducedSourceReader) {
+		if (operatorChain.getMainOperatorWrapper().isFullyFinishedOnStartup()) {
+			input = new DirectlyFinishedSourceInput<>(0);
+		} else if (sourceReader instanceof ExternallyInducedSourceReader) {
 			isExternallyInducedSource = true;
 
 			input = new StreamTaskExternallyInducedSourceInput<>(

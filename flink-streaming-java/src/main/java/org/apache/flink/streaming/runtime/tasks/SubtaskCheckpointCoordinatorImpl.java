@@ -494,17 +494,17 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 
 		try {
 			for (StreamOperatorWrapper<?, ?> operatorWrapper : operatorChain.getAllOperators(true)) {
-				if (!operatorWrapper.isClosed()) {
+				if (!operatorWrapper.isFullyFinishedOnStartup() && !operatorWrapper.isClosed()) {
 					operatorSnapshotsInProgress.put(
-							operatorWrapper.getStreamOperator().getOperatorID(),
-							buildOperatorSnapshotFutures(
-									checkpointMetaData,
-									checkpointOptions,
-									operatorChain,
-									operatorWrapper.getStreamOperator(),
-									isCanceled,
-									channelStateWriteResult,
-									storage));
+						operatorWrapper.getStreamOperator().getOperatorID(),
+						buildOperatorSnapshotFutures(
+							checkpointMetaData,
+							checkpointOptions,
+							operatorChain,
+							operatorWrapper.getStreamOperator(),
+							isCanceled,
+							channelStateWriteResult,
+							storage));
 				}
 			}
 		} finally {

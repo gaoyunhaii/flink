@@ -296,7 +296,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 		this.mailboxProcessor.initMetric(environment.getMetricGroup());
 		this.mainMailboxExecutor = mailboxProcessor.getMainMailboxExecutor();
 
-		if (configuration.isCheckpointingEnabled()) {
+		if (configuration.isCheckpointingEnabled() && supportCheckpointLatch()) {
 			this.checkpointLatch = new CheckpointLatchImpl(
 				mailboxProcessor.getMailboxExecutor(MIN_PRIORITY),
 				mailboxProcessor::isMailboxThread);
@@ -361,6 +361,10 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 	// ------------------------------------------------------------------------
 	//  Life cycle methods for specific implementations
 	// ------------------------------------------------------------------------
+
+	protected boolean supportCheckpointLatch() {
+		return true;
+	}
 
 	protected abstract void init() throws Exception;
 
@@ -497,6 +501,10 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 		operatorChain = new OperatorChain<>(this, recordWriter);
 		mainOperator = operatorChain.getMainOperator();
 
+		// Let's first load the state of whether an operator is finished.
+		StreamTaskStateInitializer streamTaskStateInitializer = createStreamTaskStateInitializer();
+		operatorChain.initializeOperatorFinishedState(streamTaskStateInitializer);
+
 		// task specific initialization
 		init();
 
@@ -516,7 +524,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 			// TODO: for UC rescaling, reenable notifyAndBlockOnCompletion for non-iterative jobs
 			reader.readOutputData(getEnvironment().getAllWriters(), false);
 
-			operatorChain.initializeStateAndOpenOperators(createStreamTaskStateInitializer());
+			operatorChain.initializeStateAndOpenOperators(streamTaskStateInitializer);
 
 			channelIOExecutor.execute(() -> {
 				try {
@@ -978,6 +986,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 	}
 
 	private void notifyCheckpointComplete(long checkpointId) throws Exception {
+		LOG.info("{} Notify checkpoint complete {}", getTaskNameWithSubtaskAndId(), checkpointId);
 		subtaskCheckpointCoordinator.notifyCheckpointComplete(checkpointId, operatorChain, this::isRunning);
 
 		checkpointLatch.onCheckpointCompleted();

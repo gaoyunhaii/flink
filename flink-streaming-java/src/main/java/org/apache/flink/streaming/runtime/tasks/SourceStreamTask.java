@@ -79,6 +79,11 @@ public class SourceStreamTask<OUT, SRC extends SourceFunction<OUT>, OP extends S
 	}
 
 	@Override
+	protected boolean supportCheckpointLatch() {
+		return false;
+	}
+
+	@Override
 	protected void init() {
 		// we check if the source is actually inducing the checkpoints, rather
 		// than the trigger
