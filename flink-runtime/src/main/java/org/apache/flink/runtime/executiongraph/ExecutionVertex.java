@@ -846,7 +846,7 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	// --------------------------------------------------------------------------------------------
 
 	void executionFinished(Execution execution) {
-		getExecutionGraph().vertexFinished();
+		getExecutionGraph().vertexFinished(execution);
 	}
 
 	// --------------------------------------------------------------------------------------------

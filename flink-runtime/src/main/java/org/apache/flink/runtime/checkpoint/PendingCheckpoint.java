@@ -21,11 +21,13 @@ package org.apache.flink.runtime.checkpoint;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.OperatorIDPair;
 import org.apache.flink.runtime.checkpoint.metadata.CheckpointMetadata;
+import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.operators.coordination.OperatorInfo;
+import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.state.CheckpointMetadataOutputStream;
 import org.apache.flink.runtime.state.CheckpointStorageLocation;
 import org.apache.flink.runtime.state.CompletedCheckpointStorageLocation;
@@ -89,19 +91,23 @@ public class PendingCheckpoint implements Checkpoint {
 
 	private final long checkpointTimestamp;
 
+	private final boolean advanceToEndOfTime;
+
 	private final Map<OperatorID, OperatorState> operatorStates;
 
 	private final Map<ExecutionAttemptID, ExecutionVertex> notYetAcknowledgedTasks;
 
-	private final List<ExecutionVertex> runningTasks;
+	private final Map<ExecutionVertexID, ExecutionVertex> runningTasks = new HashMap<>();
+
+	private final Map<ExecutionVertexID, ExecutionVertex> finishedTasks = new HashMap<>();
+
+	private final Map<ExecutionAttemptID, Execution> tasksToTrigger = new HashMap<>();
 
 	private final Set<OperatorID> notYetAcknowledgedOperatorCoordinators;
 
 	private final List<MasterState> masterStates;
 
 	private final Set<String> notYetAcknowledgedMasterStates;
-
-	private final boolean checkpointAfterTasksFinished;
 
 	/** Set of acknowledged tasks. */
 	private final Set<ExecutionAttemptID> acknowledgedTasks;
@@ -135,6 +141,8 @@ public class PendingCheckpoint implements Checkpoint {
 			JobID jobId,
 			long checkpointId,
 			long checkpointTimestamp,
+			boolean advanceToEndOfTime,
+			List<Execution> tasksToTrigger,
 			Map<ExecutionAttemptID, ExecutionVertex> verticesToConfirm,
 			List<ExecutionVertex> runningTasks,
 			List<ExecutionVertex> finishedTasks,
@@ -151,11 +159,19 @@ public class PendingCheckpoint implements Checkpoint {
 		this.jobId = checkNotNull(jobId);
 		this.checkpointId = checkpointId;
 		this.checkpointTimestamp = checkpointTimestamp;
+		this.advanceToEndOfTime = advanceToEndOfTime;
+
+		checkNotNull(tasksToTrigger);
+		checkNotNull(runningTasks);
+		checkNotNull(finishedTasks);
+
+		tasksToTrigger.forEach(e -> this.tasksToTrigger.put(e.getAttemptId(), e));
+		runningTasks.forEach(ev -> this.runningTasks.put(ev.getID(), ev));
+		finishedTasks.forEach(ev -> this.finishedTasks.put(ev.getID(), ev));
+
 		this.notYetAcknowledgedTasks = checkNotNull(verticesToConfirm);
-		this.runningTasks = checkNotNull(runningTasks);
 		this.props = checkNotNull(props);
 		this.targetLocation = checkNotNull(targetLocation);
-		this.checkpointAfterTasksFinished = finishedTasks.size() == 0;
 
 		this.operatorStates = new HashMap<>();
 		this.masterStates = new ArrayList<>(masterStateIdentifiers.size());
@@ -208,6 +224,10 @@ public class PendingCheckpoint implements Checkpoint {
 		return checkpointTimestamp;
 	}
 
+	public boolean isAdvanceToEndOfTime() {
+		return advanceToEndOfTime;
+	}
+
 	public int getNumberOfNonAcknowledgedTasks() {
 		return notYetAcknowledgedTasks.size();
 	}
@@ -220,16 +240,24 @@ public class PendingCheckpoint implements Checkpoint {
 		return numAcknowledgedTasks;
 	}
 
-	public List<ExecutionVertex> getTasksToCommitTo() {
-		return runningTasks;
-	}
-
 	public Map<OperatorID, OperatorState> getOperatorStates() {
 		return operatorStates;
 	}
 
 	public List<MasterState> getMasterStates() {
 		return masterStates;
+	}
+
+	public Map<ExecutionVertexID, ExecutionVertex> getRunningTasks() {
+		return runningTasks;
+	}
+
+	public Map<ExecutionVertexID, ExecutionVertex> getFinishedTasks() {
+		return finishedTasks;
+	}
+
+	public Map<ExecutionAttemptID, Execution> getTasksToTrigger() {
+		return tasksToTrigger;
 	}
 
 	public boolean isFullyAcknowledged() {
@@ -308,13 +336,34 @@ public class PendingCheckpoint implements Checkpoint {
 		return failureCause;
 	}
 
-	public boolean isCheckpointAfterTasksFinished() {
-		 return checkpointAfterTasksFinished;
-	}
-
 	// ------------------------------------------------------------------------
 	//  Progress and Completion
 	// ------------------------------------------------------------------------
+
+	public void onMoreTasksToTrigger(List<Execution> newTrigger, List<ExecutionVertex> finishedTasks) {
+		synchronized (lock) {
+			newTrigger.forEach(e -> tasksToTrigger.put(e.getAttemptId(), e));
+			finishedTasks.forEach(executionVertex -> {
+				notYetAcknowledgedTasks.remove(executionVertex.getCurrentExecutionAttempt().getAttemptId());
+				if (statsCallback != null) {
+					statsCallback.reportSubtaskStats(executionVertex.getJobvertexId(), new SubtaskStateStats(
+						executionVertex.getParallelSubtaskIndex(),
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0
+					));
+				}
+
+				runningTasks.remove(executionVertex.getID());
+				this.finishedTasks.put(executionVertex.getID(), executionVertex);
+			});
+		}
+	}
 
 	/**
 	 * Returns the completion future.

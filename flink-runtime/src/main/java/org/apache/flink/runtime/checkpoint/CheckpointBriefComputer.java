@@ -182,7 +182,8 @@ public class CheckpointBriefComputer {
 			resultFuture.complete(new CheckpointBrief(
 				tasksToTrigger,
 				tasksToAck,
-				tasksToAck.size() == allTasks.size() ? allTasks : new ArrayList<>(tasksToAck.values()),
+				//tasksToAck.size() == allTasks.size() ? allTasks : new ArrayList<>(tasksToAck.values()),
+				new ArrayList<>(tasksToAck.values()),
 				finishedTasks,
 				fullyFinishedOperators));
 		});

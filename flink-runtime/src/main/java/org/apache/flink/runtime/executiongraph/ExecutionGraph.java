@@ -1269,9 +1269,14 @@ public class ExecutionGraph implements AccessExecutionGraph {
 	 * Called whenever a vertex reaches state FINISHED (completed successfully).
 	 * Once all vertices are in the FINISHED state, the program is successfully done.
 	 */
-	void vertexFinished() {
+	void vertexFinished(Execution execution) {
 		assertRunningInJobMasterMainThread();
 		final int numFinished = ++verticesFinished;
+
+		if (checkpointCoordinator != null) {
+			checkpointCoordinator.updatePendingCheckpointTrigger(execution);
+		}
+
 		if (numFinished == numVerticesTotal) {
 			// done :-)
 
