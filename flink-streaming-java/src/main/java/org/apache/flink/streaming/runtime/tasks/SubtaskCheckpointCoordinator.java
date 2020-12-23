@@ -85,4 +85,6 @@ public interface SubtaskCheckpointCoordinator extends Closeable {
 		long checkpointId,
 		OperatorChain<?, ?> operatorChain,
 		Supplier<Boolean> isRunning) throws Exception;
+
+	void waitForPendingCheckpoints() throws Exception;
 }

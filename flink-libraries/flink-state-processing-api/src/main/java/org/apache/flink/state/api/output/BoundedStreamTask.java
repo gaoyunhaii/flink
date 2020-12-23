@@ -107,6 +107,11 @@ class BoundedStreamTask<IN, OUT, OP extends OneInputStreamOperator<IN, OUT> & Bo
 	}
 
 	@Override
+	protected boolean supportCheckpointLatch() {
+		return false;
+	}
+
+	@Override
 	protected void cancelTask() {}
 
 	@Override

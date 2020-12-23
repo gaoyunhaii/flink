@@ -327,6 +327,23 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 	}
 
 	@Override
+	public void waitForPendingCheckpoints() {
+		List<AsyncCheckpointRunnable> asyncCheckpointRunnables = null;
+		synchronized (lock) {
+			asyncCheckpointRunnables = new ArrayList<>(checkpoints.values());
+		}
+
+		asyncCheckpointRunnables.forEach(ar -> {
+			try {
+				ar.getFinishedFuture().get();
+			}
+			catch (Exception e) {
+				LOG.error("Async runnable " + ar.getCheckpointId() + "throws exception and exit", e);
+			}
+		});
+	}
+
+	@Override
 	public void initCheckpoint(long id, CheckpointOptions checkpointOptions) throws IOException {
 		if (checkpointOptions.isUnalignedCheckpoint()) {
 			channelStateWriter.start(id, checkpointOptions);
@@ -440,17 +457,20 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 	}
 
 	private void finishAndReportAsync(Map<OperatorID, OperatorSnapshotFutures> snapshotFutures, CheckpointMetaData metadata, CheckpointMetricsBuilder metrics, CheckpointOptions options) {
-		// we are transferring ownership over snapshotInProgressList for cleanup to the thread, active on submit
-		asyncOperationsThreadPool.execute(new AsyncCheckpointRunnable(
+		// For waiting for all async operator, we need to ensure it is registered
+		AsyncCheckpointRunnable asyncCheckpointRunnable = new AsyncCheckpointRunnable(
 			snapshotFutures,
 			metadata,
 			metrics,
 			System.nanoTime(),
 			taskName,
-			registerConsumer(),
 			unregisterConsumer(),
 			env,
-			asyncExceptionHandler));
+			asyncExceptionHandler);
+		registerConsumer().accept(asyncCheckpointRunnable);
+
+		// we are transferring ownership over snapshotInProgressList for cleanup to the thread, active on submit
+		asyncOperationsThreadPool.execute(asyncCheckpointRunnable);
 	}
 
 	private Consumer<AsyncCheckpointRunnable> registerConsumer() {

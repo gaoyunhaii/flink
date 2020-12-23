@@ -64,7 +64,6 @@ public class AsyncCheckpointRunnableTest {
 				1L,
 				"Task Name",
 				r -> {},
-				r -> {},
 				environment,
 				(msg, ex) -> {});
 		runnable.run();

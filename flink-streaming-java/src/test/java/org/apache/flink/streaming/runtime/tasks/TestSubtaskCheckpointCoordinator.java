@@ -89,6 +89,11 @@ public class TestSubtaskCheckpointCoordinator implements SubtaskCheckpointCoordi
 	}
 
 	@Override
+	public void waitForPendingCheckpoints() throws Exception {
+
+	}
+
+	@Override
 	public void close() {
 	}
 }

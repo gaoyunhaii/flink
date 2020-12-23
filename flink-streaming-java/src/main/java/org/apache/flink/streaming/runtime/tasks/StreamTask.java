@@ -198,6 +198,8 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 
 	private final StreamTaskAsyncExceptionHandler asyncExceptionHandler;
 
+	private volatile boolean isRejectFollowingCheckpoints;
+
 	/**
 	 * Flag to mark the task "in operation", in which case check needs to be initialized to true,
 	 * so that early cancel() before invoke() behaves correctly.
@@ -629,6 +631,13 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 		// make sure all buffered data is flushed
 		operatorChain.flushOutputs();
 
+		// Here is the point for us to reject all the following checkpoints & wait for the current
+		// checkpoints to finish
+		isRejectFollowingCheckpoints = true;
+		LOG.info("Will wait for all pending checkpoints to finish");
+		subtaskCheckpointCoordinator.waitForPendingCheckpoints();
+		LOG.info("All pending checkpoints finished");
+
 		// make an attempt to dispose the operators such that failures in the dispose call
 		// still let the computation fail
 		disposeAllOperators();
@@ -840,6 +849,10 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 			CheckpointMetaData checkpointMetaData,
 			CheckpointOptions checkpointOptions,
 			boolean advanceToEndOfEventTime) {
+
+		if (isRejectFollowingCheckpoints) {
+			return CompletableFuture.completedFuture(false);
+		}
 
 		CompletableFuture<Boolean> result = new CompletableFuture<>();
 		mainMailboxExecutor.execute(
