@@ -106,6 +106,7 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
@@ -2338,7 +2339,8 @@ public class CheckpointCoordinatorTest extends TestLogger {
         CheckpointStatsTracker tracker = mock(CheckpointStatsTracker.class);
         checkpointCoordinator.setCheckpointStatsTracker(tracker);
 
-        when(tracker.reportPendingCheckpoint(anyLong(), anyLong(), any(CheckpointProperties.class)))
+        when(tracker.reportPendingCheckpoint(
+                        anyList(), anyLong(), anyLong(), any(CheckpointProperties.class)))
                 .thenReturn(mock(PendingCheckpointStats.class));
 
         // Trigger a checkpoint and verify callback
@@ -2349,6 +2351,7 @@ public class CheckpointCoordinatorTest extends TestLogger {
 
         verify(tracker, times(1))
                 .reportPendingCheckpoint(
+                        anyList(),
                         eq(1L),
                         any(Long.class),
                         eq(
