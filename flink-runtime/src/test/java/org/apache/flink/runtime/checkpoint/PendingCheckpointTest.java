@@ -610,7 +610,12 @@ public class PendingCheckpointTest {
                 new JobID(),
                 0,
                 1,
-                new CheckpointPlan(Collections.emptyList(), ackTasks, tasksToCommit),
+                new CheckpointPlan(
+                        Collections.emptyList(),
+                        ackTasks,
+                        tasksToCommit,
+                        Collections.emptyList(),
+                        Collections.emptyList()),
                 operatorCoordinators,
                 masterStateIdentifiers,
                 props,
