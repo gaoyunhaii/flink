@@ -440,18 +440,11 @@ public class ExecutionGraph implements AccessExecutionGraph {
                         new DispatcherThreadFactory(
                                 Thread.currentThread().getThreadGroup(), "Checkpoint Timer"));
 
-        List<ExecutionVertex> sourceVertices = new ArrayList<>();
-        List<ExecutionVertex> allVertices = new ArrayList<>();
-        for (ExecutionVertex executionVertex : getAllExecutionVertices()) {
-            if (executionVertex.getJobVertex().getJobVertex().isInputVertex()) {
-                sourceVertices.add(executionVertex);
-            }
-
-            allVertices.add(executionVertex);
-        }
-
         CheckpointBriefComputer checkpointBriefComputer =
-                new CheckpointBriefComputer(getJobID(), sourceVertices, allVertices, allVertices);
+                new CheckpointBriefComputer(
+                        getJobID(),
+                        new ExecutionGraphCheckpointBriefComputerContext(this),
+                        getVerticesTopologically());
 
         // create the coordinator that triggers and commits checkpoints and holds the state
         checkpointCoordinator =
@@ -590,6 +583,10 @@ public class ExecutionGraph implements AccessExecutionGraph {
      */
     public long getNumberOfRestarts() {
         return numberOfRestartsCounter.getCount();
+    }
+
+    public int getVerticesFinished() {
+        return verticesFinished;
     }
 
     @Override

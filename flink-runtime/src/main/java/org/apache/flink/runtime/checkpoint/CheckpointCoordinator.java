@@ -20,6 +20,7 @@ package org.apache.flink.runtime.checkpoint;
 
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.runtime.checkpoint.hooks.MasterHooks;
 import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.concurrent.ScheduledExecutor;
@@ -214,6 +215,12 @@ public class CheckpointCoordinator {
 
     private final CheckpointBriefComputer checkpointBriefComputer;
 
+    /**
+     * Temporary flag to disable checkpoints after tasks finished in formal jobs but support us to
+     * enable it in tests.
+     */
+    private boolean disableCheckpointsAfterTasksFinished;
+
     // --------------------------------------------------------------------------------------------
 
     public CheckpointCoordinator(
@@ -336,6 +343,11 @@ public class CheckpointCoordinator {
     // --------------------------------------------------------------------------------------------
     //  Configuration
     // --------------------------------------------------------------------------------------------
+
+    public void setDisableCheckpointsAfterTasksFinished(
+            boolean disableCheckpointsAfterTasksFinished) {
+        this.disableCheckpointsAfterTasksFinished = disableCheckpointsAfterTasksFinished;
+    }
 
     /**
      * Adds the given master hook to the checkpoint coordinator. This method does nothing, if the
@@ -520,26 +532,56 @@ public class CheckpointCoordinator {
                 preCheckGlobalState(request.isPeriodic);
             }
 
-            CheckpointBrief brief = checkpointBriefComputer.computeCheckpointBrief();
-
             // we will actually trigger this checkpoint!
             Preconditions.checkState(!isTriggering);
             isTriggering = true;
 
             final long timestamp = System.currentTimeMillis();
-            final CompletableFuture<PendingCheckpoint> pendingCheckpointCompletableFuture =
-                    initializeCheckpoint(request.props, request.externalSavepointLocation)
+
+            CompletableFuture<CheckpointBrief> briefFuture =
+                    checkpointBriefComputer
+                            .computeCheckpointBrief()
+                            // Disable checkpoints after tasks finished according to the flag.
                             .thenApplyAsync(
-                                    (checkpointIdAndStorageLocation) ->
+                                    brief -> {
+                                        if (brief.getFinishedTasks().size() > 0
+                                                && disableCheckpointsAfterTasksFinished) {
+                                            throw new CompletionException(
+                                                    new CheckpointException(
+                                                            CheckpointFailureReason
+                                                                    .NOT_ALL_REQUIRED_TASKS_RUNNING));
+                                        }
+
+                                        return brief;
+                                    },
+                                    timer);
+
+            final CompletableFuture<PendingCheckpoint> pendingCheckpointCompletableFuture =
+                    briefFuture
+                            .thenApplyAsync(
+                                    brief -> {
+                                        try {
+                                            CheckpointIdAndStorageLocation
+                                                    checkpointIdAndStorageLocation =
+                                                            initializeCheckpoint(
+                                                                    request.props,
+                                                                    request.externalSavepointLocation);
+                                            return new Tuple2<>(
+                                                    brief, checkpointIdAndStorageLocation);
+                                        } catch (Exception e) {
+                                            throw new CompletionException(e);
+                                        }
+                                    },
+                                    executor)
+                            .thenApplyAsync(
+                                    (checkpointInfo) ->
                                             createPendingCheckpoint(
                                                     timestamp,
                                                     request.props,
-                                                    brief.getTasksToAck(),
-                                                    brief.getRunningTasks(),
+                                                    checkpointInfo.f0,
                                                     request.isPeriodic,
-                                                    checkpointIdAndStorageLocation.checkpointId,
-                                                    checkpointIdAndStorageLocation
-                                                            .checkpointStorageLocation,
+                                                    checkpointInfo.f1.checkpointId,
+                                                    checkpointInfo.f1.checkpointStorageLocation,
                                                     request.getOnCompletionFuture()),
                                     timer);
 
@@ -608,7 +650,9 @@ public class CheckpointCoordinator {
                                                         checkpointId,
                                                         checkpoint.getCheckpointStorageLocation(),
                                                         request.props,
-                                                        brief.getTasksToTrigger(),
+                                                        checkpoint
+                                                                .getCheckpointBrief()
+                                                                .getTasksToTrigger(),
                                                         request.advanceToEndOfTime);
 
                                                 coordinatorsToCheckpoint.forEach(
@@ -646,45 +690,38 @@ public class CheckpointCoordinator {
     }
 
     /**
-     * Initialize the checkpoint trigger asynchronously. It will be executed in io thread due to it
-     * might be time-consuming.
+     * Initialize the checkpoint trigger asynchronously. It will expected to be executed in io
+     * thread due to it might be time-consuming.
      *
      * @param props checkpoint properties
      * @param externalSavepointLocation the external savepoint location, it might be null
-     * @return the future of initialized result, checkpoint id and checkpoint location
+     * @return the initialized result, checkpoint id and checkpoint location
      */
-    private CompletableFuture<CheckpointIdAndStorageLocation> initializeCheckpoint(
+    private CheckpointIdAndStorageLocation initializeCheckpoint(
             CheckpointProperties props, @Nullable String externalSavepointLocation) {
 
-        return CompletableFuture.supplyAsync(
-                () -> {
-                    try {
-                        // this must happen outside the coordinator-wide lock, because it
-                        // communicates
-                        // with external services (in HA mode) and may block for a while.
-                        long checkpointID = checkpointIdCounter.getAndIncrement();
+        try {
+            // this must happen outside the coordinator-wide lock, because it
+            // communicates
+            // with external services (in HA mode) and may block for a while.
+            long checkpointID = checkpointIdCounter.getAndIncrement();
 
-                        CheckpointStorageLocation checkpointStorageLocation =
-                                props.isSavepoint()
-                                        ? checkpointStorage.initializeLocationForSavepoint(
-                                                checkpointID, externalSavepointLocation)
-                                        : checkpointStorage.initializeLocationForCheckpoint(
-                                                checkpointID);
+            CheckpointStorageLocation checkpointStorageLocation =
+                    props.isSavepoint()
+                            ? checkpointStorage.initializeLocationForSavepoint(
+                                    checkpointID, externalSavepointLocation)
+                            : checkpointStorage.initializeLocationForCheckpoint(checkpointID);
 
-                        return new CheckpointIdAndStorageLocation(
-                                checkpointID, checkpointStorageLocation);
-                    } catch (Throwable throwable) {
-                        throw new CompletionException(throwable);
-                    }
-                },
-                executor);
+            return new CheckpointIdAndStorageLocation(checkpointID, checkpointStorageLocation);
+        } catch (Throwable throwable) {
+            throw new CompletionException(throwable);
+        }
     }
 
     private PendingCheckpoint createPendingCheckpoint(
             long timestamp,
             CheckpointProperties props,
-            Map<ExecutionAttemptID, ExecutionVertex> ackTasks,
-            List<ExecutionVertex> tasksToCommit,
+            CheckpointBrief checkpointBrief,
             boolean isPeriodic,
             long checkpointID,
             CheckpointStorageLocation checkpointStorageLocation,
@@ -705,8 +742,7 @@ public class CheckpointCoordinator {
                         job,
                         checkpointID,
                         timestamp,
-                        ackTasks,
-                        tasksToCommit,
+                        checkpointBrief,
                         OperatorInfo.getIds(coordinatorsToCheckpoint),
                         masterHooks.keySet(),
                         props,
@@ -716,7 +752,11 @@ public class CheckpointCoordinator {
         if (statsTracker != null) {
             PendingCheckpointStats callback =
                     statsTracker.reportPendingCheckpoint(
-                            tasksToCommit, checkpointID, timestamp, props);
+                            checkpointBrief.getRunningTasks(),
+                            checkpointBrief.getFinishedTasks(),
+                            checkpointID,
+                            timestamp,
+                            props);
 
             checkpoint.setStatsCallback(callback);
         }
@@ -1220,7 +1260,7 @@ public class CheckpointCoordinator {
                         });
 
                 sendAbortedMessages(
-                        pendingCheckpoint.getRunningTasks(),
+                        pendingCheckpoint.getCheckpointBrief().getRunningTasks(),
                         checkpointId,
                         pendingCheckpoint.getCheckpointTimestamp());
                 throw new CheckpointException(
@@ -1264,7 +1304,7 @@ public class CheckpointCoordinator {
 
         // send the "notify complete" call to all vertices, coordinators, etc.
         sendAcknowledgeMessages(
-                pendingCheckpoint.getRunningTasks(),
+                pendingCheckpoint.getCheckpointBrief().getRunningTasks(),
                 checkpointId,
                 completedCheckpoint.getTimestamp());
     }
@@ -1911,7 +1951,7 @@ public class CheckpointCoordinator {
                 }
             } finally {
                 sendAbortedMessages(
-                        pendingCheckpoint.getRunningTasks(),
+                        pendingCheckpoint.getCheckpointBrief().getRunningTasks(),
                         pendingCheckpoint.getCheckpointID(),
                         pendingCheckpoint.getCheckpointTimestamp());
                 pendingCheckpoints.remove(pendingCheckpoint.getCheckpointId());

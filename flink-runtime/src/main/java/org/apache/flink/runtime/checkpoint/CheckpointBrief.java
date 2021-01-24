@@ -20,6 +20,7 @@ package org.apache.flink.runtime.checkpoint;
 
 import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
+import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 
 import java.util.List;
@@ -45,14 +46,24 @@ public class CheckpointBrief {
      */
     private final List<ExecutionVertex> runningTasks;
 
+    /** Tasks that have already been finished when taking the checkpoint. */
+    private final List<ExecutionVertex> finishedTasks;
+
+    /** The job vertices whose tasks are all finished when taking the checkpoint. */
+    private final List<ExecutionJobVertex> fullyFinishedJobVertex;
+
     public CheckpointBrief(
             List<Execution> tasksToTrigger,
             Map<ExecutionAttemptID, ExecutionVertex> tasksToAck,
-            List<ExecutionVertex> runningTasks) {
+            List<ExecutionVertex> runningTasks,
+            List<ExecutionVertex> finishedTasks,
+            List<ExecutionJobVertex> fullyFinishedJobVertex) {
 
         this.tasksToTrigger = checkNotNull(tasksToTrigger);
         this.tasksToAck = checkNotNull(tasksToAck);
         this.runningTasks = checkNotNull(runningTasks);
+        this.finishedTasks = checkNotNull(finishedTasks);
+        this.fullyFinishedJobVertex = checkNotNull(fullyFinishedJobVertex);
     }
 
     public List<Execution> getTasksToTrigger() {
@@ -65,5 +76,13 @@ public class CheckpointBrief {
 
     public List<ExecutionVertex> getRunningTasks() {
         return runningTasks;
+    }
+
+    public List<ExecutionVertex> getFinishedTasks() {
+        return finishedTasks;
+    }
+
+    public List<ExecutionJobVertex> getFullyFinishedJobVertex() {
+        return fullyFinishedJobVertex;
     }
 }

@@ -31,6 +31,7 @@ import javax.annotation.Nullable;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Stream;
 
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -174,21 +175,39 @@ public class CheckpointStatsTracker {
      */
     PendingCheckpointStats reportPendingCheckpoint(
             List<ExecutionVertex> tasksToAck,
+            List<ExecutionVertex> finishedTasks,
             long checkpointId,
             long triggerTimestamp,
             CheckpointProperties props) {
 
         ConcurrentHashMap<JobVertexID, TaskStateStats> taskStateStats =
-                initializeTaskStateStatsMap(tasksToAck);
+                createEmptyTaskStateStatsMap(tasksToAck, finishedTasks);
 
         PendingCheckpointStats pending =
                 new PendingCheckpointStats(
                         checkpointId,
                         triggerTimestamp,
                         props,
-                        tasksToAck.size(),
+                        tasksToAck.size() + finishedTasks.size(),
                         taskStateStats,
                         new PendingCheckpointStatsCallback());
+
+        long now = System.currentTimeMillis();
+        for (ExecutionVertex executionVertex : finishedTasks) {
+            pending.reportSubtaskStats(
+                    executionVertex.getJobvertexId(),
+                    new SubtaskStateStats(
+                            executionVertex.getParallelSubtaskIndex(),
+                            now,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            false));
+        }
 
         statsReadWriteLock.lock();
         try {
@@ -268,17 +287,30 @@ public class CheckpointStatsTracker {
      * @return An empty map with an {@link TaskStateStats} entry for each task that is involved in
      *     the checkpoint.
      */
-    private ConcurrentHashMap<JobVertexID, TaskStateStats> initializeTaskStateStatsMap(
-            List<ExecutionVertex> tasksToAck) {
+    /**
+     * Creates an empty map with a {@link TaskStateStats} instance per task that is involved in the
+     * checkpoint.
+     *
+     * @return An empty map with an {@link TaskStateStats} entry for each task that is involved in
+     *     the checkpoint.
+     */
+    private ConcurrentHashMap<JobVertexID, TaskStateStats> createEmptyTaskStateStatsMap(
+            List<ExecutionVertex> toAckTasks, List<ExecutionVertex> finishedTasks) {
+
         ConcurrentHashMap<JobVertexID, TaskStateStats> taskStatsMap = new ConcurrentHashMap<>();
 
-        for (ExecutionVertex executionVertex : tasksToAck) {
-            taskStatsMap.computeIfAbsent(
-                    executionVertex.getJobvertexId(),
-                    jobVertexID ->
-                            new TaskStateStats(
-                                    jobVertexID, executionVertex.getJobVertex().getParallelism()));
-        }
+        Stream.of(toAckTasks, finishedTasks)
+                .forEach(
+                        tasks -> {
+                            for (ExecutionVertex task : tasks) {
+                                taskStatsMap.computeIfAbsent(
+                                        task.getJobvertexId(),
+                                        jobVertexID ->
+                                                new TaskStateStats(
+                                                        jobVertexID,
+                                                        task.getJobVertex().getParallelism()));
+                            }
+                        });
 
         return taskStatsMap;
     }
