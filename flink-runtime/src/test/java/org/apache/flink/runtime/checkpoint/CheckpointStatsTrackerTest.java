@@ -21,6 +21,7 @@ package org.apache.flink.runtime.checkpoint;
 import org.apache.flink.metrics.Gauge;
 import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.metrics.groups.UnregisteredMetricsGroup;
+import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
@@ -37,10 +38,12 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -309,6 +312,80 @@ public class CheckpointStatsTrackerTest {
         CheckpointStatsSnapshot snapshot4 = tracker.createSnapshot();
         assertNotEquals(snapshot3, snapshot4);
         assertEquals(snapshot4, tracker.createSnapshot());
+    }
+
+    @Test
+    public void testStatTrackWithFinishedTasks() throws Exception {
+        JobVertexID jobVertexID1 = new JobVertexID();
+        JobVertexID jobVertexID2 = new JobVertexID();
+        ExecutionGraph graph =
+                new CheckpointCoordinatorTestingUtils.CheckpointExecutionGraphBuilder()
+                        .addJobVertex(jobVertexID1, 3, 256)
+                        .addJobVertex(jobVertexID2, 3, 256)
+                        .build();
+        ExecutionJobVertex jobVertex1 = graph.getJobVertex(jobVertexID1);
+        ExecutionJobVertex jobVertex2 = graph.getJobVertex(jobVertexID2);
+        jobVertex1
+                .getTaskVertices()[0]
+                .getCurrentExecutionAttempt()
+                .transitionState(ExecutionState.FINISHED);
+
+        jobVertex2
+                .getTaskVertices()[1]
+                .getCurrentExecutionAttempt()
+                .transitionState(ExecutionState.FINISHED);
+
+        jobVertex2
+                .getTaskVertices()[2]
+                .getCurrentExecutionAttempt()
+                .transitionState(ExecutionState.FINISHED);
+
+        CheckpointStatsTracker tracker =
+                new CheckpointStatsTracker(
+                        10,
+                        mock(CheckpointCoordinatorConfiguration.class),
+                        new UnregisteredMetricsGroup());
+
+        PendingCheckpointStats pendingCheckpointStats =
+                tracker.reportPendingCheckpoint(
+                        Arrays.asList(
+                                jobVertex1.getTaskVertices()[1],
+                                jobVertex1.getTaskVertices()[2],
+                                jobVertex2.getTaskVertices()[0]),
+                        Arrays.asList(
+                                jobVertex1.getTaskVertices()[0],
+                                jobVertex2.getTaskVertices()[1],
+                                jobVertex2.getTaskVertices()[2]),
+                        1,
+                        System.currentTimeMillis(),
+                        CheckpointProperties.forCheckpoint(
+                                CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION));
+
+        assertEquals(6, pendingCheckpointStats.getNumberOfSubtasks());
+        assertEquals(3, pendingCheckpointStats.getNumberOfAcknowledgedSubtasks());
+        assertThat(
+                Arrays.asList(jobVertexID1, jobVertexID2),
+                containsInAnyOrder(
+                        pendingCheckpointStats.getAllTaskStateStats().stream()
+                                .map(TaskStateStats::getJobVertexId)
+                                .toArray()));
+
+        pendingCheckpointStats.reportSubtaskStats(jobVertexID1, createSubtaskStats(1));
+        pendingCheckpointStats.reportSubtaskStats(jobVertexID1, createSubtaskStats(2));
+        pendingCheckpointStats.reportSubtaskStats(jobVertexID2, createSubtaskStats(0));
+
+        pendingCheckpointStats.reportCompletedCheckpoint(null);
+
+        CheckpointStatsSnapshot snapshot = tracker.createSnapshot();
+        assertEquals(1, snapshot.getCounts().getNumberOfCompletedCheckpoints());
+        assertEquals(1, snapshot.getHistory().getCheckpoints().size());
+        assertThat(
+                Arrays.asList(jobVertexID1, jobVertexID2),
+                containsInAnyOrder(
+                        snapshot.getHistory().getCheckpoints().get(0).getAllTaskStateStats()
+                                .stream()
+                                .map(TaskStateStats::getJobVertexId)
+                                .toArray()));
     }
 
     /** Tests the registration of the checkpoint metrics. */
