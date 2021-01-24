@@ -21,6 +21,7 @@ package org.apache.flink.runtime.checkpoint;
 import org.apache.flink.metrics.Gauge;
 import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.metrics.groups.UnregisteredMetricsGroup;
+import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.tasks.CheckpointCoordinatorConfiguration;
@@ -31,11 +32,11 @@ import org.junit.Test;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
-import static org.apache.flink.runtime.checkpoint.CheckpointCoordinatorTestingUtils.mockExecutionJobVertex;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -77,7 +78,12 @@ public class CheckpointStatsTrackerTest {
     /** Tests that the number of remembered checkpoints configuration is respected. */
     @Test
     public void testTrackerWithoutHistory() throws Exception {
-        ExecutionJobVertex jobVertex = mockExecutionJobVertex(new JobVertexID(), 3, 256);
+        JobVertexID jobVertexID = new JobVertexID();
+        ExecutionGraph graph =
+                new CheckpointCoordinatorTestingUtils.CheckpointExecutionGraphBuilder()
+                        .addJobVertex(jobVertexID, 3, 256)
+                        .build();
+        ExecutionJobVertex jobVertex = graph.getJobVertex(jobVertexID);
 
         CheckpointStatsTracker tracker =
                 new CheckpointStatsTracker(
@@ -88,6 +94,7 @@ public class CheckpointStatsTrackerTest {
         PendingCheckpointStats pending =
                 tracker.reportPendingCheckpoint(
                         Arrays.asList(jobVertex.getTaskVertices()),
+                        Collections.emptyList(),
                         0,
                         1,
                         CheckpointProperties.forCheckpoint(
@@ -121,7 +128,12 @@ public class CheckpointStatsTrackerTest {
     /** Tests tracking of checkpoints. */
     @Test
     public void testCheckpointTracking() throws Exception {
-        ExecutionJobVertex jobVertex = mockExecutionJobVertex(new JobVertexID(), 3, 256);
+        JobVertexID jobVertexID = new JobVertexID();
+        ExecutionGraph graph =
+                new CheckpointCoordinatorTestingUtils.CheckpointExecutionGraphBuilder()
+                        .addJobVertex(jobVertexID, 3, 256)
+                        .build();
+        ExecutionJobVertex jobVertex = graph.getJobVertex(jobVertexID);
 
         CheckpointStatsTracker tracker =
                 new CheckpointStatsTracker(
@@ -133,6 +145,7 @@ public class CheckpointStatsTrackerTest {
         PendingCheckpointStats completed1 =
                 tracker.reportPendingCheckpoint(
                         Arrays.asList(jobVertex.getTaskVertices()),
+                        Collections.emptyList(),
                         0,
                         1,
                         CheckpointProperties.forCheckpoint(
@@ -148,6 +161,7 @@ public class CheckpointStatsTrackerTest {
         PendingCheckpointStats failed =
                 tracker.reportPendingCheckpoint(
                         Arrays.asList(jobVertex.getTaskVertices()),
+                        Collections.emptyList(),
                         1,
                         1,
                         CheckpointProperties.forCheckpoint(
@@ -159,6 +173,7 @@ public class CheckpointStatsTrackerTest {
         PendingCheckpointStats savepoint =
                 tracker.reportPendingCheckpoint(
                         Arrays.asList(jobVertex.getTaskVertices()),
+                        Collections.emptyList(),
                         2,
                         1,
                         CheckpointProperties.forSavepoint(true));
@@ -173,6 +188,7 @@ public class CheckpointStatsTrackerTest {
         PendingCheckpointStats inProgress =
                 tracker.reportPendingCheckpoint(
                         Arrays.asList(jobVertex.getTaskVertices()),
+                        Collections.emptyList(),
                         3,
                         1,
                         CheckpointProperties.forCheckpoint(
@@ -243,7 +259,12 @@ public class CheckpointStatsTrackerTest {
     /** Tests that snapshots are only created if a new snapshot has been reported or updated. */
     @Test
     public void testCreateSnapshot() throws Exception {
-        ExecutionJobVertex jobVertex = mockExecutionJobVertex(new JobVertexID(), 1, 256);
+        JobVertexID jobVertexID = new JobVertexID();
+        ExecutionGraph graph =
+                new CheckpointCoordinatorTestingUtils.CheckpointExecutionGraphBuilder()
+                        .addJobVertex(jobVertexID)
+                        .build();
+        ExecutionJobVertex jobVertex = graph.getJobVertex(jobVertexID);
 
         CheckpointStatsTracker tracker =
                 new CheckpointStatsTracker(
@@ -257,6 +278,7 @@ public class CheckpointStatsTrackerTest {
         PendingCheckpointStats pending =
                 tracker.reportPendingCheckpoint(
                         Arrays.asList(jobVertex.getTaskVertices()),
+                        Collections.emptyList(),
                         0,
                         1,
                         CheckpointProperties.forCheckpoint(
@@ -349,7 +371,12 @@ public class CheckpointStatsTrackerTest {
                     }
                 };
 
-        ExecutionJobVertex jobVertex = mockExecutionJobVertex(new JobVertexID(), 1, 256);
+        JobVertexID jobVertexID = new JobVertexID();
+        ExecutionGraph graph =
+                new CheckpointCoordinatorTestingUtils.CheckpointExecutionGraphBuilder()
+                        .addJobVertex(jobVertexID)
+                        .build();
+        ExecutionJobVertex jobVertex = graph.getJobVertex(jobVertexID);
 
         CheckpointStatsTracker stats =
                 new CheckpointStatsTracker(
@@ -416,6 +443,7 @@ public class CheckpointStatsTrackerTest {
         PendingCheckpointStats pending =
                 stats.reportPendingCheckpoint(
                         Arrays.asList(jobVertex.getTaskVertices()),
+                        Collections.emptyList(),
                         0,
                         0,
                         CheckpointProperties.forCheckpoint(
@@ -467,6 +495,7 @@ public class CheckpointStatsTrackerTest {
         PendingCheckpointStats nextPending =
                 stats.reportPendingCheckpoint(
                         Arrays.asList(jobVertex.getTaskVertices()),
+                        Collections.emptyList(),
                         1,
                         11,
                         CheckpointProperties.forCheckpoint(
@@ -503,6 +532,7 @@ public class CheckpointStatsTrackerTest {
         PendingCheckpointStats thirdPending =
                 stats.reportPendingCheckpoint(
                         Arrays.asList(jobVertex.getTaskVertices()),
+                        Collections.emptyList(),
                         2,
                         5000,
                         CheckpointProperties.forCheckpoint(

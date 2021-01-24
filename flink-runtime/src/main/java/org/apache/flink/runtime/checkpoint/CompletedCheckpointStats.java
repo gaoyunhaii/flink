@@ -84,7 +84,7 @@ public class CompletedCheckpointStats extends AbstractCheckpointStats {
 
         super(checkpointId, triggerTimestamp, props, totalSubtaskCount, taskStats);
         checkArgument(
-                numAcknowledgedSubtasks == totalSubtaskCount, "Did not acknowledge all subtasks.");
+                numAcknowledgedSubtasks == totalSubtaskCount, "Did not acknowledge all subtasks, " + numAcknowledgedSubtasks + ", " + totalSubtaskCount);
         checkArgument(stateSize >= 0, "Negative state size");
         this.stateSize = stateSize;
         this.processedData = processedData;
