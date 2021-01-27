@@ -23,6 +23,8 @@ import org.apache.flink.streaming.api.operators.BoundedOneInput;
 import org.apache.flink.streaming.api.operators.MailboxExecutor;
 import org.apache.flink.streaming.api.operators.StreamOperator;
 
+import org.slf4j.LoggerFactory;
+
 import javax.annotation.Nonnull;
 
 import java.util.Iterator;
@@ -121,6 +123,7 @@ public class StreamOperatorWrapper<OUT, OP extends StreamOperator<OUT>> {
      * them.
      */
     public void close(StreamTaskActionExecutor actionExecutor) throws Exception {
+        LoggerFactory.getLogger(StreamOperatorWrapper.class).info("closing " + getStreamOperator());
         if (!isHead) {
             // NOTE: This only do for the case where the operator is one-input operator. At present,
             // any non-head operator on the operator chain is one-input operator.

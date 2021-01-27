@@ -196,6 +196,7 @@ public class SourceStreamTask<
 
     @Override
     protected void finishTask() throws Exception {
+        LOG.info("Source finish tasks");
         isFinished = true;
         cancelTask();
     }

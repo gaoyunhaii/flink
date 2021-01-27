@@ -408,6 +408,7 @@ public class OperatorChain<OUT, OP extends StreamOperator<OUT>>
      */
     @Override
     public void endInput(int inputId) throws Exception {
+        LOG.info("end input " + inputId);
         if (mainOperatorWrapper != null) {
             mainOperatorWrapper.endOperatorInput(inputId);
         }
