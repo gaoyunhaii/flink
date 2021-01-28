@@ -313,15 +313,18 @@ public class CheckpointCoordinatorTest extends TestLogger {
             assertFalse(checkpoint.areTasksFullyAcknowledged());
 
             // decline checkpoint from the other task
-            checkpointCoordinator.receiveDeclineMessage(
-                    new DeclineCheckpoint(graph.getJobID(), attemptID1, checkpointId),
-                    TASK_MANAGER_LOCATION_INFO);
+            checkpointCoordinator
+                    .receiveDeclineMessage(
+                            new DeclineCheckpoint(graph.getJobID(), attemptID1, checkpointId),
+                            TASK_MANAGER_LOCATION_INFO)
+                    .get();
 
             fail("Test failed.");
         } catch (Exception e) {
             // expected
-            assertTrue(e instanceof RuntimeException);
-            assertEquals(errorMsg, e.getMessage());
+            Throwable cause = e.getCause();
+            assertTrue(cause instanceof RuntimeException);
+            assertEquals(errorMsg, cause.getMessage());
         } finally {
             try {
                 checkpointCoordinator.shutdown();

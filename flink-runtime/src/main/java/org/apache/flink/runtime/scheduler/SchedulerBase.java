@@ -994,16 +994,7 @@ public abstract class SchedulerBase implements SchedulerNG {
         final String taskManagerLocationInfo = retrieveTaskManagerLocation(executionAttemptID);
 
         if (checkpointCoordinator != null) {
-            ioExecutor.execute(
-                    () -> {
-                        try {
-                            checkpointCoordinator.receiveAcknowledgeMessage(
-                                    ackMessage, taskManagerLocationInfo);
-                        } catch (Throwable t) {
-                            log.warn(
-                                    "Error while processing checkpoint acknowledgement message", t);
-                        }
-                    });
+            checkpointCoordinator.receiveAcknowledgeMessage(ackMessage, taskManagerLocationInfo);
         } else {
             String errorMessage =
                     "Received AcknowledgeCheckpoint message for job {} with no CheckpointCoordinator";
@@ -1025,18 +1016,7 @@ public abstract class SchedulerBase implements SchedulerNG {
                 retrieveTaskManagerLocation(decline.getTaskExecutionId());
 
         if (checkpointCoordinator != null) {
-            ioExecutor.execute(
-                    () -> {
-                        try {
-                            checkpointCoordinator.receiveDeclineMessage(
-                                    decline, taskManagerLocationInfo);
-                        } catch (Exception e) {
-                            log.error(
-                                    "Error in CheckpointCoordinator while processing {}",
-                                    decline,
-                                    e);
-                        }
-                    });
+            checkpointCoordinator.receiveDeclineMessage(decline, taskManagerLocationInfo);
         } else {
             String errorMessage =
                     "Received DeclineCheckpoint message for job {} with no CheckpointCoordinator";
