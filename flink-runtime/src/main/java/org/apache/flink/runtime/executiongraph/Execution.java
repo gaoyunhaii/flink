@@ -936,7 +936,7 @@ public class Execution
     }
 
     @VisibleForTesting
-    void markFinished() {
+    public void markFinished() {
         markFinished(null, null);
     }
 

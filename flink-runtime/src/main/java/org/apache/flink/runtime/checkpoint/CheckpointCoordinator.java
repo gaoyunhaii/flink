@@ -78,6 +78,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 import static org.apache.flink.util.ExceptionUtils.findThrowable;
 import static org.apache.flink.util.Preconditions.checkArgument;
@@ -95,6 +96,12 @@ public class CheckpointCoordinator {
 
     /** The number of recent checkpoints whose IDs are remembered. */
     private static final int NUM_GHOST_CHECKPOINT_IDS = 16;
+
+    private static final double BRIEF_RECOMPUTE_TIMEOUT_RATIO = 0.003;
+
+    private static final long MIN_BRIEF_RECOMPUTE_INTERVAL = 30;
+
+    private static final long MAX_BRIEF_RECOMPUTE_INTERVAL = 3000;
 
     // ------------------------------------------------------------------------
 
@@ -215,6 +222,8 @@ public class CheckpointCoordinator {
 
     private final CheckpointBriefComputer checkpointBriefComputer;
 
+    private final CheckpointBriefRecomputeScheduler briefReComputeScheduler;
+
     /**
      * Temporary flag to disable checkpoints after tasks finished in formal jobs but support us to
      * enable it in tests.
@@ -330,6 +339,22 @@ public class CheckpointCoordinator {
             throw new RuntimeException(
                     "Failed to start checkpoint ID counter: " + t.getMessage(), t);
         }
+
+        long minBriefReComputeInterval =
+                (long)
+                        Math.min(
+                                MAX_BRIEF_RECOMPUTE_INTERVAL,
+                                Math.max(
+                                        MIN_BRIEF_RECOMPUTE_INTERVAL,
+                                        checkpointTimeout * BRIEF_RECOMPUTE_TIMEOUT_RATIO));
+        this.briefReComputeScheduler =
+                new CheckpointBriefRecomputeScheduler(
+                        minBriefReComputeInterval,
+                        timer,
+                        System::currentTimeMillis,
+                        this::isTriggering,
+                        this::recomputeCheckpointBriefs);
+
         this.requestDecider =
                 new CheckpointRequestDecider(
                         chkConfig.getMaxConcurrentCheckpoints(),
@@ -526,6 +551,99 @@ public class CheckpointCoordinator {
         return request.onCompletionPromise;
     }
 
+    public void onTaskFinished(ExecutionAttemptID executionId) {
+        briefReComputeScheduler.onTaskFinished(executionId);
+    }
+
+    private void recomputeCheckpointBriefs(List<ExecutionAttemptID> finishedTasks) {
+        synchronized (lock) {
+            long lastCheckpointId = -1;
+            for (Map.Entry<Long, PendingCheckpoint> entry : pendingCheckpoints.entrySet()) {
+                Preconditions.checkState(entry.getKey() > lastCheckpointId);
+                lastCheckpointId = entry.getKey();
+
+                PendingCheckpoint pendingCheckpoint = entry.getValue();
+                if (pendingCheckpoint.isDisposed()) {
+                    continue;
+                }
+
+                // Build indices to accelerate the computation
+                Set<ExecutionAttemptID> oldTasksToTrigger =
+                        pendingCheckpoint.getCheckpointBrief().getTasksToTrigger().stream()
+                                .map(Execution::getAttemptId)
+                                .collect(Collectors.toSet());
+
+                boolean needRecompute =
+                        finishedTasks.stream()
+                                .anyMatch(
+                                        executionId ->
+                                                oldTasksToTrigger.contains(executionId)
+                                                        && !pendingCheckpoint.isAcknowledgedBy(
+                                                                executionId));
+
+                if (needRecompute) {
+                    recomputeAndTriggerCheckpoint(pendingCheckpoint, oldTasksToTrigger);
+                }
+            }
+        }
+    }
+
+    private void recomputeAndTriggerCheckpoint(
+            PendingCheckpoint pendingCheckpoint, Set<ExecutionAttemptID> oldTasksToTrigger) {
+        CompletableFuture<CheckpointBrief> briefFuture = computeCheckpointBrief();
+        briefFuture
+                .thenApplyAsync(
+                        brief -> {
+                            pendingCheckpoint.setCheckpointBrief(brief);
+
+                            List<Execution> newTasksToTrigger =
+                                    brief.getTasksToTrigger().stream()
+                                            .filter(
+                                                    execution ->
+                                                            !oldTasksToTrigger.contains(
+                                                                    execution.getAttemptId()))
+                                            .collect(Collectors.toList());
+
+                            if (newTasksToTrigger.size() > 0) {
+                                LOG.info(
+                                        "Retriggering {} tasks for checkpoint {} due to tasks finished before triggered",
+                                        newTasksToTrigger.size(),
+                                        pendingCheckpoint.getCheckpointID());
+                                snapshotTaskState(
+                                        pendingCheckpoint.getCheckpointTimestamp(),
+                                        pendingCheckpoint.getCheckpointID(),
+                                        pendingCheckpoint.getCheckpointStorageLocation(),
+                                        pendingCheckpoint.getProps(),
+                                        newTasksToTrigger,
+                                        pendingCheckpoint.isAdvanceToEndOfTime());
+                            }
+
+                            return brief;
+                        },
+                        timer)
+                .thenAcceptAsync(
+                        brief -> {
+                            synchronized (lock) {
+                                try {
+                                    for (ExecutionVertex vertex : brief.getFinishedTasks()) {
+                                        ExecutionAttemptID executionId =
+                                                vertex.getCurrentExecutionAttempt().getAttemptId();
+                                        if (!pendingCheckpoint.isAcknowledgedBy(executionId)) {
+                                            pendingCheckpoint.acknowledgeTasksFinished(executionId);
+                                        }
+
+                                        if (pendingCheckpoint.isFullyAcknowledged()) {
+                                            completePendingCheckpoint(pendingCheckpoint);
+                                        }
+                                    }
+                                } catch (Throwable t) {
+                                    LOG.warn("Error while complete the newly finished tasks", t);
+                                }
+                            }
+                        },
+                        executor);
+    }
+
     private void startTriggeringCheckpoint(CheckpointTriggerRequest request) {
         try {
             synchronized (lock) {
@@ -538,24 +656,7 @@ public class CheckpointCoordinator {
 
             final long timestamp = System.currentTimeMillis();
 
-            CompletableFuture<CheckpointBrief> briefFuture =
-                    checkpointBriefComputer
-                            .computeCheckpointBrief()
-                            // Disable checkpoints after tasks finished according to the flag.
-                            .thenApplyAsync(
-                                    brief -> {
-                                        if (brief.getFinishedTasks().size() > 0
-                                                && disableCheckpointsAfterTasksFinished) {
-                                            throw new CompletionException(
-                                                    new CheckpointException(
-                                                            CheckpointFailureReason
-                                                                    .NOT_ALL_REQUIRED_TASKS_RUNNING));
-                                        }
-
-                                        return brief;
-                                    },
-                                    timer);
-
+            CompletableFuture<CheckpointBrief> briefFuture = computeCheckpointBrief();
             final CompletableFuture<PendingCheckpoint> pendingCheckpointCompletableFuture =
                     briefFuture
                             .thenApplyAsync(
@@ -578,6 +679,7 @@ public class CheckpointCoordinator {
                                             createPendingCheckpoint(
                                                     timestamp,
                                                     request.props,
+                                                    request.advanceToEndOfTime,
                                                     checkpointInfo.f0,
                                                     request.isPeriodic,
                                                     checkpointInfo.f1.checkpointId,
@@ -689,6 +791,25 @@ public class CheckpointCoordinator {
         }
     }
 
+    private CompletableFuture<CheckpointBrief> computeCheckpointBrief() {
+        return checkpointBriefComputer
+                .computeCheckpointBrief()
+                // Disable checkpoints after tasks finished according to the flag.
+                .thenApplyAsync(
+                        brief -> {
+                            if (brief.getFinishedTasks().size() > 0
+                                    && disableCheckpointsAfterTasksFinished) {
+                                throw new CompletionException(
+                                        new CheckpointException(
+                                                CheckpointFailureReason
+                                                        .NOT_ALL_REQUIRED_TASKS_RUNNING));
+                            }
+
+                            return brief;
+                        },
+                        timer);
+    }
+
     /**
      * Initialize the checkpoint trigger asynchronously. It will expected to be executed in io
      * thread due to it might be time-consuming.
@@ -721,6 +842,7 @@ public class CheckpointCoordinator {
     private PendingCheckpoint createPendingCheckpoint(
             long timestamp,
             CheckpointProperties props,
+            boolean advanceToEndOfTime,
             CheckpointBrief checkpointBrief,
             boolean isPeriodic,
             long checkpointID,
@@ -742,6 +864,7 @@ public class CheckpointCoordinator {
                         job,
                         checkpointID,
                         timestamp,
+                        advanceToEndOfTime,
                         checkpointBrief,
                         OperatorInfo.getIds(coordinatorsToCheckpoint),
                         masterHooks.keySet(),
@@ -877,6 +1000,7 @@ public class CheckpointCoordinator {
     private void onTriggerSuccess() {
         isTriggering = false;
         numUnsuccessfulCheckpointsTriggers.set(0);
+        briefReComputeScheduler.onTriggerFinished();
         executeQueuedRequest();
     }
 
@@ -928,6 +1052,7 @@ public class CheckpointCoordinator {
             }
         } finally {
             isTriggering = false;
+            briefReComputeScheduler.onTriggerFinished();
             executeQueuedRequest();
         }
     }
@@ -996,6 +1121,7 @@ public class CheckpointCoordinator {
                     }
                 });
 
+        briefReComputeScheduler.onTaskReport(message.getTaskExecutionId(), declineFuture);
         return declineFuture;
     }
 
@@ -1104,6 +1230,7 @@ public class CheckpointCoordinator {
                     }
                 });
 
+        briefReComputeScheduler.onTaskReport(message.getTaskExecutionId(), ackFuture);
         return ackFuture;
     }
 

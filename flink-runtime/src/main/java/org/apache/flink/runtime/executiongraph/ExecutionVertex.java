@@ -756,7 +756,7 @@ public class ExecutionVertex
     // --------------------------------------------------------------------------------------------
 
     void executionFinished(Execution execution) {
-        getExecutionGraph().vertexFinished();
+        getExecutionGraph().vertexFinished(execution);
     }
 
     // --------------------------------------------------------------------------------------------
