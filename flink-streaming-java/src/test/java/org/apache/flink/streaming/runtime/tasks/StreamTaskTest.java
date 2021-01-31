@@ -1239,7 +1239,7 @@ public class StreamTaskTest extends TestLogger {
             RunningTask<StreamTask<?, ?>> task =
                     runTask(
                             () ->
-                                    new StreamTask<Object, StreamOperator<Object>>(
+                                    new AbstractSourceStreamTask<Object, StreamOperator<Object>>(
                                             mockEnvironment) {
                                         @Override
                                         protected void init() throws Exception {}
@@ -1641,7 +1641,8 @@ public class StreamTaskTest extends TestLogger {
      * @param <T>
      * @param <OP>
      */
-    public static class NoOpStreamTask<T, OP extends StreamOperator<T>> extends StreamTask<T, OP> {
+    public static class NoOpStreamTask<T, OP extends StreamOperator<T>>
+            extends AbstractSourceStreamTask<T, OP> {
 
         public NoOpStreamTask(Environment environment) throws Exception {
             super(environment);
@@ -1838,7 +1839,8 @@ public class StreamTaskTest extends TestLogger {
     // ------------------------------------------------------------------------
     // ------------------------------------------------------------------------
 
-    private static class MockStreamTask extends StreamTask<String, AbstractStreamOperator<String>> {
+    private static class MockStreamTask
+            extends AbstractSourceStreamTask<String, AbstractStreamOperator<String>> {
 
         private final OperatorChain<String, AbstractStreamOperator<String>> overrideOperatorChain;
 
@@ -1917,7 +1919,7 @@ public class StreamTaskTest extends TestLogger {
      * closed them correctly.
      */
     public static class StateBackendTestSource
-            extends StreamTask<Long, StreamSource<Long, SourceFunction<Long>>> {
+            extends AbstractSourceStreamTask<Long, StreamSource<Long, SourceFunction<Long>>> {
 
         private static volatile boolean fail;
 
@@ -2016,7 +2018,7 @@ public class StreamTaskTest extends TestLogger {
     }
 
     private static class ThreadInspectingTask
-            extends StreamTask<String, AbstractStreamOperator<String>> {
+            extends AbstractSourceStreamTask<String, AbstractStreamOperator<String>> {
 
         private final long taskThreadId;
         private final ClassLoader taskClassLoader;

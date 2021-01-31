@@ -31,6 +31,7 @@ import org.apache.flink.metrics.groups.UnregisteredMetricsGroup;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
+import org.apache.flink.runtime.checkpoint.CheckpointMetricsBuilder;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.OperatorSubtaskState;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
@@ -226,10 +227,10 @@ public class RocksDBAsyncSnapshotTest extends TestLogger {
 
         final OneInputStreamTask<String, String> task = testHarness.getTask();
 
-        task.triggerCheckpointAsync(
-                        new CheckpointMetaData(42, 17),
-                        CheckpointOptions.forCheckpointWithDefaultLocation())
-                .get();
+        task.triggerCheckpointOnBarrier(
+                new CheckpointMetaData(42, 17),
+                CheckpointOptions.forCheckpointWithDefaultLocation(),
+                new CheckpointMetricsBuilder(1, 1));
 
         testHarness.processElement(new StreamRecord<>("Wohoo", 0));
 
@@ -348,10 +349,10 @@ public class RocksDBAsyncSnapshotTest extends TestLogger {
 
         final OneInputStreamTask<String, String> task = testHarness.getTask();
 
-        task.triggerCheckpointAsync(
-                        new CheckpointMetaData(42, 17),
-                        CheckpointOptions.forCheckpointWithDefaultLocation())
-                .get();
+        task.triggerCheckpointOnBarrier(
+                new CheckpointMetaData(42, 17),
+                CheckpointOptions.forCheckpointWithDefaultLocation(),
+                new CheckpointMetricsBuilder(1, 1));
 
         testHarness.processElement(new StreamRecord<>("Wohoo", 0));
         blockerCheckpointStreamFactory.getWaiterLatch().await();

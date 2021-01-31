@@ -218,7 +218,7 @@ public class StreamTaskTerminationTest extends TestLogger {
      * certain interleaving with a concurrently running checkpoint operation.
      */
     public static class BlockingStreamTask<T, OP extends StreamOperator<T>>
-            extends StreamTask<T, OP> {
+            extends AbstractSourceStreamTask<T, OP> {
 
         private boolean isRunning;
 

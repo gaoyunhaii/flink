@@ -25,6 +25,7 @@ import org.apache.flink.api.common.typeutils.base.LongSerializer;
 import org.apache.flink.api.common.typeutils.base.StringSerializer;
 import org.apache.flink.core.testutils.OneShotLatch;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointMetricsBuilder;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.JobManagerTaskRestore;
 import org.apache.flink.runtime.checkpoint.OperatorSubtaskState;
@@ -275,8 +276,10 @@ public class RestoreStreamTaskTest extends TestLogger {
 
         testHarness.taskStateManager.setWaitForReportLatch(new OneShotLatch());
 
-        streamTask.triggerCheckpointAsync(
-                checkpointMetaData, CheckpointOptions.forCheckpointWithDefaultLocation());
+        streamTask.triggerCheckpointOnBarrier(
+                checkpointMetaData,
+                CheckpointOptions.forCheckpointWithDefaultLocation(),
+                new CheckpointMetricsBuilder(1, 1));
 
         testHarness.taskStateManager.getWaitForReportLatch().await();
         long reportedCheckpointId = testHarness.taskStateManager.getReportedCheckpointId();

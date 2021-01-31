@@ -28,6 +28,7 @@ import org.apache.flink.api.java.typeutils.TypeExtractor;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.testutils.OneShotLatch;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointMetricsBuilder;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.OperatorSubtaskState;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
@@ -525,8 +526,10 @@ public class AsyncWaitOperatorTest extends TestLogger {
         final CheckpointMetaData checkpointMetaData =
                 new CheckpointMetaData(checkpointId, checkpointTimestamp);
 
-        task.triggerCheckpointAsync(
-                checkpointMetaData, CheckpointOptions.forCheckpointWithDefaultLocation());
+        task.triggerCheckpointOnBarrier(
+                checkpointMetaData,
+                CheckpointOptions.forCheckpointWithDefaultLocation(),
+                new CheckpointMetricsBuilder(1, 1));
 
         taskStateManagerMock.getWaitForReportLatch().await();
 
@@ -566,11 +569,10 @@ public class AsyncWaitOperatorTest extends TestLogger {
         restoredTaskHarness.processElement(new StreamRecord<>(7, initialTime + 7));
 
         // trigger the checkpoint while processing stream elements
-        restoredTask
-                .triggerCheckpointAsync(
-                        new CheckpointMetaData(checkpointId, checkpointTimestamp),
-                        CheckpointOptions.forCheckpointWithDefaultLocation())
-                .get();
+        restoredTask.triggerCheckpointOnBarrier(
+                new CheckpointMetaData(checkpointId, checkpointTimestamp),
+                CheckpointOptions.forCheckpointWithDefaultLocation(),
+                new CheckpointMetricsBuilder(1, 1));
 
         restoredTaskHarness.processElement(new StreamRecord<>(8, initialTime + 8));
 

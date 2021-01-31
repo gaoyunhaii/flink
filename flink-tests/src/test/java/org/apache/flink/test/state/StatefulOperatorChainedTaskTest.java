@@ -26,6 +26,7 @@ import org.apache.flink.api.common.typeutils.base.StringSerializer;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.testutils.OneShotLatch;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointMetricsBuilder;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.JobManagerTaskRestore;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
@@ -181,10 +182,10 @@ public class StatefulOperatorChainedTaskTest {
 
         testHarness.getTaskStateManager().setWaitForReportLatch(new OneShotLatch());
 
-        while (!streamTask
-                .triggerCheckpointAsync(
-                        checkpointMetaData, CheckpointOptions.forCheckpointWithDefaultLocation())
-                .get()) {}
+        streamTask.triggerCheckpointOnBarrier(
+                checkpointMetaData,
+                CheckpointOptions.forCheckpointWithDefaultLocation(),
+                new CheckpointMetricsBuilder(1, 1));
 
         testHarness.getTaskStateManager().getWaitForReportLatch().await();
         long reportedCheckpointId = testHarness.getTaskStateManager().getReportedCheckpointId();
