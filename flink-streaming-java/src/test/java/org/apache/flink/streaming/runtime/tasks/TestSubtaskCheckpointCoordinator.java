@@ -90,5 +90,13 @@ public class TestSubtaskCheckpointCoordinator implements SubtaskCheckpointCoordi
             long checkpointId, OperatorChain<?, ?> operatorChain, Supplier<Boolean> isRunning) {}
 
     @Override
+    public void waitForPendingCheckpoints() throws Exception {}
+
+    @Override
+    public int getNumberOfPendingCheckpoints() {
+        return 0;
+    }
+
+    @Override
     public void close() {}
 }

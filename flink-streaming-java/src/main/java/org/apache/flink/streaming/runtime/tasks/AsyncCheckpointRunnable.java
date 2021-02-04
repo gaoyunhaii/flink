@@ -35,6 +35,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -49,10 +50,10 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 
     public static final Logger LOG = LoggerFactory.getLogger(AsyncCheckpointRunnable.class);
     private final String taskName;
-    private final Consumer<AsyncCheckpointRunnable> registerConsumer;
     private final Consumer<AsyncCheckpointRunnable> unregisterConsumer;
     private final Supplier<Boolean> isTaskRunning;
     private final Environment taskEnvironment;
+    private final CompletableFuture<Void> finishedFuture = new CompletableFuture<>();
 
     public boolean isRunning() {
         return asyncCheckpointState.get() == AsyncCheckpointState.RUNNING;
@@ -78,7 +79,6 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
             CheckpointMetricsBuilder checkpointMetrics,
             long asyncConstructionNanos,
             String taskName,
-            Consumer<AsyncCheckpointRunnable> register,
             Consumer<AsyncCheckpointRunnable> unregister,
             Environment taskEnvironment,
             AsyncExceptionHandler asyncExceptionHandler,
@@ -89,7 +89,6 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
         this.checkpointMetrics = checkNotNull(checkpointMetrics);
         this.asyncConstructionNanos = asyncConstructionNanos;
         this.taskName = checkNotNull(taskName);
-        this.registerConsumer = register;
         this.unregisterConsumer = unregister;
         this.taskEnvironment = checkNotNull(taskEnvironment);
         this.asyncExceptionHandler = checkNotNull(asyncExceptionHandler);
@@ -108,8 +107,6 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 
         FileSystemSafetyNet.initializeSafetyNetForThread();
         try {
-
-            registerConsumer.accept(this);
 
             TaskStateSnapshot jobManagerTaskOperatorSubtaskStates =
                     new TaskStateSnapshot(operatorSnapshotsInProgress.size());
@@ -175,6 +172,7 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
         } finally {
             unregisterConsumer.accept(this);
             FileSystemSafetyNet.closeSafetyNetAndGuardedResourcesForThread();
+            finishedFuture.complete(null);
         }
     }
 
@@ -316,6 +314,10 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 
     long getCheckpointId() {
         return checkpointMetaData.getCheckpointId();
+    }
+
+    public CompletableFuture<Void> getFinishedFuture() {
+        return finishedFuture;
     }
 
     /** @return discarded state size (if available). */

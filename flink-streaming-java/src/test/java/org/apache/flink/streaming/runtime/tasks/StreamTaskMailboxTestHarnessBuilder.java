@@ -19,12 +19,14 @@
 package org.apache.flink.streaming.runtime.tasks;
 
 import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.execution.Environment;
+import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.io.network.partition.consumer.StreamTestSingleInputGate;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.metrics.groups.TaskMetricGroup;
@@ -33,6 +35,8 @@ import org.apache.flink.runtime.operators.testutils.MockInputSplitProvider;
 import org.apache.flink.runtime.state.LocalRecoveryConfig;
 import org.apache.flink.runtime.state.TestLocalRecoveryConfig;
 import org.apache.flink.runtime.state.TestTaskStateManager;
+import org.apache.flink.runtime.taskmanager.CheckpointResponder;
+import org.apache.flink.runtime.taskmanager.TestCheckpointResponder;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.graph.StreamConfig;
 import org.apache.flink.streaming.api.graph.StreamConfig.InputConfig;
@@ -79,6 +83,7 @@ public class StreamTaskMailboxTestHarnessBuilder<OUT> {
     protected TaskMetricGroup taskMetricGroup =
             UnregisteredMetricGroups.createUnregisteredTaskMetricGroup();
     protected Map<Long, TaskStateSnapshot> taskStateSnapshots;
+    protected CheckpointResponder checkpointResponder = new TestCheckpointResponder();
 
     protected final ArrayList<InputConfig> inputs = new ArrayList<>();
     protected final ArrayList<Integer> inputChannelsPerGate = new ArrayList<>();
@@ -102,6 +107,12 @@ public class StreamTaskMailboxTestHarnessBuilder<OUT> {
     public <T> StreamTaskMailboxTestHarnessBuilder<OUT> modifyStreamConfig(
             Consumer<StreamConfig> action) {
         action.accept(streamConfig);
+        return this;
+    }
+
+    public <T> StreamTaskMailboxTestHarnessBuilder<OUT> setCheckpointResponder(
+            CheckpointResponder checkpointResponder) {
+        this.checkpointResponder = checkpointResponder;
         return this;
     }
 
@@ -134,7 +145,12 @@ public class StreamTaskMailboxTestHarnessBuilder<OUT> {
 
     public StreamTaskMailboxTestHarness<OUT> build() throws Exception {
 
-        TestTaskStateManager taskStateManager = new TestTaskStateManager(localRecoveryConfig);
+        TestTaskStateManager taskStateManager =
+                new TestTaskStateManager(
+                        new JobID(),
+                        new ExecutionAttemptID(),
+                        checkpointResponder,
+                        localRecoveryConfig);
         if (taskStateSnapshots != null) {
             taskStateManager.setReportedCheckpointId(taskStateSnapshots.keySet().iterator().next());
             taskStateManager.setJobManagerTaskStateSnapshotsByCheckpointId(taskStateSnapshots);

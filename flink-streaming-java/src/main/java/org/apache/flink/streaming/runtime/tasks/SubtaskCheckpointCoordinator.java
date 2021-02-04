@@ -18,6 +18,7 @@
 package org.apache.flink.streaming.runtime.tasks;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointMetricsBuilder;
@@ -84,4 +85,10 @@ public interface SubtaskCheckpointCoordinator extends Closeable {
     void notifyCheckpointAborted(
             long checkpointId, OperatorChain<?, ?> operatorChain, Supplier<Boolean> isRunning)
             throws Exception;
+
+    /** Waits for all the pending checkpoints to finish their asynchronous step. */
+    void waitForPendingCheckpoints() throws Exception;
+
+    @VisibleForTesting
+    int getNumberOfPendingCheckpoints();
 }

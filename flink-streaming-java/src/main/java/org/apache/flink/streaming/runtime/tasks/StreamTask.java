@@ -236,6 +236,11 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>> extends Ab
 
     private Long syncSavepointId = null;
 
+    /**
+     * TODO: Temporary flags to be removed when enable checkpoints after tasks finished as a whole
+     */
+    private boolean waitForPendingCheckpointsOnExits;
+
     // ------------------------------------------------------------------------
 
     /**
@@ -376,6 +381,10 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>> extends Ab
 
     SubtaskCheckpointCoordinator getCheckpointCoordinator() {
         return subtaskCheckpointCoordinator;
+    }
+
+    public void setWaitForPendingCheckpointsOnExits(boolean waitForPendingCheckpointsOnExits) {
+        this.waitForPendingCheckpointsOnExits = waitForPendingCheckpointsOnExits;
     }
 
     // ------------------------------------------------------------------------
@@ -647,6 +656,13 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>> extends Ab
 
         // make sure all buffered data is flushed
         operatorChain.flushOutputs();
+
+        // No new checkpoints could be triggered since mailbox has been drained.
+        if (waitForPendingCheckpointsOnExits) {
+            LOG.info("Waiting for all pending checkpoints to finish");
+            subtaskCheckpointCoordinator.waitForPendingCheckpoints();
+            LOG.info("All pending checkpoints are fnished");
+        }
 
         // make an attempt to dispose the operators such that failures in the dispose call
         // still let the computation fail

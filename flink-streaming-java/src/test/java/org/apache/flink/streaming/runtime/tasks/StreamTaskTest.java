@@ -85,6 +85,7 @@ import org.apache.flink.runtime.taskmanager.NoOpTaskManagerActions;
 import org.apache.flink.runtime.taskmanager.Task;
 import org.apache.flink.runtime.taskmanager.TaskExecutionState;
 import org.apache.flink.runtime.taskmanager.TaskManagerActions;
+import org.apache.flink.runtime.taskmanager.TestCheckpointResponder;
 import org.apache.flink.runtime.taskmanager.TestTaskBuilder;
 import org.apache.flink.runtime.util.FatalExitExceptionHandler;
 import org.apache.flink.streaming.api.TimeCharacteristic;
@@ -1398,6 +1399,82 @@ public class StreamTaskTest extends TestLogger {
                 waitingThread.join();
             }
         }
+    }
+
+    @Test
+    public void testWaitingForPendingCheckpointsOnFinished() throws Exception {
+        CountDownLatch continueAsyncRunnable = new CountDownLatch(1);
+        TestCheckpointResponder responder =
+                new TestCheckpointResponder() {
+                    @Override
+                    public void acknowledgeCheckpoint(
+                            JobID jobID,
+                            ExecutionAttemptID executionAttemptID,
+                            long checkpointId,
+                            CheckpointMetrics checkpointMetrics,
+                            TaskStateSnapshot subtaskState) {
+
+                        try {
+                            continueAsyncRunnable.await();
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                };
+
+        ClosingOperator<?> operator = new ClosingOperator<String>();
+        StreamTaskMailboxTestHarnessBuilder<Integer> builder =
+                new StreamTaskMailboxTestHarnessBuilder<>(
+                                OneInputStreamTask::new, BasicTypeInfo.INT_TYPE_INFO)
+                        .addInput(BasicTypeInfo.INT_TYPE_INFO);
+        StreamTaskMailboxTestHarness<Integer> harness =
+                builder.setCheckpointResponder(responder)
+                        .setupOutputForSingletonOperatorChain(operator)
+                        .build();
+        harness.streamTask.setWaitForPendingCheckpointsOnExits(true);
+
+        // keeps the mailbox from suspending
+        harness.setAutoProcess(false);
+        harness.processElement(new StreamRecord<>(1));
+
+        harness.streamTask.triggerCheckpointOnBarrier(
+                new CheckpointMetaData(1, 101),
+                CheckpointOptions.forCheckpointWithDefaultLocation(),
+                new CheckpointMetricsBuilder()
+                        .setBytesProcessedDuringAlignment(0L)
+                        .setAlignmentDurationNanos(0L));
+        harness.processAll();
+
+        harness.endInput();
+        harness.waitForTaskCompletion();
+
+        CompletableFuture<Void> unblockAsyncRunnerFuture =
+                CompletableFuture.supplyAsync(
+                        () -> {
+                            // By now there must be one checkpoint to wait
+                            assertEquals(
+                                    1,
+                                    harness.streamTask
+                                            .getCheckpointCoordinator()
+                                            .getNumberOfPendingCheckpoints());
+
+                            // Slightly extend the running time for the AsyncRunnable
+                            try {
+                                Thread.sleep(2000);
+                            } catch (InterruptedException e) {
+                                e.printStackTrace();
+                            }
+                            continueAsyncRunnable.countDown();
+                            return null;
+                        });
+
+        harness.streamTask.afterInvoke();
+        // Ensures all the checkpoints are completed before we have called cleanupInvoke
+        // to close it explicitly.
+        assertTrue(unblockAsyncRunnerFuture.isDone());
+        assertEquals(
+                0, harness.streamTask.getCheckpointCoordinator().getNumberOfPendingCheckpoints());
+        harness.streamTask.cleanUpInvoke();
     }
 
     private MockEnvironment setupEnvironment(boolean... outputAvailabilities) {
