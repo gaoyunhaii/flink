@@ -142,14 +142,26 @@ public class OperatorState implements CompositeStateHandle {
     }
 
     public Map<Integer, OperatorSubtaskState> getSubtaskStates() {
+        if (isFullyFinished()) {
+            return Collections.emptyMap();
+        }
+
         return Collections.unmodifiableMap(operatorSubtaskStates);
     }
 
     public Collection<OperatorSubtaskState> getStates() {
+        if (isFullyFinished()) {
+            return Collections.emptySet();
+        }
+
         return operatorSubtaskStates.values();
     }
 
     public int getNumberCollectedStates() {
+        if (isFullyFinished()) {
+            return 0;
+        }
+
         return operatorSubtaskStates.size();
     }
 
@@ -163,6 +175,10 @@ public class OperatorState implements CompositeStateHandle {
 
     @Override
     public void discardState() throws Exception {
+        if (isFullyFinished()) {
+            return;
+        }
+
         for (OperatorSubtaskState operatorSubtaskState : operatorSubtaskStates.values()) {
             operatorSubtaskState.discardState();
         }
@@ -174,6 +190,10 @@ public class OperatorState implements CompositeStateHandle {
 
     @Override
     public void registerSharedStates(SharedStateRegistry sharedStateRegistry) {
+        if (isFullyFinished()) {
+            return;
+        }
+
         for (OperatorSubtaskState operatorSubtaskState : operatorSubtaskStates.values()) {
             operatorSubtaskState.registerSharedStates(sharedStateRegistry);
         }
@@ -181,6 +201,10 @@ public class OperatorState implements CompositeStateHandle {
 
     @Override
     public long getStateSize() {
+        if (isFullyFinished()) {
+            return 0;
+        }
+
         long result = coordinatorState == null ? 0L : coordinatorState.getStateSize();
 
         for (int i = 0; i < parallelism; i++) {
