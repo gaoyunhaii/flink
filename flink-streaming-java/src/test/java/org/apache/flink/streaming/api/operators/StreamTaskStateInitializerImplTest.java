@@ -201,6 +201,9 @@ public class StreamTaskStateInitializerImplTest {
 
         taskStateSnapshot.putSubtaskStateByOperatorID(operatorID, operatorSubtaskState);
 
+        OperatorID finishedOperatorID = new OperatorID(32, 33);
+        taskStateSnapshot.markOperatorAsFinished(finishedOperatorID);
+
         JobManagerTaskRestore jobManagerTaskRestore =
                 new JobManagerTaskRestore(0L, taskStateSnapshot);
 
@@ -262,6 +265,9 @@ public class StreamTaskStateInitializerImplTest {
                 keyedStateBackend,
                 keyedStateInputs,
                 operatorStateInputs);
+
+        Assert.assertFalse(streamTaskStateManager.isFinishOnRestore(operatorID));
+        Assert.assertTrue(streamTaskStateManager.isFinishOnRestore(finishedOperatorID));
     }
 
     private static void checkCloseablesRegistered(

@@ -46,6 +46,7 @@ import static org.apache.flink.util.Preconditions.checkState;
 class TaskStateAssignment {
     final ExecutionJobVertex executionJobVertex;
     final Map<OperatorID, OperatorState> oldState;
+    final boolean hasNonFinishedState;
     final boolean hasState;
     final int newParallelism;
     final OperatorID inputOperatorID;
@@ -55,6 +56,8 @@ class TaskStateAssignment {
     final Map<OperatorInstanceID, List<OperatorStateHandle>> subRawOperatorState;
     final Map<OperatorInstanceID, List<KeyedStateHandle>> subManagedKeyedState;
     final Map<OperatorInstanceID, List<KeyedStateHandle>> subRawKeyedState;
+
+    final Set<OperatorID> fullyFinishedOperators;
 
     final Map<OperatorInstanceID, List<InputChannelStateHandle>> inputChannelStates;
     final Map<OperatorInstanceID, List<ResultSubpartitionStateHandle>> resultSubpartitionStates;
@@ -78,9 +81,12 @@ class TaskStateAssignment {
 
         this.executionJobVertex = executionJobVertex;
         this.oldState = oldState;
-        this.hasState =
+        this.hasNonFinishedState =
                 oldState.values().stream()
                         .anyMatch(operatorState -> operatorState.getNumberCollectedStates() > 0);
+        this.hasState =
+                hasNonFinishedState
+                        || oldState.values().stream().anyMatch(OperatorState::isFullyFinished);
 
         newParallelism = executionJobVertex.getParallelism();
         final int expectedNumberOfSubtasks = newParallelism * oldState.size();
@@ -91,6 +97,13 @@ class TaskStateAssignment {
         resultSubpartitionStates = new HashMap<>(expectedNumberOfSubtasks);
         subManagedKeyedState = new HashMap<>(expectedNumberOfSubtasks);
         subRawKeyedState = new HashMap<>(expectedNumberOfSubtasks);
+
+        // Records the fully finished operators directly since it does not need re-distribute.
+        fullyFinishedOperators =
+                oldState.entrySet().stream()
+                        .filter(entry -> entry.getValue().isFullyFinished())
+                        .map(Map.Entry::getKey)
+                        .collect(Collectors.toSet());
 
         final List<OperatorIDPair> operatorIDs = executionJobVertex.getOperatorIDs();
         outputOperatorID = operatorIDs.get(0).getGeneratedOperatorID();

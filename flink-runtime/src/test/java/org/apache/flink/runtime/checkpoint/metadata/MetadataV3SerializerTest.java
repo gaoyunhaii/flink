@@ -41,8 +41,6 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.Random;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 import static org.junit.Assert.assertEquals;
 

@@ -50,7 +50,10 @@ public class PrioritizedOperatorSubtaskState {
     /** Singleton instance for an empty, non-restored operator state. */
     private static final PrioritizedOperatorSubtaskState EMPTY_NON_RESTORED_INSTANCE =
             new PrioritizedOperatorSubtaskState.Builder(
-                            OperatorSubtaskState.builder().build(), Collections.emptyList(), false)
+                            OperatorSubtaskState.builder().build(),
+                            Collections.emptyList(),
+                            false,
+                            false)
                     .build();
 
     /** List of prioritized snapshot alternatives for managed operator state. */
@@ -70,6 +73,8 @@ public class PrioritizedOperatorSubtaskState {
     private final List<StateObjectCollection<ResultSubpartitionStateHandle>>
             prioritizedResultSubpartitionState;
 
+    private final boolean finished;
+
     /** Signal flag if this represents state for a restored operator. */
     private final boolean restored;
 
@@ -86,6 +91,7 @@ public class PrioritizedOperatorSubtaskState {
             @Nonnull
                     List<StateObjectCollection<ResultSubpartitionStateHandle>>
                             prioritizedResultSubpartitionState,
+            boolean finished,
             boolean restored) {
 
         this.prioritizedManagedOperatorState = prioritizedManagedOperatorState;
@@ -94,6 +100,7 @@ public class PrioritizedOperatorSubtaskState {
         this.prioritizedRawKeyedState = prioritizedRawKeyedState;
         this.prioritizedInputChannelState = prioritizedInputChannelState;
         this.prioritizedResultSubpartitionState = prioritizedResultSubpartitionState;
+        this.finished = finished;
         this.restored = restored;
     }
 
@@ -184,6 +191,10 @@ public class PrioritizedOperatorSubtaskState {
         return lastElement(prioritizedResultSubpartitionState);
     }
 
+    public boolean isFinished() {
+        return finished;
+    }
+
     // -----------------------------------------------------------------------------------------------------------------
 
     /**
@@ -218,22 +229,26 @@ public class PrioritizedOperatorSubtaskState {
         /** (Local) alternatives to the job manager state. */
         @Nonnull private final List<OperatorSubtaskState> alternativesByPriority;
 
+        private final boolean finished;
+
         /** Flag if the states have been restored. */
         private final boolean restored;
 
         public Builder(
                 @Nonnull OperatorSubtaskState jobManagerState,
                 @Nonnull List<OperatorSubtaskState> alternativesByPriority) {
-            this(jobManagerState, alternativesByPriority, true);
+            this(jobManagerState, alternativesByPriority, false, true);
         }
 
         public Builder(
                 @Nonnull OperatorSubtaskState jobManagerState,
                 @Nonnull List<OperatorSubtaskState> alternativesByPriority,
+                boolean finished,
                 boolean restored) {
 
             this.jobManagerState = jobManagerState;
             this.alternativesByPriority = alternativesByPriority;
+            this.finished = finished;
             this.restored = restored;
         }
 
@@ -290,6 +305,7 @@ public class PrioritizedOperatorSubtaskState {
                             jobManagerState.getResultSubpartitionState(),
                             resultSubpartitionStateAlternatives,
                             eqStateApprover(ResultSubpartitionStateHandle::getInfo)),
+                    finished,
                     restored);
         }
 

@@ -136,7 +136,7 @@ public class StateAssignmentOperation {
 
         // repartition state
         for (TaskStateAssignment stateAssignment : vertexAssignments.values()) {
-            if (stateAssignment.hasState) {
+            if (stateAssignment.hasNonFinishedState) {
                 assignAttemptState(stateAssignment);
             }
         }
@@ -225,14 +225,22 @@ public class StateAssignmentOperation {
                 OperatorInstanceID instanceID =
                         OperatorInstanceID.of(subTaskIndex, operatorID.getGeneratedOperatorID());
 
+                boolean isFullyFinished =
+                        assignment.fullyFinishedOperators.contains(
+                                operatorID.getGeneratedOperatorID());
                 OperatorSubtaskState operatorSubtaskState =
                         operatorSubtaskStateFrom(instanceID, assignment);
 
-                if (operatorSubtaskState.hasState()) {
+                if (isFullyFinished || operatorSubtaskState.hasState()) {
                     statelessTask = false;
                 }
-                taskState.putSubtaskStateByOperatorID(
-                        operatorID.getGeneratedOperatorID(), operatorSubtaskState);
+
+                if (isFullyFinished) {
+                    taskState.markOperatorAsFinished(operatorID.getGeneratedOperatorID());
+                } else {
+                    taskState.putSubtaskStateByOperatorID(
+                            operatorID.getGeneratedOperatorID(), operatorSubtaskState);
+                }
             }
 
             if (!statelessTask) {

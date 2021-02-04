@@ -24,6 +24,7 @@ import org.apache.flink.runtime.client.JobExecutionException;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
+import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.executiongraph.TestingExecutionGraphBuilder;
 import org.apache.flink.runtime.io.network.api.writer.SubtaskStateMapper;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
@@ -70,7 +71,9 @@ import static org.apache.flink.runtime.io.network.api.writer.SubtaskStateMapper.
 import static org.apache.flink.runtime.io.network.api.writer.SubtaskStateMapper.ROUND_ROBIN;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 /** Tests to verify state assignment operation. */
 public class StateAssignmentOperationTest extends TestLogger {
@@ -499,6 +502,43 @@ public class StateAssignmentOperationTest extends TestLogger {
                         set(1, 2), singletonMap(0, mapping(set(0, 2), set(1)))),
                 getAssignedState(vertices.get(operatorIds.get(1)), operatorIds.get(1), 1)
                         .getInputRescalingDescriptor());
+    }
+
+    @Test
+    public void testStateWithFullyFinishedOperators() throws JobException, JobExecutionException {
+        List<OperatorID> operatorIds = buildOperatorIds(2);
+        Map<OperatorID, OperatorState> states =
+                buildOperatorStates(Collections.singletonList(operatorIds.get(0)), 3);
+
+        // Create an operator state marked as finished
+        OperatorState operatorState = new OperatorState(operatorIds.get(1), 3, 256);
+        operatorState.markedFullyFinished();
+        states.put(operatorIds.get(1), operatorState);
+
+        Map<OperatorID, ExecutionJobVertex> vertices =
+                buildVertices(operatorIds, 2, RANGE, ROUND_ROBIN);
+        new StateAssignmentOperation(0, new HashSet<>(vertices.values()), states, false)
+                .assignStates();
+
+        // Check the job vertex with finished operator.
+        ExecutionJobVertex jobVertexWithFinishedOperator = vertices.get(operatorIds.get(1));
+        for (ExecutionVertex task : jobVertexWithFinishedOperator.getTaskVertices()) {
+            JobManagerTaskRestore taskRestore = task.getCurrentExecutionAttempt().getTaskRestore();
+            assertTrue(taskRestore.getTaskStateSnapshot().isFinished(operatorIds.get(1)));
+            assertTrue(taskRestore.getTaskStateSnapshot().hasState());
+            assertEquals(
+                    new OperatorSubtaskState(),
+                    taskRestore
+                            .getTaskStateSnapshot()
+                            .getSubtaskStateByOperatorID(operatorIds.get(1)));
+        }
+
+        // Check the job vertex without finished operator.
+        ExecutionJobVertex jobVertexWithoutFinishedOperator = vertices.get(operatorIds.get(0));
+        for (ExecutionVertex task : jobVertexWithoutFinishedOperator.getTaskVertices()) {
+            JobManagerTaskRestore taskRestore = task.getCurrentExecutionAttempt().getTaskRestore();
+            assertFalse(taskRestore.getTaskStateSnapshot().isFinished(operatorIds.get(0)));
+        }
     }
 
     @Nonnull

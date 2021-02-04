@@ -125,6 +125,13 @@ public class StreamTaskStateInitializerImpl implements StreamTaskStateInitialize
     // -----------------------------------------------------------------------------------------------------------------
 
     @Override
+    public boolean isFinishOnRestore(OperatorID operatorID) {
+        PrioritizedOperatorSubtaskState prioritizedOperatorSubtaskStates =
+                taskStateManager.prioritizedOperatorState(operatorID);
+        return prioritizedOperatorSubtaskStates.isFinished();
+    }
+
+    @Override
     public StreamOperatorStateContext streamOperatorStateContext(
             @Nonnull OperatorID operatorID,
             @Nonnull String operatorClassName,
@@ -220,6 +227,7 @@ public class StreamTaskStateInitializerImpl implements StreamTaskStateInitialize
 
             return new StreamOperatorStateContextImpl(
                     prioritizedOperatorSubtaskStates.isRestored(),
+                    prioritizedOperatorSubtaskStates.isFinished(),
                     operatorStateBackend,
                     keyedStatedBackend,
                     timeServiceManager,
@@ -646,6 +654,7 @@ public class StreamTaskStateInitializerImpl implements StreamTaskStateInitialize
 
         StreamOperatorStateContextImpl(
                 boolean restored,
+                boolean finished,
                 OperatorStateBackend operatorStateBackend,
                 CheckpointableKeyedStateBackend<?> keyedStateBackend,
                 InternalTimeServiceManager<?> internalTimeServiceManager,

@@ -28,6 +28,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -53,6 +54,12 @@ public class TaskStateSnapshot implements CompositeStateHandle {
 
     /** Mapping from an operator id to the state of one subtask of this operator. */
     private final Map<OperatorID, OperatorSubtaskState> subtaskStatesByOperatorID;
+
+    /**
+     * The set of operators that are finished. The finished operator should also have stored an
+     * empty subtask state in subtaskStatesByOperatorID.
+     */
+    private final Set<OperatorID> finishedOperators = new HashSet<>();
 
     public TaskStateSnapshot() {
         this(10);
@@ -82,6 +89,17 @@ public class TaskStateSnapshot implements CompositeStateHandle {
         return subtaskStatesByOperatorID.put(operatorID, Preconditions.checkNotNull(state));
     }
 
+    /** Checks if an operator is marked as finished. */
+    public boolean isFinished(OperatorID operatorID) {
+        return finishedOperators.contains(operatorID);
+    }
+
+    /** Marks an operator as already finished. */
+    public void markOperatorAsFinished(@Nonnull OperatorID operatorID) {
+        finishedOperators.add(operatorID);
+        subtaskStatesByOperatorID.put(operatorID, new OperatorSubtaskState());
+    }
+
     /** Returns the set of all mappings from operator id to the corresponding subtask state. */
     public Set<Map.Entry<OperatorID, OperatorSubtaskState>> getSubtaskStateMappings() {
         return subtaskStatesByOperatorID.entrySet();
@@ -92,6 +110,10 @@ public class TaskStateSnapshot implements CompositeStateHandle {
      * state.
      */
     public boolean hasState() {
+        if (finishedOperators.size() > 0) {
+            return true;
+        }
+
         for (OperatorSubtaskState operatorSubtaskState : subtaskStatesByOperatorID.values()) {
             if (operatorSubtaskState != null && operatorSubtaskState.hasState()) {
                 return true;
@@ -148,9 +170,11 @@ public class TaskStateSnapshot implements CompositeStateHandle {
 
     @Override
     public String toString() {
-        return "TaskOperatorSubtaskStates{"
+        return "TaskStateSnapshot{"
                 + "subtaskStatesByOperatorID="
                 + subtaskStatesByOperatorID
+                + ", finishedOperators="
+                + finishedOperators
                 + '}';
     }
 }

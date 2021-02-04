@@ -260,6 +260,27 @@ public class TaskStateManagerImplTest extends TestLogger {
         }
     }
 
+    @Test
+    public void testStateRetrievingWithFinishedOperator() {
+        OperatorID finishedOperatorID = new OperatorID();
+        TaskStateSnapshot taskStateSnapshot = new TaskStateSnapshot();
+        taskStateSnapshot.markOperatorAsFinished(finishedOperatorID);
+
+        JobManagerTaskRestore jobManagerTaskRestore =
+                new JobManagerTaskRestore(2, taskStateSnapshot);
+        TaskStateManagerImpl stateManager =
+                new TaskStateManagerImpl(
+                        new JobID(),
+                        new ExecutionAttemptID(),
+                        new TestTaskLocalStateStore(),
+                        jobManagerTaskRestore,
+                        new TestCheckpointResponder());
+        PrioritizedOperatorSubtaskState operatorSubtaskState =
+                stateManager.prioritizedOperatorState(finishedOperatorID);
+        Assert.assertTrue(operatorSubtaskState.isFinished());
+        Assert.assertTrue(operatorSubtaskState.isRestored());
+    }
+
     public static TaskStateManager taskStateManager(
             JobID jobID,
             ExecutionAttemptID executionAttemptID,

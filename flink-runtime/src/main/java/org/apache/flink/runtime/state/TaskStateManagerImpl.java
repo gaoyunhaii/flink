@@ -176,7 +176,10 @@ public class TaskStateManagerImpl implements TaskStateManager {
 
         PrioritizedOperatorSubtaskState.Builder builder =
                 new PrioritizedOperatorSubtaskState.Builder(
-                        jobManagerSubtaskState, alternativesByPriority, true);
+                        jobManagerSubtaskState,
+                        alternativesByPriority,
+                        jobManagerStateSnapshot.isFinished(operatorID),
+                        true);
 
         return builder.build();
     }

@@ -27,9 +27,11 @@ import org.apache.flink.api.common.typeutils.base.StringSerializer;
 import org.apache.flink.configuration.CheckpointingOptions;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.ReadableConfig;
+import org.apache.flink.core.fs.CloseableRegistry;
 import org.apache.flink.core.fs.FSDataInputStream;
 import org.apache.flink.core.io.InputStatus;
 import org.apache.flink.core.testutils.OneShotLatch;
+import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
@@ -94,6 +96,7 @@ import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperatorFactory;
 import org.apache.flink.streaming.api.operators.ChainingStrategy;
 import org.apache.flink.streaming.api.operators.InternalTimeServiceManager;
+import org.apache.flink.streaming.api.operators.KeyContext;
 import org.apache.flink.streaming.api.operators.MailboxExecutor;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.operators.OperatorSnapshotFutures;
@@ -127,6 +130,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import java.io.Closeable;
@@ -1815,74 +1819,84 @@ public class StreamTaskTest extends TestLogger {
         public StreamTaskStateInitializer createStreamTaskStateInitializer() {
             final StreamTaskStateInitializer streamTaskStateManager =
                     super.createStreamTaskStateInitializer();
-            return (operatorID,
-                    operatorClassName,
-                    processingTimeService,
-                    keyContext,
-                    keySerializer,
-                    closeableRegistry,
-                    metricGroup,
-                    fraction,
-                    isUsingCustomRawKeyedState) -> {
-                final StreamOperatorStateContext controller =
-                        streamTaskStateManager.streamOperatorStateContext(
-                                operatorID,
-                                operatorClassName,
-                                processingTimeService,
-                                keyContext,
-                                keySerializer,
-                                closeableRegistry,
-                                metricGroup,
-                                fraction,
-                                isUsingCustomRawKeyedState);
+            return new StreamTaskStateInitializer() {
+                @Override
+                public boolean isFinishOnRestore(OperatorID operatorID) {
+                    return false;
+                }
 
-                return new StreamOperatorStateContext() {
-                    @Override
-                    public boolean isRestored() {
-                        return controller.isRestored();
-                    }
+                @Override
+                public StreamOperatorStateContext streamOperatorStateContext(
+                        @Nonnull OperatorID operatorID,
+                        @Nonnull String operatorClassName,
+                        @Nonnull ProcessingTimeService processingTimeService,
+                        @Nonnull KeyContext keyContext,
+                        @Nullable TypeSerializer<?> keySerializer,
+                        @Nonnull CloseableRegistry closeableRegistry,
+                        @Nonnull MetricGroup metricGroup,
+                        double fraction,
+                        boolean isUsingCustomRawKeyedState)
+                        throws Exception {
+                    final StreamOperatorStateContext controller =
+                            streamTaskStateManager.streamOperatorStateContext(
+                                    operatorID,
+                                    operatorClassName,
+                                    processingTimeService,
+                                    keyContext,
+                                    keySerializer,
+                                    closeableRegistry,
+                                    metricGroup,
+                                    fraction,
+                                    isUsingCustomRawKeyedState);
 
-                    @Override
-                    public OperatorStateBackend operatorStateBackend() {
-                        return controller.operatorStateBackend();
-                    }
-
-                    @Override
-                    public CheckpointableKeyedStateBackend<?> keyedStateBackend() {
-                        return controller.keyedStateBackend();
-                    }
-
-                    @Override
-                    public InternalTimeServiceManager<?> internalTimerServiceManager() {
-                        InternalTimeServiceManager<?> timeServiceManager =
-                                controller.internalTimerServiceManager();
-                        return timeServiceManager != null ? spy(timeServiceManager) : null;
-                    }
-
-                    @Override
-                    public CloseableIterable<StatePartitionStreamProvider>
-                            rawOperatorStateInputs() {
-                        return replaceWithSpy(controller.rawOperatorStateInputs());
-                    }
-
-                    @Override
-                    public CloseableIterable<KeyGroupStatePartitionStreamProvider>
-                            rawKeyedStateInputs() {
-                        return replaceWithSpy(controller.rawKeyedStateInputs());
-                    }
-
-                    public <T extends Closeable> T replaceWithSpy(T closeable) {
-                        T spyCloseable = spy(closeable);
-                        if (closeableRegistry.unregisterCloseable(closeable)) {
-                            try {
-                                closeableRegistry.registerCloseable(spyCloseable);
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
+                    return new StreamOperatorStateContext() {
+                        @Override
+                        public boolean isRestored() {
+                            return controller.isRestored();
                         }
-                        return spyCloseable;
-                    }
-                };
+
+                        @Override
+                        public OperatorStateBackend operatorStateBackend() {
+                            return controller.operatorStateBackend();
+                        }
+
+                        @Override
+                        public CheckpointableKeyedStateBackend<?> keyedStateBackend() {
+                            return controller.keyedStateBackend();
+                        }
+
+                        @Override
+                        public InternalTimeServiceManager<?> internalTimerServiceManager() {
+                            InternalTimeServiceManager<?> timeServiceManager =
+                                    controller.internalTimerServiceManager();
+                            return timeServiceManager != null ? spy(timeServiceManager) : null;
+                        }
+
+                        @Override
+                        public CloseableIterable<StatePartitionStreamProvider>
+                                rawOperatorStateInputs() {
+                            return replaceWithSpy(controller.rawOperatorStateInputs());
+                        }
+
+                        @Override
+                        public CloseableIterable<KeyGroupStatePartitionStreamProvider>
+                                rawKeyedStateInputs() {
+                            return replaceWithSpy(controller.rawKeyedStateInputs());
+                        }
+
+                        public <T extends Closeable> T replaceWithSpy(T closeable) {
+                            T spyCloseable = spy(closeable);
+                            if (closeableRegistry.unregisterCloseable(closeable)) {
+                                try {
+                                    closeableRegistry.registerCloseable(spyCloseable);
+                                } catch (IOException e) {
+                                    throw new RuntimeException(e);
+                                }
+                            }
+                            return spyCloseable;
+                        }
+                    };
+                }
             };
         }
     }
