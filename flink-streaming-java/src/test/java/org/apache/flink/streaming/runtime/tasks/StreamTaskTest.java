@@ -1404,6 +1404,11 @@ public class StreamTaskTest extends TestLogger {
         }
     }
 
+    @Test
+    public void testOperatorSkipLifeCycleIfFinishedOnRestore() {
+
+    }
+
     private MockEnvironment setupEnvironment(boolean... outputAvailabilities) {
         final Configuration configuration = new Configuration();
         new MockStreamConfig(configuration, outputAvailabilities.length);
