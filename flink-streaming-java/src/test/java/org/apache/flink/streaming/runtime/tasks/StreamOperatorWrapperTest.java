@@ -58,7 +58,7 @@ public class StreamOperatorWrapperTest extends TestLogger {
 
     private static SystemProcessingTimeService timerService;
 
-    private static final int numOperators = 3;
+    private static final int numOperators = 6;
 
     private List<StreamOperatorWrapper<?, ?>> operatorWrappers;
 
@@ -121,6 +121,13 @@ public class StreamOperatorWrapperTest extends TestLogger {
                 }
                 current.setPrevious(previous);
                 previous = current;
+            }
+
+            // Marks the operators with even index as finished on restore
+            for (int i = 0; i < numOperators; ++i) {
+                if (i % 2 == 0) {
+                    operatorWrappers.get(i).setFinishedOnRestore(true);
+                }
             }
         }
     }
@@ -185,7 +192,7 @@ public class StreamOperatorWrapperTest extends TestLogger {
     public void testReadIterator() {
         // traverse operators in forward order
         Iterator<StreamOperatorWrapper<?, ?>> it =
-                new StreamOperatorWrapper.ReadIterator(operatorWrappers.get(0), false);
+                new StreamOperatorWrapper.ReadIterator(operatorWrappers.get(0), false, false);
         for (int i = 0; i < operatorWrappers.size(); i++) {
             assertTrue(it.hasNext());
 
@@ -200,7 +207,7 @@ public class StreamOperatorWrapperTest extends TestLogger {
         // traverse operators in reverse order
         it =
                 new StreamOperatorWrapper.ReadIterator(
-                        operatorWrappers.get(operatorWrappers.size() - 1), true);
+                        operatorWrappers.get(operatorWrappers.size() - 1), true, false);
         for (int i = operatorWrappers.size() - 1; i >= 0; i--) {
             assertTrue(it.hasNext());
 
@@ -209,6 +216,38 @@ public class StreamOperatorWrapperTest extends TestLogger {
 
             TestOneInputStreamOperator operator = getStreamOperatorFromWrapper(next);
             assertEquals("Operator" + i, operator.getName());
+        }
+        assertFalse(it.hasNext());
+
+        // traverse operators in forward order without finished operators
+        it = new StreamOperatorWrapper.ReadIterator(operatorWrappers.get(0), false, true);
+        for (int i = 0; i < operatorWrappers.size(); i++) {
+            if (i % 2 != 0) {
+                assertTrue(it.hasNext());
+
+                StreamOperatorWrapper<?, ?> next = it.next();
+                assertNotNull(next);
+
+                TestOneInputStreamOperator operator = getStreamOperatorFromWrapper(next);
+                assertEquals("Operator" + i, operator.getName());
+            }
+        }
+        assertFalse(it.hasNext());
+
+        // traverse operators in reverse order without finished operators
+        it =
+                new StreamOperatorWrapper.ReadIterator(
+                        operatorWrappers.get(operatorWrappers.size() - 1), true, true);
+        for (int i = operatorWrappers.size() - 1; i >= 0; i--) {
+            if (i % 2 != 0) {
+                assertTrue(it.hasNext());
+
+                StreamOperatorWrapper<?, ?> next = it.next();
+                assertNotNull(next);
+
+                TestOneInputStreamOperator operator = getStreamOperatorFromWrapper(next);
+                assertEquals("Operator" + i, operator.getName());
+            }
         }
         assertFalse(it.hasNext());
     }

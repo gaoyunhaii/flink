@@ -58,6 +58,8 @@ public class StreamOperatorWrapper<OUT, OP extends StreamOperator<OUT>> {
 
     private StreamOperatorWrapper<?, ?> next;
 
+    private boolean isFinishedOnRestore;
+
     private boolean closed;
 
     StreamOperatorWrapper(
@@ -70,6 +72,14 @@ public class StreamOperatorWrapper<OUT, OP extends StreamOperator<OUT>> {
         this.processingTimeService = checkNotNull(processingTimeService);
         this.mailboxExecutor = checkNotNull(mailboxExecutor);
         this.isHead = isHead;
+    }
+
+    public boolean isFinishedOnRestore() {
+        return isFinishedOnRestore;
+    }
+
+    public void setFinishedOnRestore(boolean finishedOnRestore) {
+        isFinishedOnRestore = finishedOnRestore;
     }
 
     /**
@@ -121,13 +131,16 @@ public class StreamOperatorWrapper<OUT, OP extends StreamOperator<OUT>> {
      * them.
      */
     public void close(StreamTaskActionExecutor actionExecutor) throws Exception {
-        if (!isHead) {
-            // NOTE: This only do for the case where the operator is one-input operator. At present,
-            // any non-head operator on the operator chain is one-input operator.
-            actionExecutor.runThrowing(() -> endOperatorInput(1));
-        }
+        if (!isFinishedOnRestore) {
+            if (!isHead) {
+                // NOTE: This only do for the case where the operator is one-input operator. At
+                // present,
+                // any non-head operator on the operator chain is one-input operator.
+                actionExecutor.runThrowing(() -> endOperatorInput(1));
+            }
 
-        quiesceTimeServiceAndCloseOperator(actionExecutor);
+            quiesceTimeServiceAndCloseOperator(actionExecutor);
+        }
 
         // propagate the close operation to the next wrapper
         if (next != null) {
@@ -219,11 +232,17 @@ public class StreamOperatorWrapper<OUT, OP extends StreamOperator<OUT>> {
 
         private final boolean reverse;
 
+        private final boolean skipFinishedOnRestore;
+
         private StreamOperatorWrapper<?, ?> current;
 
-        ReadIterator(StreamOperatorWrapper<?, ?> first, boolean reverse) {
-            this.current = first;
+        ReadIterator(
+                StreamOperatorWrapper<?, ?> first, boolean reverse, boolean skipFinishedOnRestore) {
             this.reverse = reverse;
+            this.skipFinishedOnRestore = skipFinishedOnRestore;
+
+            this.current = first;
+            skipUnSatisfiedVertices();
         }
 
         @Override
@@ -235,11 +254,28 @@ public class StreamOperatorWrapper<OUT, OP extends StreamOperator<OUT>> {
         public StreamOperatorWrapper<?, ?> next() {
             if (hasNext()) {
                 StreamOperatorWrapper<?, ?> next = current;
-                current = reverse ? current.previous : current.next;
+
+                headToNext();
+                skipUnSatisfiedVertices();
+
                 return next;
             }
 
             throw new NoSuchElementException();
+        }
+
+        private void skipUnSatisfiedVertices() {
+            while (current != null) {
+                if (!skipFinishedOnRestore || !current.isFinishedOnRestore) {
+                    break;
+                }
+
+                headToNext();
+            }
+        }
+
+        private void headToNext() {
+            current = reverse ? current.previous : current.next;
         }
 
         @Nonnull

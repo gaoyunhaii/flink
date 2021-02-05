@@ -316,7 +316,7 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
                     "Notification of completed checkpoint {} for task {}", checkpointId, taskName);
 
             for (StreamOperatorWrapper<?, ?> operatorWrapper :
-                    operatorChain.getAllOperators(true)) {
+                    operatorChain.getNonFinishedOnRestoreOperators(true)) {
                 operatorWrapper.notifyCheckpointComplete(checkpointId);
             }
         } else {
@@ -352,7 +352,7 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
                     false);
 
             for (StreamOperatorWrapper<?, ?> operatorWrapper :
-                    operatorChain.getAllOperators(true)) {
+                    operatorChain.getNonFinishedOnRestoreOperators(true)) {
                 try {
                     operatorWrapper.getStreamOperator().notifyCheckpointAborted(checkpointId);
                 } catch (Exception e) {
@@ -569,7 +569,7 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
         try {
             for (StreamOperatorWrapper<?, ?> operatorWrapper :
                     operatorChain.getAllOperators(true)) {
-                if (!operatorWrapper.isClosed()) {
+                if (!operatorWrapper.isFinishedOnRestore() && !operatorWrapper.isClosed()) {
                     operatorSnapshotsInProgress.put(
                             operatorWrapper.getStreamOperator().getOperatorID(),
                             buildOperatorSnapshotFutures(

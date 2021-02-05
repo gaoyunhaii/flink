@@ -394,7 +394,7 @@ public class OperatorChain<OUT, OP extends StreamOperator<OUT>>
     public void prepareSnapshotPreBarrier(long checkpointId) throws Exception {
         // go forward through the operator chain and tell each operator
         // to prepare the checkpoint
-        for (StreamOperatorWrapper<?, ?> operatorWrapper : getAllOperators()) {
+        for (StreamOperatorWrapper<?, ?> operatorWrapper : getNonFinishedOnRestoreOperators()) {
             if (!operatorWrapper.isClosed()) {
                 operatorWrapper.getStreamOperator().prepareSnapshotPreBarrier(checkpointId);
             }
@@ -413,6 +413,15 @@ public class OperatorChain<OUT, OP extends StreamOperator<OUT>>
         }
     }
 
+    protected void initializeOperatorFinishedState(
+            StreamTaskStateInitializer streamTaskStateInitializer) throws Exception {
+        for (StreamOperatorWrapper<?, ?> operatorWrapper : getNonFinishedOnRestoreOperators(true)) {
+            operatorWrapper.setFinishedOnRestore(
+                    streamTaskStateInitializer.isFinishOnRestore(
+                            operatorWrapper.getStreamOperator().getOperatorID()));
+        }
+    }
+
     /**
      * Initialize state and open all operators in the chain from <b>tail to heads</b>, contrary to
      * {@link StreamOperator#close()} which happens <b>heads to tail</b> (see {@link
@@ -420,7 +429,7 @@ public class OperatorChain<OUT, OP extends StreamOperator<OUT>>
      */
     protected void initializeStateAndOpenOperators(
             StreamTaskStateInitializer streamTaskStateInitializer) throws Exception {
-        for (StreamOperatorWrapper<?, ?> operatorWrapper : getAllOperators(true)) {
+        for (StreamOperatorWrapper<?, ?> operatorWrapper : getNonFinishedOnRestoreOperators(true)) {
             StreamOperator<?> operator = operatorWrapper.getStreamOperator();
             operator.initializeState(streamTaskStateInitializer);
             operator.open();
@@ -453,8 +462,19 @@ public class OperatorChain<OUT, OP extends StreamOperator<OUT>>
      */
     public Iterable<StreamOperatorWrapper<?, ?>> getAllOperators(boolean reverse) {
         return reverse
-                ? new StreamOperatorWrapper.ReadIterator(tailOperatorWrapper, true)
-                : new StreamOperatorWrapper.ReadIterator(mainOperatorWrapper, false);
+                ? new StreamOperatorWrapper.ReadIterator(tailOperatorWrapper, true, false)
+                : new StreamOperatorWrapper.ReadIterator(mainOperatorWrapper, false, false);
+    }
+
+    /** Returns an {@link Iterable} which traverses all operators in forward topological order. */
+    public Iterable<StreamOperatorWrapper<?, ?>> getNonFinishedOnRestoreOperators() {
+        return getNonFinishedOnRestoreOperators(false);
+    }
+
+    public Iterable<StreamOperatorWrapper<?, ?>> getNonFinishedOnRestoreOperators(boolean reverse) {
+        return reverse
+                ? new StreamOperatorWrapper.ReadIterator(tailOperatorWrapper, true, true)
+                : new StreamOperatorWrapper.ReadIterator(mainOperatorWrapper, false, true);
     }
 
     public int getNumberOfOperators() {

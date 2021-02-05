@@ -515,6 +515,9 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>> extends Ab
         operatorChain = new OperatorChain<>(this, recordWriter);
         mainOperator = operatorChain.getMainOperator();
 
+        StreamTaskStateInitializer streamTaskStateInitializer = createStreamTaskStateInitializer();
+        operatorChain.initializeOperatorFinishedState(streamTaskStateInitializer);
+
         // task specific initialization
         init();
 
@@ -538,8 +541,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>> extends Ab
                     // jobs
                     reader.readOutputData(getEnvironment().getAllWriters(), false);
 
-                    operatorChain.initializeStateAndOpenOperators(
-                            createStreamTaskStateInitializer());
+                    operatorChain.initializeStateAndOpenOperators(streamTaskStateInitializer);
 
                     channelIOExecutor.execute(
                             () -> {
@@ -785,7 +787,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>> extends Ab
         if (operatorChain != null && !disposedOperators) {
             Exception disposalException = null;
             for (StreamOperatorWrapper<?, ?> operatorWrapper :
-                    operatorChain.getAllOperators(true)) {
+                    operatorChain.getNonFinishedOnRestoreOperators(true)) {
                 StreamOperator<?> operator = operatorWrapper.getStreamOperator();
                 try {
                     operator.dispose();
