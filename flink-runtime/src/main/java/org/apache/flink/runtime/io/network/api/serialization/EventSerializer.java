@@ -29,6 +29,7 @@ import org.apache.flink.runtime.io.network.api.CancelCheckpointMarker;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
 import org.apache.flink.runtime.io.network.api.EndOfPartitionEvent;
 import org.apache.flink.runtime.io.network.api.EndOfSuperstepEvent;
+import org.apache.flink.runtime.io.network.api.EndOfUserRecordsEvent;
 import org.apache.flink.runtime.io.network.api.EventAnnouncement;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.buffer.BufferConsumer;
@@ -64,6 +65,8 @@ public class EventSerializer {
     private static final int END_OF_CHANNEL_STATE_EVENT = 5;
 
     private static final int ANNOUNCEMENT_EVENT = 6;
+
+    private static final int END_OF_USER_RECORDS_EVENT = 7;
 
     private static final int CHECKPOINT_TYPE_CHECKPOINT = 0;
 
@@ -107,6 +110,8 @@ public class EventSerializer {
             serializedAnnouncement.put(serializedAnnouncedEvent);
             serializedAnnouncement.flip();
             return serializedAnnouncement;
+        } else if (eventClass == EndOfUserRecordsEvent.class) {
+            return ByteBuffer.wrap(new byte[] {0, 0, 0, END_OF_USER_RECORDS_EVENT});
         } else {
             try {
                 final DataOutputSerializer serializer = new DataOutputSerializer(128);
@@ -140,6 +145,8 @@ public class EventSerializer {
                 return EndOfSuperstepEvent.INSTANCE;
             } else if (type == END_OF_CHANNEL_STATE_EVENT) {
                 return EndOfChannelStateEvent.INSTANCE;
+            } else if (type == END_OF_USER_RECORDS_EVENT) {
+                return EndOfUserRecordsEvent.INSTANCE;
             } else if (type == CANCEL_CHECKPOINT_MARKER_EVENT) {
                 long id = buffer.getLong();
                 return new CancelCheckpointMarker(id);
