@@ -37,9 +37,9 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
@@ -47,7 +47,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkState;
@@ -210,7 +209,7 @@ public class CheckpointPlanCalculator {
                     if (someTasksMustBeTriggered) {
                         boolean hasRunningPrecedentTasks =
                                 hasRunningPrecedentTasks(
-                                        runningTasksByVertex, prevJobEdges, vertex);
+                                        vertex, runningTasksByVertex, prevJobEdges);
 
                         if (!hasRunningPrecedentTasks) {
                             tasksToTrigger.add(vertex.getCurrentExecutionAttempt());
@@ -234,21 +233,33 @@ public class CheckpointPlanCalculator {
     }
 
     private boolean hasRunningPrecedentTasks(
+            ExecutionVertex task,
             Map<JobVertexID, JobVertexTaskSet> runningTasksByVertex,
-            List<JobEdge> prevJobEdges,
-            ExecutionVertex vertex) {
-        return IntStream.range(0, prevJobEdges.size())
-                .filter(
-                        i ->
-                                prevJobEdges.get(i).getDistributionPattern()
-                                        == DistributionPattern.POINTWISE)
-                .boxed()
-                .flatMap(i -> getPrecedentTasks(vertex, i).stream())
-                .anyMatch(
-                        precedentTask ->
-                                runningTasksByVertex
-                                        .get(precedentTask.getJobvertexId())
-                                        .contains(precedentTask.getID()));
+            List<JobEdge> prevJobEdges) {
+
+        for (int i = 0; i < prevJobEdges.size(); ++i) {
+            if (prevJobEdges.get(i).getDistributionPattern() == DistributionPattern.POINTWISE) {
+                JobVertexTaskSet sourceRunningTasks =
+                        runningTasksByVertex.get(
+                                prevJobEdges.get(i).getSource().getProducer().getID());
+                if (hasRunningPrecedentTasksViaEdge(task, i, sourceRunningTasks)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private boolean hasRunningPrecedentTasksViaEdge(
+            ExecutionVertex task, int index, JobVertexTaskSet sourceRunningTasks) {
+        for (ExecutionEdge edge : task.getInputEdges(index)) {
+            if (sourceRunningTasks.contains(edge.getSource().getProducer().getID())) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private boolean someTasksMustBeTriggered(
@@ -340,36 +351,32 @@ public class CheckpointPlanCalculator {
             Map<JobVertexID, JobVertexTaskSet> runningTasksByVertex,
             ExecutionJobVertex jobVertex,
             List<JobEdge> outputJobEdges) {
-        return Arrays.stream(jobVertex.getTaskVertices())
-                .filter(
-                        task -> {
-                            // the task is done if the execution graph thinks it is done
-                            if (task.getCurrentExecutionAttempt().isFinished()) {
-                                return false;
-                            }
 
-                            for (JobEdge edge : outputJobEdges) {
-                                if (edge.getDistributionPattern()
-                                        == DistributionPattern.POINTWISE) {
-                                    List<ExecutionVertex> targets = getDescendantTasks(task, edge);
-                                    for (ExecutionVertex target : targets) {
-                                        JobVertexTaskSet targetVertexSet =
-                                                runningTasksByVertex.get(target.getJobvertexId());
-                                        // a task cannot be running if a POINTWISE-connected task
-                                        // is not running anymore, and we're traversing the graph
-                                        // from sinks to sources, i.e. from descendants to
-                                        // predecessors
-                                        if (!targetVertexSet.contains(target.getID())) {
-                                            return false;
-                                        }
-                                    }
-                                }
-                            }
+        Set<ExecutionVertexID> runningTasks = new HashSet<>();
 
-                            return true;
-                        })
-                .map(ExecutionVertex::getID)
-                .collect(Collectors.toSet());
+        for (ExecutionVertex task : jobVertex.getTaskVertices()) {
+            if (task.getCurrentExecutionAttempt().isFinished()) {
+                continue;
+            }
+
+            boolean hasFinishedDescendants = false;
+            for (JobEdge edge : outputJobEdges) {
+                if (edge.getDistributionPattern() == DistributionPattern.POINTWISE) {
+                    JobVertexTaskSet targetVertexSet =
+                            runningTasksByVertex.get(edge.getTarget().getID());
+                    if (hasFinishedDescendantTasks(task, edge, targetVertexSet)) {
+                        hasFinishedDescendants = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!hasFinishedDescendants) {
+                runningTasks.add(task.getID());
+            }
+        }
+
+        return runningTasks;
     }
 
     /**
@@ -416,21 +423,25 @@ public class CheckpointPlanCalculator {
                 .collect(Collectors.toList());
     }
 
-    private List<ExecutionVertex> getDescendantTasks(ExecutionVertex task, JobEdge jobEdge) {
-        return task.getProducedPartitions()
-                .get(
-                        new IntermediateResultPartitionID(
-                                jobEdge.getSourceId(), task.getParallelSubtaskIndex()))
-                .getConsumers().stream()
-                .flatMap(Collection::stream)
-                .map(ExecutionEdge::getTarget)
-                .collect(Collectors.toList());
-    }
+    private boolean hasFinishedDescendantTasks(
+            ExecutionVertex task, JobEdge jobEdge, JobVertexTaskSet targetRunningTasks) {
 
-    private List<ExecutionVertex> getPrecedentTasks(ExecutionVertex task, int index) {
-        return Arrays.stream(task.getInputEdges(index))
-                .map(edge -> edge.getSource().getProducer())
-                .collect(Collectors.toList());
+        List<List<ExecutionEdge>> edges =
+                task.getProducedPartitions()
+                        .get(
+                                new IntermediateResultPartitionID(
+                                        jobEdge.getSourceId(), task.getParallelSubtaskIndex()))
+                        .getConsumers();
+        for (int i = 0; i < edges.size(); ++i) {
+            for (int j = 0; j < edges.get(i).size(); ++j) {
+                ExecutionVertex target = edges.get(i).get(j).getTarget();
+                if (!targetRunningTasks.contains(target.getID())) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private Map<ExecutionAttemptID, ExecutionVertex> createTaskToAck(List<ExecutionVertex> tasks) {
@@ -485,9 +496,7 @@ public class CheckpointPlanCalculator {
         }
 
         public boolean contains(ExecutionVertexID taskId) {
-            if (!taskId.getJobVertexId().equals(jobVertex.getJobVertexId())) {
-                return false;
-            }
+            checkState(taskId.getJobVertexId().equals(jobVertex.getJobVertexId()));
 
             return type == TaskSetType.ALL_TASKS
                     || (type == TaskSetType.SOME_TASKS && tasks.contains(taskId));
