@@ -65,6 +65,8 @@ public class CheckpointPlanCalculator {
 
     private final List<ExecutionVertex> sourceTasks = new ArrayList<>();
 
+    private final Map<JobVertexID, VertexOutEdgeIndex> outEdgeIndex = new HashMap<>();
+
     public CheckpointPlanCalculator(
             JobID jobId,
             CheckpointPlanCalculatorContext context,
@@ -82,6 +84,11 @@ public class CheckpointPlanCalculator {
                     if (jobVertex.getJobVertex().isInputVertex()) {
                         sourceTasks.addAll(Arrays.asList(jobVertex.getTaskVertices()));
                     }
+                });
+
+        jobVerticesInTopologyOrder.forEach(
+                vertex -> {
+                    outEdgeIndex.put(vertex.getJobVertexId(), new VertexOutEdgeIndex(vertex));
                 });
     }
 
@@ -332,7 +339,7 @@ public class CheckpointPlanCalculator {
             }
 
             // not lucky, need to determine which of our tasks can still be running
-            Set<ExecutionVertexID> runningTasks =
+            Set<Integer> runningTasks =
                     getRunningTasks(runningTasksByVertex, jobVertex, outputJobEdges);
 
             runningTasksByVertex.put(
@@ -347,12 +354,13 @@ public class CheckpointPlanCalculator {
      * Determines the {@link ExecutionVertexID ExecutionVertexIDs} of those subtasks that are still
      * running.
      */
-    private Set<ExecutionVertexID> getRunningTasks(
+    private Set<Integer> getRunningTasks(
             Map<JobVertexID, JobVertexTaskSet> runningTasksByVertex,
             ExecutionJobVertex jobVertex,
             List<JobEdge> outputJobEdges) {
 
-        Set<ExecutionVertexID> runningTasks = new HashSet<>();
+        Set<Integer> runningTasks = new HashSet<>();
+        VertexOutEdgeIndex taskEdgeIndex = outEdgeIndex.get(jobVertex.getJobVertexId());
 
         for (ExecutionVertex task : jobVertex.getTaskVertices()) {
             if (task.getCurrentExecutionAttempt().isFinished()) {
@@ -360,19 +368,18 @@ public class CheckpointPlanCalculator {
             }
 
             boolean hasFinishedDescendants = false;
-            for (JobEdge edge : outputJobEdges) {
-                if (edge.getDistributionPattern() == DistributionPattern.POINTWISE) {
-                    JobVertexTaskSet targetVertexSet =
-                            runningTasksByVertex.get(edge.getTarget().getID());
-                    if (hasFinishedDescendantTasks(task, edge, targetVertexSet)) {
-                        hasFinishedDescendants = true;
-                        break;
-                    }
+            ExecutionVertexID[] targets = taskEdgeIndex.getOutputEdges(task.getID());
+            for (ExecutionVertexID target : targets) {
+                JobVertexTaskSet targetVertexSet =
+                        runningTasksByVertex.get(target.getJobVertexId());
+                if (!targetVertexSet.contains(target)) {
+                    hasFinishedDescendants = true;
+                    break;
                 }
             }
 
             if (!hasFinishedDescendants) {
-                runningTasks.add(task.getID());
+                runningTasks.add(task.getID().getSubtaskIndex());
             }
         }
 
@@ -463,7 +470,7 @@ public class CheckpointPlanCalculator {
 
         private final TaskSetType type;
 
-        private final Set<ExecutionVertexID> tasks;
+        private final Set<Integer> tasks;
 
         public static JobVertexTaskSet allTasks(ExecutionJobVertex jobVertex) {
             return new JobVertexTaskSet(jobVertex, TaskSetType.ALL_TASKS, Collections.emptySet());
@@ -473,12 +480,7 @@ public class CheckpointPlanCalculator {
             return new JobVertexTaskSet(jobVertex, TaskSetType.NO_TASKS, Collections.emptySet());
         }
 
-        public static JobVertexTaskSet someTasks(
-                ExecutionJobVertex jobVertex, Set<ExecutionVertexID> tasks) {
-            tasks.forEach(
-                    taskId ->
-                            checkState(taskId.getJobVertexId().equals(jobVertex.getJobVertexId())));
-
+        public static JobVertexTaskSet someTasks(ExecutionJobVertex jobVertex, Set<Integer> tasks) {
             if (tasks.size() == jobVertex.getTaskVertices().length) {
                 return allTasks(jobVertex);
             } else if (tasks.size() == 0) {
@@ -489,7 +491,7 @@ public class CheckpointPlanCalculator {
         }
 
         private JobVertexTaskSet(
-                ExecutionJobVertex jobVertex, TaskSetType type, Set<ExecutionVertexID> tasks) {
+                ExecutionJobVertex jobVertex, TaskSetType type, Set<Integer> tasks) {
             this.jobVertex = checkNotNull(jobVertex);
             this.type = type;
             this.tasks = checkNotNull(tasks);
@@ -499,7 +501,7 @@ public class CheckpointPlanCalculator {
             checkState(taskId.getJobVertexId().equals(jobVertex.getJobVertexId()));
 
             return type == TaskSetType.ALL_TASKS
-                    || (type == TaskSetType.SOME_TASKS && tasks.contains(taskId));
+                    || (type == TaskSetType.SOME_TASKS && tasks.contains(taskId.getSubtaskIndex()));
         }
 
         public boolean containsAllTasks() {
@@ -520,5 +522,49 @@ public class CheckpointPlanCalculator {
         ALL_TASKS,
         SOME_TASKS,
         NO_TASKS
+    }
+
+    private class VertexOutEdgeIndex {
+
+        private final ExecutionVertexID[][] outEdges;
+
+        public VertexOutEdgeIndex(ExecutionJobVertex jobVertex) {
+            outEdges = new ExecutionVertexID[jobVertex.getTaskVertices().length][];
+
+            List<JobEdge> pointWiseEdges = new ArrayList<>();
+            for (JobEdge jobEdge : getOutputJobEdges(jobVertex)) {
+                if (jobEdge.getDistributionPattern() == DistributionPattern.POINTWISE) {
+                    pointWiseEdges.add(jobEdge);
+                }
+            }
+
+            for (int i = 0; i < jobVertex.getTaskVertices().length; ++i) {
+                List<ExecutionVertexID> outTaskIds = new ArrayList<>();
+                ExecutionVertex task = jobVertex.getTaskVertices()[i];
+
+                for (JobEdge jobEdge : pointWiseEdges) {
+                    List<List<ExecutionEdge>> edges =
+                            task.getProducedPartitions()
+                                    .get(
+                                            new IntermediateResultPartitionID(
+                                                    jobEdge.getSourceId(),
+                                                    task.getParallelSubtaskIndex()))
+                                    .getConsumers();
+
+                    for (int t = 0; t < edges.size(); ++t) {
+                        for (int j = 0; j < edges.get(t).size(); ++j) {
+                            ExecutionVertex target = edges.get(t).get(j).getTarget();
+                            outTaskIds.add(target.getID());
+                        }
+                    }
+                }
+
+                outEdges[i] = outTaskIds.toArray(new ExecutionVertexID[0]);
+            }
+        }
+
+        public ExecutionVertexID[] getOutputEdges(ExecutionVertexID source) {
+            return outEdges[source.getSubtaskIndex()];
+        }
     }
 }
