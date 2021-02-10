@@ -35,15 +35,15 @@ import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nullable;
+
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.ListIterator;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.stream.Collectors;
@@ -59,7 +59,7 @@ public class CheckpointPlanCalculator {
 
     private final CheckpointPlanCalculatorContext context;
 
-    private final List<ExecutionJobVertex> jobVerticesInTopologyOrder = new ArrayList<>();
+    private final ArrayList<ExecutionJobVertex> jobVerticesInTopologyOrder = new ArrayList<>();
 
     private final List<ExecutionVertex> allTasks = new ArrayList<>();
 
@@ -323,11 +323,8 @@ public class CheckpointPlanCalculator {
     Map<JobVertexID, JobVertexTaskSet> calculateRunningTasks() {
         Map<JobVertexID, JobVertexTaskSet> runningTasksByVertex = new HashMap<>();
 
-        ListIterator<ExecutionJobVertex> jobVertexIterator =
-                jobVerticesInTopologyOrder.listIterator(jobVerticesInTopologyOrder.size());
-
-        while (jobVertexIterator.hasPrevious()) {
-            ExecutionJobVertex jobVertex = jobVertexIterator.previous();
+        for (int i = jobVerticesInTopologyOrder.size() - 1; i >= 0; --i) {
+            ExecutionJobVertex jobVertex = jobVerticesInTopologyOrder.get(i);
 
             List<JobEdge> outputJobEdges = getOutputJobEdges(jobVertex);
 
@@ -339,8 +336,7 @@ public class CheckpointPlanCalculator {
             }
 
             // not lucky, need to determine which of our tasks can still be running
-            Set<Integer> runningTasks =
-                    getRunningTasks(runningTasksByVertex, jobVertex, outputJobEdges);
+            BitSet runningTasks = getRunningTasks(runningTasksByVertex, jobVertex, outputJobEdges);
 
             runningTasksByVertex.put(
                     jobVertex.getJobVertexId(),
@@ -354,12 +350,12 @@ public class CheckpointPlanCalculator {
      * Determines the {@link ExecutionVertexID ExecutionVertexIDs} of those subtasks that are still
      * running.
      */
-    private Set<Integer> getRunningTasks(
+    private BitSet getRunningTasks(
             Map<JobVertexID, JobVertexTaskSet> runningTasksByVertex,
             ExecutionJobVertex jobVertex,
             List<JobEdge> outputJobEdges) {
 
-        Set<Integer> runningTasks = new HashSet<>();
+        BitSet runningTasks = new BitSet(jobVertex.getTaskVertices().length);
         VertexOutEdgeIndex taskEdgeIndex = outEdgeIndex.get(jobVertex.getJobVertexId());
 
         for (ExecutionVertex task : jobVertex.getTaskVertices()) {
@@ -379,7 +375,7 @@ public class CheckpointPlanCalculator {
             }
 
             if (!hasFinishedDescendants) {
-                runningTasks.add(task.getID().getSubtaskIndex());
+                runningTasks.set(task.getID().getSubtaskIndex());
             }
         }
 
@@ -470,38 +466,38 @@ public class CheckpointPlanCalculator {
 
         private final TaskSetType type;
 
-        private final Set<Integer> tasks;
+        @Nullable private final BitSet tasks;
 
         public static JobVertexTaskSet allTasks(ExecutionJobVertex jobVertex) {
-            return new JobVertexTaskSet(jobVertex, TaskSetType.ALL_TASKS, Collections.emptySet());
+            return new JobVertexTaskSet(jobVertex, TaskSetType.ALL_TASKS, null);
         }
 
         public static JobVertexTaskSet noTasks(ExecutionJobVertex jobVertex) {
-            return new JobVertexTaskSet(jobVertex, TaskSetType.NO_TASKS, Collections.emptySet());
+            return new JobVertexTaskSet(jobVertex, TaskSetType.NO_TASKS, null);
         }
 
-        public static JobVertexTaskSet someTasks(ExecutionJobVertex jobVertex, Set<Integer> tasks) {
-            if (tasks.size() == jobVertex.getTaskVertices().length) {
+        public static JobVertexTaskSet someTasks(ExecutionJobVertex jobVertex, BitSet tasks) {
+            checkNotNull(tasks);
+
+            if (tasks.cardinality() == jobVertex.getTaskVertices().length) {
                 return allTasks(jobVertex);
-            } else if (tasks.size() == 0) {
+            } else if (tasks.cardinality() == 0) {
                 return noTasks(jobVertex);
             } else {
                 return new JobVertexTaskSet(jobVertex, TaskSetType.SOME_TASKS, tasks);
             }
         }
 
-        private JobVertexTaskSet(
-                ExecutionJobVertex jobVertex, TaskSetType type, Set<Integer> tasks) {
+        private JobVertexTaskSet(ExecutionJobVertex jobVertex, TaskSetType type, BitSet tasks) {
             this.jobVertex = checkNotNull(jobVertex);
             this.type = type;
-            this.tasks = checkNotNull(tasks);
+            this.tasks = tasks;
         }
 
         public boolean contains(ExecutionVertexID taskId) {
             checkState(taskId.getJobVertexId().equals(jobVertex.getJobVertexId()));
-
             return type == TaskSetType.ALL_TASKS
-                    || (type == TaskSetType.SOME_TASKS && tasks.contains(taskId.getSubtaskIndex()));
+                    || (type == TaskSetType.SOME_TASKS && tasks.get(taskId.getSubtaskIndex()));
         }
 
         public boolean containsAllTasks() {
