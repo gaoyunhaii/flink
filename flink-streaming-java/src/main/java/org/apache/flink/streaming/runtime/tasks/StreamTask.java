@@ -88,6 +88,7 @@ import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.InstantiationUtil;
 import org.apache.flink.util.Preconditions;
 import org.apache.flink.util.SerializedValue;
+import org.apache.flink.util.function.FunctionUtils;
 import org.apache.flink.util.function.RunnableWithException;
 import org.apache.flink.util.function.ThrowingRunnable;
 
@@ -98,6 +99,7 @@ import javax.annotation.Nullable;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
@@ -107,6 +109,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
+import java.util.stream.Collectors;
 
 import static org.apache.flink.runtime.concurrent.FutureUtils.assertNoException;
 
@@ -633,6 +636,27 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>> extends Ab
         // close all operators in a chain effect way
         operatorChain.closeOperators(actionExecutor);
 
+        // If checkpoints are enabled, waits for all the records get processed by the downstream
+        // tasks. During this process, this task could coordinate with its downstream tasks to
+        // continue perform checkpoints.
+        if (configuration.isCheckpointingEnabled()) {
+            LOG.info("Waiting for all the records processed by the downstream tasks.");
+            CompletableFuture<Void> combineFuture =
+                    FutureUtils.waitForAll(
+                            Arrays.stream(getEnvironment().getAllWriters())
+                                    .map(
+                                            FunctionUtils.uncheckedFunction(
+                                                    ResultPartitionWriter
+                                                            ::getAllRecordsProcessedFuture))
+                                    .collect(Collectors.toList()));
+
+            MailboxExecutor mailboxExecutor =
+                    mailboxProcessor.getMailboxExecutor(TaskMailbox.MIN_PRIORITY);
+            while (!combineFuture.isDone()) {
+                mailboxExecutor.tryYield();
+            }
+        }
+
         // make sure no further checkpoint and notification actions happen.
         // at the same time, this makes sure that during any "regular" exit where still
         actionExecutor.runThrowing(
@@ -643,13 +667,17 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>> extends Ab
 
                     // let mailbox execution reject all new letters from this point
                     mailboxProcessor.prepareClose();
+                });
+        // processes the remaining mails; no new mails can be enqueued
+        mailboxProcessor.drain();
 
+        // Set isRunning to false after all the mails are drained
+        actionExecutor.runThrowing(
+                () -> {
                     // only set the StreamTask to not running after all operators have been closed!
                     // See FLINK-7430
                     isRunning = false;
                 });
-        // processes the remaining mails; no new mails can be enqueued
-        mailboxProcessor.drain();
 
         // make sure all timers finish
         timersFinishedFuture.get();

@@ -23,6 +23,7 @@ import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.state.CheckpointListener;
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
+import org.apache.flink.api.common.typeutils.base.IntSerializer;
 import org.apache.flink.api.common.typeutils.base.StringSerializer;
 import org.apache.flink.configuration.CheckpointingOptions;
 import org.apache.flink.configuration.Configuration;
@@ -42,15 +43,27 @@ import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.checkpoint.channel.ChannelStateWriter;
 import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.concurrent.TestingUncaughtExceptionHandler;
+import org.apache.flink.runtime.event.AbstractEvent;
 import org.apache.flink.runtime.execution.CancelTaskException;
 import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.io.network.NettyShuffleEnvironment;
 import org.apache.flink.runtime.io.network.NettyShuffleEnvironmentBuilder;
+import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
+import org.apache.flink.runtime.io.network.api.EndOfUserRecordsEvent;
+import org.apache.flink.runtime.io.network.api.serialization.EventSerializer;
 import org.apache.flink.runtime.io.network.api.writer.AvailabilityTestResultPartitionWriter;
 import org.apache.flink.runtime.io.network.api.writer.RecordWriter;
 import org.apache.flink.runtime.io.network.api.writer.ResultPartitionWriter;
+import org.apache.flink.runtime.io.network.buffer.Buffer;
+import org.apache.flink.runtime.io.network.partition.NoOpBufferAvailablityListener;
+import org.apache.flink.runtime.io.network.partition.PartitionTestUtils;
+import org.apache.flink.runtime.io.network.partition.PipelinedResultPartition;
+import org.apache.flink.runtime.io.network.partition.PipelinedSubpartition;
+import org.apache.flink.runtime.io.network.partition.PipelinedSubpartitionView;
+import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
+import org.apache.flink.runtime.io.network.partition.ResultSubpartition;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
 import org.apache.flink.runtime.metrics.TimerGauge;
@@ -63,6 +76,7 @@ import org.apache.flink.runtime.operators.testutils.MockInputSplitProvider;
 import org.apache.flink.runtime.shuffle.ShuffleEnvironment;
 import org.apache.flink.runtime.state.AbstractKeyedStateBackend;
 import org.apache.flink.runtime.state.AbstractStateBackend;
+import org.apache.flink.runtime.state.CheckpointStorageLocationReference;
 import org.apache.flink.runtime.state.CheckpointStreamFactory;
 import org.apache.flink.runtime.state.CheckpointableKeyedStateBackend;
 import org.apache.flink.runtime.state.DoneFuture;
@@ -92,6 +106,8 @@ import org.apache.flink.runtime.util.FatalExitExceptionHandler;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.streaming.api.graph.StreamConfig;
+import org.apache.flink.streaming.api.graph.StreamEdge;
+import org.apache.flink.streaming.api.graph.StreamNode;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperatorFactory;
 import org.apache.flink.streaming.api.operators.ChainingStrategy;
@@ -107,6 +123,7 @@ import org.apache.flink.streaming.api.operators.StreamOperatorStateContext;
 import org.apache.flink.streaming.api.operators.StreamSource;
 import org.apache.flink.streaming.api.operators.StreamTaskStateInitializer;
 import org.apache.flink.streaming.runtime.io.StreamInputProcessor;
+import org.apache.flink.streaming.runtime.partitioner.ForwardPartitioner;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.streaming.runtime.streamstatus.StreamStatusMaintainer;
 import org.apache.flink.streaming.runtime.tasks.mailbox.MailboxDefaultAction;
@@ -137,7 +154,9 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.StreamCorruptedException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -186,7 +205,7 @@ public class StreamTaskTest extends TestLogger {
 
     private static OneShotLatch syncLatch;
 
-    @Rule public final Timeout timeoutPerTest = Timeout.seconds(30);
+    @Rule public final Timeout timeoutPerTest = Timeout.seconds(3000);
 
     @Test
     public void testSavepointSuspendCompleted() throws Exception {
@@ -1526,6 +1545,183 @@ public class StreamTaskTest extends TestLogger {
                 waitingThread.join();
             }
         }
+    }
+
+    @Test
+    public void testNotWaitingForAllRecordsProcessedIfCheckpointNotEnabled() throws Exception {
+        Configuration taskConfiguration = new Configuration();
+        StreamConfig streamConfig = new StreamConfig(taskConfiguration);
+        streamConfig.setCheckpointingEnabled(false);
+
+        // Create two ResultPartitions
+        List<ResultPartitionWriter> partitionWriters = new ArrayList<>();
+        for (int i = 0; i < 2; ++i) {
+            partitionWriters.add(
+                    PartitionTestUtils.createPartition(ResultPartitionType.PIPELINED_BOUNDED));
+        }
+
+        try (MockEnvironment mockEnvironment =
+                new MockEnvironmentBuilder().setTaskConfiguration(taskConfiguration).build()) {
+            mockEnvironment.addOutputs(partitionWriters);
+
+            StreamTask<?, ?> streamTask =
+                    new MockStreamTaskBuilder(mockEnvironment)
+                            .setStreamInputProcessor(new EmptyInputProcessor())
+                            .build();
+            streamTask.invoke();
+
+            for (ResultPartitionWriter writer : partitionWriters) {
+                assertEquals(0, ((PipelinedResultPartition) writer).getNumberOfQueuedBuffers());
+            }
+        } finally {
+            for (ResultPartitionWriter partitionWriter : partitionWriters) {
+                partitionWriter.close();
+            }
+        }
+    }
+
+    @Test
+    public void testTriggeringCheckpointWhileWaitingForAllRecordsProcessed() throws Exception {
+        Configuration taskConfiguration = createStreamConfigWithTwoOutputs();
+
+        // Create two ResultPartitions
+        List<ResultPartitionWriter> partitionWriters = new ArrayList<>();
+        for (int i = 0; i < 2; ++i) {
+            partitionWriters.add(
+                    PartitionTestUtils.createPartition(ResultPartitionType.PIPELINED_BOUNDED));
+        }
+
+        CheckpointBarrier[] checkpointsToTrigger = {
+            new CheckpointBarrier(
+                    1,
+                    1L,
+                    CheckpointOptions.alignedNoTimeout(
+                            CheckpointType.CHECKPOINT,
+                            CheckpointStorageLocationReference.getDefault())),
+            new CheckpointBarrier(
+                    3,
+                    3L,
+                    CheckpointOptions.alignedWithTimeout(
+                            CheckpointStorageLocationReference.getDefault(), 10000)),
+            new CheckpointBarrier(
+                    5,
+                    5L,
+                    CheckpointOptions.unaligned(CheckpointStorageLocationReference.getDefault())),
+        };
+
+        try (MockEnvironment mockEnvironment =
+                new MockEnvironmentBuilder().setTaskConfiguration(taskConfiguration).build()) {
+            mockEnvironment.addOutputs(partitionWriters);
+
+            StreamTask<?, ?> streamTask =
+                    new MockStreamTaskBuilder(mockEnvironment)
+                            .setStreamInputProcessor(new EmptyInputProcessor())
+                            .build();
+            // The test thread would trigger checkpoint and acknowledge all the records processed.
+            CompletableFuture<Void> coordinateFuture =
+                    CompletableFuture.supplyAsync(
+                            () -> {
+                                // Wait till the EndOfUserRecordsEvent are sent.
+                                for (ResultPartitionWriter writer : partitionWriters) {
+                                    waitTillResultPartitionHasEnoughBuffers(writer, 1);
+                                }
+
+                                for (CheckpointBarrier barrier : checkpointsToTrigger) {
+                                    streamTask.triggerCheckpointAsync(
+                                            new CheckpointMetaData(
+                                                    barrier.getId(), barrier.getTimestamp()),
+                                            barrier.getCheckpointOptions());
+                                }
+
+                                // Acknowledges all records are processed.
+                                for (ResultPartitionWriter writer : partitionWriters) {
+                                    ((PipelinedResultPartition) writer)
+                                            .onSubpartitionAllRecordsProcessed(0);
+                                }
+
+                                return null;
+                            });
+
+            streamTask.invoke();
+            coordinateFuture.join();
+
+            for (ResultPartitionWriter writer : partitionWriters) {
+                PipelinedSubpartition subpartition =
+                        ((PipelinedSubpartition)
+                                ((PipelinedResultPartition) writer).getAllPartitions()[0]);
+                assertEquals(4, subpartition.unsynchronizedGetNumberOfQueuedBuffers());
+                List<AbstractEvent> events = getAllQueuedEvents(subpartition);
+                assertEquals(
+                        Arrays.asList(
+                                checkpointsToTrigger[2],
+                                EndOfUserRecordsEvent.INSTANCE,
+                                checkpointsToTrigger[0],
+                                checkpointsToTrigger[1]),
+                        events);
+            }
+        }
+    }
+
+    private Configuration createStreamConfigWithTwoOutputs() {
+        Configuration taskConfiguration = new Configuration();
+        StreamConfig streamConfig = new StreamConfig(taskConfiguration);
+
+        StreamNode current =
+                new StreamNode(
+                        1, null, null, new ClosingOperator<>(), "current", MockStreamTask.class);
+        StreamNode sink =
+                new StreamNode(
+                        2, null, null, new ClosingOperator<>(), "sink", MockStreamTask.class);
+
+        StreamConfig opConfig = new StreamConfig(taskConfiguration);
+        opConfig.setTypeSerializerOut(IntSerializer.INSTANCE);
+        Map<Integer, StreamConfig> chainedConfig = new HashMap<>();
+        chainedConfig.put(1, opConfig);
+        streamConfig.setTransitiveChainedTaskConfigs(chainedConfig);
+
+        streamConfig.setOutEdgesInOrder(
+                Arrays.asList(
+                        new StreamEdge(current, sink, 0, new ForwardPartitioner<>(), null),
+                        new StreamEdge(current, sink, 0, new ForwardPartitioner<>(), null)));
+        streamConfig.setCheckpointingEnabled(true);
+
+        return taskConfiguration;
+    }
+
+    private void waitTillResultPartitionHasEnoughBuffers(
+            ResultPartitionWriter writer, int targetNumBuffers) {
+        while (((PipelinedResultPartition) writer).getNumberOfQueuedBuffers() < 1) {
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                // Do nothing
+            }
+        }
+    }
+
+    private List<AbstractEvent> getAllQueuedEvents(PipelinedSubpartition subpartition)
+            throws IOException {
+        List<AbstractEvent> events = new ArrayList<>();
+
+        PipelinedSubpartitionView view =
+                subpartition.createReadView(new NoOpBufferAvailablityListener());
+        while (true) {
+            ResultSubpartition.BufferAndBacklog bufferAndBacklog = view.getNextBuffer();
+            if (bufferAndBacklog == null) {
+                break;
+            }
+
+            Buffer buffer = bufferAndBacklog.buffer();
+            if (buffer.getDataType().isBlockingUpstream()) {
+                view.resumeConsumption();
+            }
+
+            if (!buffer.isBuffer()) {
+                events.add(EventSerializer.fromBuffer(buffer, getClass().getClassLoader()));
+            }
+        }
+
+        return events;
     }
 
     private MockEnvironment setupEnvironment(boolean... outputAvailabilities) {
