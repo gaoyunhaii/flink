@@ -175,6 +175,11 @@ public class SortMergeSubpartitionReader implements ResultSubpartitionView, Buff
     }
 
     @Override
+    public void acknowledgeAllRecordsProcessed() {
+        throw new UnsupportedOperationException("Method should never be called.");
+    }
+
+    @Override
     public Throwable getFailureCause() {
         // we can never throw an error after this was created
         return null;
