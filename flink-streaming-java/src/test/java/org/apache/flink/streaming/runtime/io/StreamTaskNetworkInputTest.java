@@ -193,7 +193,8 @@ public class StreamTaskNetworkInputTest {
                 new StreamTaskNetworkInput<>(
                         new CheckpointedInputGate(
                                 inputGate.getInputGate(),
-                                new CheckpointBarrierTracker(1, new DummyCheckpointInvokable()),
+                                new CheckpointBarrierTracker(
+                                        new DummyCheckpointInvokable(), inputGate.getInputGate()),
                                 new SyncMailboxExecutor()),
                         inSerializer,
                         new StatusWatermarkValve(1),
@@ -218,10 +219,11 @@ public class StreamTaskNetworkInputTest {
     }
 
     private StreamTaskNetworkInput createStreamTaskNetworkInput(List<BufferOrEvent> buffers) {
+        MockInputGate inputGate = new MockInputGate(1, buffers, false);
         return new StreamTaskNetworkInput<>(
                 new CheckpointedInputGate(
-                        new MockInputGate(1, buffers, false),
-                        new CheckpointBarrierTracker(1, new DummyCheckpointInvokable()),
+                        inputGate,
+                        new CheckpointBarrierTracker(new DummyCheckpointInvokable(), inputGate),
                         new SyncMailboxExecutor()),
                 LongSerializer.INSTANCE,
                 ioManager,

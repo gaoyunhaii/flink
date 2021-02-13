@@ -708,8 +708,8 @@ public class UnalignedControllerTest {
 
     /**
      * Tests {@link
-     * SingleCheckpointBarrierHandler#processCancellationBarrier(CancelCheckpointMarker)} abort the
-     * current pending checkpoint triggered by {@link
+     * SingleCheckpointBarrierHandler#processCancellationBarrier(CancelCheckpointMarker,
+     * InputChannelInfo)} abort the current pending checkpoint triggered by {@link
      * CheckpointBarrierHandler#processBarrier(CheckpointBarrier, InputChannelInfo)}.
      */
     @Test
@@ -745,7 +745,8 @@ public class UnalignedControllerTest {
                 SingleCheckpointBarrierHandler.createUnalignedCheckpointBarrierHandler(
                         TestSubtaskCheckpointCoordinator.INSTANCE, "test", invokable, inputGate);
 
-        handler.processCancellationBarrier(new CancelCheckpointMarker(DEFAULT_CHECKPOINT_ID));
+        handler.processCancellationBarrier(
+                new CancelCheckpointMarker(DEFAULT_CHECKPOINT_ID), new InputChannelInfo(0, 0));
 
         verifyTriggeredCheckpoint(handler, invokable, DEFAULT_CHECKPOINT_ID);
 
@@ -764,13 +765,15 @@ public class UnalignedControllerTest {
         final long cancelledCheckpointId =
                 new Random().nextBoolean() ? DEFAULT_CHECKPOINT_ID : DEFAULT_CHECKPOINT_ID + 1L;
         // should abort current checkpoint while processing CancelCheckpointMarker
-        handler.processCancellationBarrier(new CancelCheckpointMarker(cancelledCheckpointId));
+        handler.processCancellationBarrier(
+                new CancelCheckpointMarker(cancelledCheckpointId), new InputChannelInfo(0, 0));
         verifyTriggeredCheckpoint(handler, invokable, cancelledCheckpointId);
 
         final long nextCancelledCheckpointId = cancelledCheckpointId + 1L;
         // should update current checkpoint id and abort notification while processing
         // CancelCheckpointMarker
-        handler.processCancellationBarrier(new CancelCheckpointMarker(nextCancelledCheckpointId));
+        handler.processCancellationBarrier(
+                new CancelCheckpointMarker(nextCancelledCheckpointId), new InputChannelInfo(0, 0));
         verifyTriggeredCheckpoint(handler, invokable, nextCancelledCheckpointId);
     }
 
@@ -806,7 +809,7 @@ public class UnalignedControllerTest {
         assertEquals(numberOfChannels, handler.getNumOpenChannels());
 
         // should abort current checkpoint while processing eof
-        handler.processEndOfPartition();
+        handler.processEndOfPartition(inputGate.getChannelInfos().get(0));
 
         assertFalse(handler.isCheckpointPending());
         assertEquals(DEFAULT_CHECKPOINT_ID, handler.getLatestCheckpointId());

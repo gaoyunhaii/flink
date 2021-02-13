@@ -18,6 +18,7 @@
 
 package org.apache.flink.streaming.runtime.io.checkpointing;
 
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
@@ -27,11 +28,15 @@ import org.apache.flink.runtime.checkpoint.channel.InputChannelInfo;
 import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.io.network.api.CancelCheckpointMarker;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
+import org.apache.flink.runtime.io.network.partition.consumer.CheckpointableInput;
 import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -67,8 +72,20 @@ public abstract class CheckpointBarrierHandler implements Closeable {
 
     private CompletableFuture<Long> latestBytesProcessedDuringAlignment = new CompletableFuture<>();
 
-    public CheckpointBarrierHandler(AbstractInvokable toNotifyOnCheckpoint) {
+    private final CheckpointableInput[] inputs;
+
+    /** The total number of channels. */
+    private final int totalNumberOfInputChannels;
+
+    private final Set<InputChannelInfo> finishedChannels = new HashSet<>();
+
+    public CheckpointBarrierHandler(
+            AbstractInvokable toNotifyOnCheckpoint, CheckpointableInput[] inputs) {
         this.toNotifyOnCheckpoint = checkNotNull(toNotifyOnCheckpoint);
+        this.inputs = checkNotNull(inputs);
+
+        this.totalNumberOfInputChannels =
+                Arrays.stream(inputs).mapToInt(CheckpointableInput::getNumberOfInputChannels).sum();
     }
 
     @Override
@@ -80,17 +97,29 @@ public abstract class CheckpointBarrierHandler implements Closeable {
         throw new UnsupportedEncodingException("Not supported yet");
     }
 
-    public abstract void processBarrier(
+    public final void processBarrier(
+            CheckpointBarrier receivedBarrier, InputChannelInfo channelInfo) throws IOException {
+        internalProcessBarrier(receivedBarrier, channelInfo);
+    }
+
+    protected abstract void internalProcessBarrier(
             CheckpointBarrier receivedBarrier, InputChannelInfo channelInfo) throws IOException;
 
     public abstract void processBarrierAnnouncement(
             CheckpointBarrier announcedBarrier, int sequenceNumber, InputChannelInfo channelInfo)
             throws IOException;
 
-    public abstract void processCancellationBarrier(CancelCheckpointMarker cancelBarrier)
+    public final void processCancellationBarrier(
+            CancelCheckpointMarker cancelBarrier, InputChannelInfo channelInfo) throws IOException {
+        internalProcessCancellationBarrier(cancelBarrier);
+    }
+
+    protected abstract void internalProcessCancellationBarrier(CancelCheckpointMarker cancelBarrier)
             throws IOException;
 
-    public abstract void processEndOfPartition() throws IOException;
+    public void processEndOfPartition(InputChannelInfo inputChannelInfo) throws IOException {
+        finishedChannels.add(inputChannelInfo);
+    }
 
     public abstract long getLatestCheckpointId();
 
@@ -108,6 +137,11 @@ public abstract class CheckpointBarrierHandler implements Closeable {
 
     public CompletableFuture<Void> getAllBarriersReceivedFuture(long checkpointId) {
         return CompletableFuture.completedFuture(null);
+    }
+
+    @VisibleForTesting
+    protected int getNumOpenChannels() {
+        return totalNumberOfInputChannels - finishedChannels.size();
     }
 
     protected void notifyCheckpoint(CheckpointBarrier checkpointBarrier) throws IOException {
@@ -132,28 +166,30 @@ public abstract class CheckpointBarrierHandler implements Closeable {
     }
 
     protected void notifyAbort(long checkpointId, CheckpointException cause) throws IOException {
-        resetAlignment();
+        resetAlignment(checkpointId);
         toNotifyOnCheckpoint.abortCheckpointOnBarrier(checkpointId, cause);
     }
 
-    protected void markAlignmentStartAndEnd(long checkpointCreationTimestamp) {
-        markAlignmentStart(checkpointCreationTimestamp);
-        markAlignmentEnd(0);
+    protected void markAlignmentStartAndEnd(CheckpointBarrier barrier) {
+        markAlignmentStart(barrier);
+        markAlignmentEnd(barrier.getId(), 0);
     }
 
-    protected void markAlignmentStart(long checkpointCreationTimestamp) {
+    protected void markAlignmentStart(CheckpointBarrier barrier) {
         latestCheckpointStartDelayNanos =
-                1_000_000 * Math.max(0, System.currentTimeMillis() - checkpointCreationTimestamp);
+                1_000_000 * Math.max(0, System.currentTimeMillis() - barrier.getTimestamp());
 
-        resetAlignment();
+        // Since there might be multiple pending checkpoints, the start of one checkpoint could not
+        // mark any previous one as completed or aborted
+        resetAlignment(0);
         startOfAlignmentTimestamp = System.nanoTime();
     }
 
-    protected void markAlignmentEnd() {
-        markAlignmentEnd(System.nanoTime() - startOfAlignmentTimestamp);
+    protected void markAlignmentEnd(long completedCheckpointId) {
+        markAlignmentEnd(completedCheckpointId, System.nanoTime() - startOfAlignmentTimestamp);
     }
 
-    protected void markAlignmentEnd(long alignmentDuration) {
+    protected void markAlignmentEnd(long completedCheckpointId, long alignmentDuration) {
         latestAlignmentDurationNanos.complete(alignmentDuration);
         latestBytesProcessedDuringAlignment.complete(bytesProcessedDuringAlignment);
 
@@ -161,8 +197,8 @@ public abstract class CheckpointBarrierHandler implements Closeable {
         bytesProcessedDuringAlignment = 0;
     }
 
-    private void resetAlignment() {
-        markAlignmentEnd(0);
+    private void resetAlignment(long completedCheckpointId) {
+        markAlignmentEnd(completedCheckpointId, 0);
         latestAlignmentDurationNanos = new CompletableFuture<>();
         latestBytesProcessedDuringAlignment = new CompletableFuture<>();
     }

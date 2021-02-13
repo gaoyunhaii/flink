@@ -26,6 +26,7 @@ import org.apache.flink.runtime.io.network.partition.consumer.IndexedInputGate;
 import org.apache.flink.runtime.io.network.partition.consumer.InputChannel;
 import org.apache.flink.runtime.io.network.partition.consumer.InputGate;
 
+import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
@@ -135,6 +136,9 @@ public class MockInputGate extends IndexedInputGate {
     public void resumeConsumption(InputChannelInfo channelInfo) {
         lastUnblockedChannels.add(channelInfo.getInputChannelIdx());
     }
+
+    @Override
+    public void acknowledgeAllRecordsProcessed(InputChannelInfo channelInfo) throws IOException {}
 
     public ArrayList<Integer> getAndResetLastUnblockedChannels() {
         ArrayList<Integer> unblockedChannels = lastUnblockedChannels;

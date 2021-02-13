@@ -37,7 +37,6 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.concurrent.NotThreadSafe;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -69,9 +68,9 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
      */
     private long currentCheckpointId = -1L;
 
-    private long lastCancelledOrCompletedCheckpointId = -1L;
+    private int targetBarrierCount;
 
-    private int numOpenChannels;
+    private long lastCancelledOrCompletedCheckpointId = -1L;
 
     private CompletableFuture<Void> allBarriersReceivedFuture = FutureUtils.completedVoidFuture();
 
@@ -84,27 +83,23 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
         return new SingleCheckpointBarrierHandler(
                 taskName,
                 toNotifyOnCheckpoint,
-                (int)
-                        Arrays.stream(inputs)
-                                .flatMap(gate -> gate.getChannelInfos().stream())
-                                .count(),
-                new UnalignedController(checkpointCoordinator, inputs));
+                new UnalignedController(checkpointCoordinator, inputs),
+                inputs);
     }
 
     SingleCheckpointBarrierHandler(
             String taskName,
             AbstractInvokable toNotifyOnCheckpoint,
-            int numOpenChannels,
-            CheckpointBarrierBehaviourController controller) {
-        super(toNotifyOnCheckpoint);
+            CheckpointBarrierBehaviourController controller,
+            CheckpointableInput... inputs) {
+        super(toNotifyOnCheckpoint, inputs);
 
         this.taskName = taskName;
-        this.numOpenChannels = numOpenChannels;
         this.controller = controller;
     }
 
     @Override
-    public void processBarrier(CheckpointBarrier barrier, InputChannelInfo channelInfo)
+    protected void internalProcessBarrier(CheckpointBarrier barrier, InputChannelInfo channelInfo)
             throws IOException {
         long barrierId = barrier.getId();
         LOG.debug("{}: Received barrier from channel {} @ {}.", taskName, channelInfo, barrierId);
@@ -119,9 +114,9 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
 
         if (numBarriersReceived == 0) {
             if (getNumOpenChannels() == 1) {
-                markAlignmentStartAndEnd(barrier.getTimestamp());
+                markAlignmentStartAndEnd(barrier);
             } else {
-                markAlignmentStart(barrier.getTimestamp());
+                markAlignmentStart(barrier);
             }
             allBarriersReceivedFuture = new CompletableFuture<>();
 
@@ -139,9 +134,9 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
         }
 
         if (currentCheckpointId == barrierId) {
-            if (++numBarriersReceived == numOpenChannels) {
+            if (++numBarriersReceived == targetBarrierCount) {
                 if (getNumOpenChannels() > 1) {
-                    markAlignmentEnd();
+                    markAlignmentEnd(currentCheckpointId);
                 }
                 numBarriersReceived = 0;
                 lastCancelledOrCompletedCheckpointId = currentCheckpointId;
@@ -225,13 +220,14 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
                 cancelSubsumedCheckpoint(barrierId);
             }
             currentCheckpointId = barrierId;
+            targetBarrierCount = getNumOpenChannels();
             numBarriersReceived = 0;
             controller.preProcessFirstBarrierOrAnnouncement(barrier);
         }
     }
 
     @Override
-    public void processCancellationBarrier(CancelCheckpointMarker cancelBarrier)
+    protected void internalProcessCancellationBarrier(CancelCheckpointMarker cancelBarrier)
             throws IOException {
         final long cancelledId = cancelBarrier.getCheckpointId();
         if (cancelledId > currentCheckpointId
@@ -255,6 +251,7 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
         currentCheckpointId = Math.max(cancelledId, currentCheckpointId);
         lastCancelledOrCompletedCheckpointId =
                 Math.max(lastCancelledOrCompletedCheckpointId, cancelledId);
+        targetBarrierCount = 0;
         numBarriersReceived = 0;
         controller.abortPendingCheckpoint(cancelledId, exception);
         notifyAbort(cancelledId, exception);
@@ -262,8 +259,8 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
     }
 
     @Override
-    public void processEndOfPartition() throws IOException {
-        numOpenChannels--;
+    public void processEndOfPartition(InputChannelInfo inputChannelInfo) throws IOException {
+        super.processEndOfPartition(inputChannelInfo);
 
         if (isCheckpointPending()) {
             LOG.warn(
@@ -312,15 +309,10 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
         return allBarriersReceivedFuture;
     }
 
-    @VisibleForTesting
-    int getNumOpenChannels() {
-        return numOpenChannels;
-    }
-
     @Override
     public String toString() {
         return String.format(
                 "%s: current checkpoint: %d, current barriers: %d, open channels: %d",
-                taskName, currentCheckpointId, numBarriersReceived, numOpenChannels);
+                taskName, currentCheckpointId, numBarriersReceived, getNumOpenChannels());
     }
 }

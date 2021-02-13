@@ -330,11 +330,11 @@ public class CheckpointedInputGateTest {
 
         CheckpointBarrierTracker barrierHandler =
                 new CheckpointBarrierTracker(
-                        numberOfChannels,
                         new AbstractInvokable(new DummyEnvironment()) {
                             @Override
                             public void invoke() {}
-                        });
+                        },
+                        singleInputGate);
 
         CheckpointedInputGate checkpointedInputGate =
                 new CheckpointedInputGate(

@@ -135,11 +135,11 @@ public class AlignedControllerTest {
                 new SingleCheckpointBarrierHandler(
                         "Testing",
                         toNotify,
-                        gate.getNumberOfInputChannels(),
                         new AlignedController(gate) {
                             @Override
                             protected void resetPendingCheckpoint(long cancelledId) {}
-                        }),
+                        },
+                        gate),
                 new SyncMailboxExecutor());
     }
 

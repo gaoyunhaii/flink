@@ -725,11 +725,11 @@ public class AlternatingControllerTest {
         return new SingleCheckpointBarrierHandler(
                 taskName,
                 target,
-                inputGate.getNumberOfInputChannels(),
                 new AlternatingController(
                         new AlignedController(inputGate),
                         new UnalignedController(
-                                new TestSubtaskCheckpointCoordinator(stateWriter), inputGate)));
+                                new TestSubtaskCheckpointCoordinator(stateWriter), inputGate)),
+                inputGate);
     }
 
     private static CheckpointedInputGate buildGate(AbstractInvokable target, int numChannels) {
