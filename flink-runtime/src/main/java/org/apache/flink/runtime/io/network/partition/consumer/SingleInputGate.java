@@ -797,6 +797,12 @@ public class SingleInputGate extends IndexedInputGate {
         channels[channelInfo.getInputChannelIdx()].resumeConsumption();
     }
 
+    @Override
+    public void acknowledgeAllRecordsProcessed(InputChannelInfo channelInfo) throws IOException {
+        checkState(!isFinished(), "InputGate already finished.");
+        channels[channelInfo.getInputChannelIdx()].acknowledgeAllRecordsProcessed();
+    }
+
     // ------------------------------------------------------------------------
     // Channel notifications
     // ------------------------------------------------------------------------
