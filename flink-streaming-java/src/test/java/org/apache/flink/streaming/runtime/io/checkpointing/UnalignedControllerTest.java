@@ -18,6 +18,7 @@
 package org.apache.flink.streaming.runtime.io.checkpointing;
 
 import org.apache.flink.runtime.checkpoint.CheckpointException;
+import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointMetricsBuilder;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
@@ -39,6 +40,7 @@ import org.apache.flink.runtime.io.network.partition.consumer.SingleInputGateBui
 import org.apache.flink.runtime.io.network.util.TestBufferFactory;
 import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
 import org.apache.flink.runtime.operators.testutils.DummyEnvironment;
+import org.apache.flink.runtime.state.CheckpointStorageLocationReference;
 import org.apache.flink.streaming.api.operators.SyncMailboxExecutor;
 import org.apache.flink.streaming.runtime.tasks.StreamTask;
 import org.apache.flink.streaming.runtime.tasks.TestSubtaskCheckpointCoordinator;
@@ -817,6 +819,206 @@ public class UnalignedControllerTest {
         assertEquals(DEFAULT_CHECKPOINT_ID, invokable.getAbortedCheckpointId());
     }
 
+    @Test
+    public void testCheckpointsAfterSomeChannelFinished() throws Exception {
+        ValidatingCheckpointHandler handler = new ValidatingCheckpointHandler(1);
+        inputGate = createInputGate(3, handler);
+        inputGate.getCheckpointBarrierHandler().setEnableCheckpointAfterTasksFinished(true);
+
+        BufferOrEvent[] sequence1 =
+                addSequence(
+                        inputGate,
+                        /* 0 */ createBuffer(0),
+                        /* 1 */ createBarrier(1, 1),
+                        /* 2 */ createBarrier(1, 0),
+                        /* 3 */ createBuffer(1),
+                        /* 4 */ createBarrier(2, 1));
+        assertOutput(sequence1);
+        assertEquals(1, handler.getLastCanceledCheckpointId());
+        assertEquals(
+                CheckpointFailureReason.CHECKPOINT_DECLINED_SUBSUMED,
+                handler.getCheckpointFailureReason());
+        assertEquals(2L, channelStateWriter.getLastStartedCheckpointId());
+        assertInflightData();
+
+        handler.setNextExpectedCheckpointId(2);
+        BufferOrEvent[] sequence2 =
+                addSequence(
+                        inputGate,
+                        /* 0 */ createBuffer(0),
+                        /* 1 */ createBuffer(1),
+                        /* 2 */ createBuffer(2),
+                        /* 3 */ createEndOfPartition(0),
+                        /* 4 */ createBarrier(2, 2));
+        assertOutput(sequence2);
+        assertInflightData(sequence2[0], sequence2[2]);
+        // The checkpoint 1 is triggered and then canceled, thus there should be 2 checkpoints
+        // triggered
+        assertEquals(2, handler.getTriggeredCheckpointCounter());
+        assertTrue(
+                inputGate.getCheckpointBarrierHandler().getAllBarriersReceivedFuture(2).isDone());
+
+        handler.setNextExpectedCheckpointId(3);
+        BufferOrEvent[] sequence3 =
+                addSequence(
+                        inputGate,
+                        /* 0 */ createBarrier(3, 1),
+                        /* 1 */ createBuffer(1),
+                        /* 2 */ createBuffer(2),
+                        /* 3 */ createEndOfPartition(1),
+                        /* 4 */ createEndOfPartition(2));
+        assertOutput(sequence3);
+        assertInflightData(sequence3[2]);
+        assertEquals(3, handler.getTriggeredCheckpointCounter());
+        assertTrue(
+                inputGate.getCheckpointBarrierHandler().getAllBarriersReceivedFuture(3).isDone());
+    }
+
+    @Test
+    public void testPersistChannelsWithEndOfPartition() throws Exception {
+        ValidatingCheckpointHandler handler = new ValidatingCheckpointHandler(1);
+        inputGate = createInputGate(2, handler);
+        inputGate.getCheckpointBarrierHandler().setEnableCheckpointAfterTasksFinished(true);
+
+        BufferOrEvent[] sequence =
+                addSequence(
+                        inputGate,
+                        false,
+                        /* 0 */ createBuffer(0),
+                        /* 1 */ createBuffer(0),
+                        /* 2 */ createBuffer(0),
+                        /* 3 */ createEndOfPartition(0));
+
+        addSequence(inputGate, createBarrier(1, 1));
+        while (inputGate.pollNext().map(output::add).isPresent()) {}
+        assertInflightData(sequence[0], sequence[1], sequence[2]);
+
+        assertEquals(1, handler.getTriggeredCheckpointCounter());
+        assertTrue(
+                inputGate.getCheckpointBarrierHandler().getAllBarriersReceivedFuture(1).isDone());
+
+        // Finish the remaining channel
+        addSequence(inputGate, createEndOfPartition(1));
+    }
+
+    @Test
+    public void testCancelCheckpointsAfterSomeChannelFinished() throws Exception {
+        ValidatingCheckpointHandler handler = new ValidatingCheckpointHandler(1);
+        inputGate = createInputGate(3, handler);
+        inputGate.getCheckpointBarrierHandler().setEnableCheckpointAfterTasksFinished(true);
+
+        BufferOrEvent[] sequence1 =
+                addSequence(
+                        inputGate,
+                        /* 0 */ createBuffer(0),
+                        /* 1 */ createBarrier(1, 1),
+                        /* 2 */ createCancellationBarrier(1, 0));
+        assertOutput(sequence1);
+        assertEquals(1, handler.getLastCanceledCheckpointId());
+        assertEquals(
+                CheckpointFailureReason.CHECKPOINT_DECLINED_ON_CANCELLATION_BARRIER,
+                handler.getCheckpointFailureReason());
+        assertInflightData();
+
+        BufferOrEvent[] sequence2 =
+                addSequence(
+                        inputGate,
+                        /* 0 */ createBuffer(1),
+                        /* 1 */ createBarrier(2, 1),
+                        /* 2 */ createEndOfPartition(2),
+                        /* 3 */ createBuffer(1),
+                        /* 4 */ createCancellationBarrier(2, 0));
+        assertOutput(sequence2);
+        assertEquals(2, handler.getLastCanceledCheckpointId());
+        assertEquals(
+                CheckpointFailureReason.CHECKPOINT_DECLINED_ON_CANCELLATION_BARRIER,
+                handler.getCheckpointFailureReason());
+        assertInflightData();
+
+        BufferOrEvent[] sequence3 =
+                addSequence(
+                        inputGate,
+                        /* 0 */ createBarrier(3, 0),
+                        /* 1 */ createEndOfPartition(0),
+                        /* 2 */ createCancellationBarrier(3, 1),
+                        /* 3 */ createEndOfPartition(1));
+        assertOutput(sequence3);
+        assertEquals(3, handler.getLastCanceledCheckpointId());
+        assertEquals(
+                CheckpointFailureReason.CHECKPOINT_DECLINED_ON_CANCELLATION_BARRIER,
+                handler.getCheckpointFailureReason());
+        assertInflightData();
+    }
+
+    @Test
+    public void testRpcTriggerWithSomeChannelsFinished() throws Exception {
+        ValidatingCheckpointHandler handler = new ValidatingCheckpointHandler(1);
+        inputGate = createInputGate(3, handler);
+        inputGate.getCheckpointBarrierHandler().setEnableCheckpointAfterTasksFinished(true);
+
+        BufferOrEvent[] sequence1 =
+                addSequence(
+                        inputGate,
+                        /* 0 */ createBuffer(0),
+                        /* 1 */ createBarrier(1, 1),
+                        /* 2 */ createBuffer(1),
+                        /* 3 */ createBuffer(2),
+                        /* 4 */ createEndOfPartition(2));
+        assertOutput(sequence1);
+        assertInflightData(sequence1[3]);
+
+        // Trigger checkpoint 2
+        inputGate
+                .getCheckpointBarrierHandler()
+                .triggerCheckpoint(
+                        new CheckpointMetaData(2, System.currentTimeMillis()),
+                        CheckpointOptions.unaligned(
+                                CheckpointStorageLocationReference.getDefault()));
+        assertEquals(1, handler.getLastCanceledCheckpointId());
+        assertEquals(
+                CheckpointFailureReason.CHECKPOINT_DECLINED_SUBSUMED,
+                handler.getCheckpointFailureReason());
+
+        BufferOrEvent[] sequence2 =
+                addSequence(
+                        inputGate,
+                        /* 0 */ createBuffer(0),
+                        /* 1 */ createEndOfPartition(0),
+                        /* 2 */ createEndOfPartition(1));
+        assertOutput(sequence2);
+        assertInflightData();
+        assertTrue(
+                inputGate.getCheckpointBarrierHandler().getAllBarriersReceivedFuture(2).isDone());
+        assertEquals(3, handler.getNextExpectedCheckpointId());
+    }
+
+    @Test
+    public void testTriggerCheckpointsAfterAllChannelsFinished() throws Exception {
+        ValidatingCheckpointHandler handler = new ValidatingCheckpointHandler(2);
+        inputGate = createInputGate(3, handler);
+        inputGate.getCheckpointBarrierHandler().setEnableCheckpointAfterTasksFinished(true);
+
+        BufferOrEvent[] sequence1 =
+                addSequence(
+                        inputGate,
+                        /* 0 */ createBuffer(0),
+                        /* 1 */ createEndOfPartition(0),
+                        /* 2 */ createEndOfPartition(1),
+                        /* 3 */ createEndOfPartition(2));
+        assertOutput(sequence1);
+        assertInflightData();
+
+        // Trigger checkpoint 2
+        inputGate
+                .getCheckpointBarrierHandler()
+                .triggerCheckpoint(
+                        new CheckpointMetaData(2, System.currentTimeMillis()),
+                        CheckpointOptions.forCheckpointWithDefaultLocation());
+        assertTrue(
+                inputGate.getCheckpointBarrierHandler().getAllBarriersReceivedFuture(2).isDone());
+        assertEquals(3, handler.getNextExpectedCheckpointId());
+    }
+
     // ------------------------------------------------------------------------
     //  Utils
     // ------------------------------------------------------------------------
@@ -884,8 +1086,14 @@ public class UnalignedControllerTest {
 
     private BufferOrEvent[] addSequence(CheckpointedInputGate inputGate, BufferOrEvent... sequence)
             throws Exception {
+        return addSequence(inputGate, true, sequence);
+    }
+
+    private BufferOrEvent[] addSequence(
+            CheckpointedInputGate inputGate, boolean pollBuffer, BufferOrEvent... sequence)
+            throws Exception {
         output = new ArrayList<>();
-        addSequence(inputGate, output, sequenceNumbers, sequence);
+        addSequence(inputGate, output, sequenceNumbers, pollBuffer, sequence);
         sizeCounter = 1;
         return sequence;
     }
@@ -894,6 +1102,16 @@ public class UnalignedControllerTest {
             CheckpointedInputGate inputGate,
             List<BufferOrEvent> output,
             int[] sequenceNumbers,
+            BufferOrEvent... sequence)
+            throws Exception {
+        return addSequence(inputGate, output, sequenceNumbers, true, sequence);
+    }
+
+    static BufferOrEvent[] addSequence(
+            CheckpointedInputGate inputGate,
+            List<BufferOrEvent> output,
+            int[] sequenceNumbers,
+            boolean pollBuffer,
             BufferOrEvent... sequence)
             throws Exception {
         for (BufferOrEvent bufferOrEvent : sequence) {
@@ -915,7 +1133,9 @@ public class UnalignedControllerTest {
                             sequenceNumbers[bufferOrEvent.getChannelInfo().getInputChannelIdx()]++,
                             0);
 
-            while (inputGate.pollNext().map(output::add).isPresent()) {}
+            if (pollBuffer) {
+                while (inputGate.pollNext().map(output::add).isPresent()) {}
+            }
         }
         return sequence;
     }

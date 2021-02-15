@@ -293,12 +293,12 @@ public class LocalInputChannel extends InputChannel implements BufferAvailabilit
 
     @Override
     public void resumeConsumption() {
-        checkState(!isReleased, "Channel released.");
+        if (!isReleased) {
+            subpartitionView.resumeConsumption();
 
-        subpartitionView.resumeConsumption();
-
-        if (subpartitionView.isAvailable(Integer.MAX_VALUE)) {
-            notifyChannelNonEmpty();
+            if (subpartitionView.isAvailable(Integer.MAX_VALUE)) {
+                notifyChannelNonEmpty();
+            }
         }
     }
 

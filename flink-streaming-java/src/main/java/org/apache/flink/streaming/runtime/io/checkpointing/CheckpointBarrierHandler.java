@@ -33,10 +33,14 @@ import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -79,6 +83,18 @@ public abstract class CheckpointBarrierHandler implements Closeable {
 
     private final Set<InputChannelInfo> finishedChannels = new HashSet<>();
 
+    private final Map<InputChannelInfo, Long> latestBarrierIds = new HashMap<>();
+
+    private final TreeMap<Long, CheckpointBarrier> barriersEachCheckpoint = new TreeMap<>();
+
+    /**
+     * TODO Whether enables checkpoints after tasks finished. This is a temporary flag and will be
+     * removed in the last PR.
+     */
+    protected boolean enableCheckpointAfterTasksFinished;
+
+    private long latestCheckpointsAfterAllChannelsFinished = -1;
+
     public CheckpointBarrierHandler(
             AbstractInvokable toNotifyOnCheckpoint, CheckpointableInput[] inputs) {
         this.toNotifyOnCheckpoint = checkNotNull(toNotifyOnCheckpoint);
@@ -88,17 +104,51 @@ public abstract class CheckpointBarrierHandler implements Closeable {
                 Arrays.stream(inputs).mapToInt(CheckpointableInput::getNumberOfInputChannels).sum();
     }
 
+    public void setEnableCheckpointAfterTasksFinished(boolean enableCheckpointAfterTasksFinished) {
+        this.enableCheckpointAfterTasksFinished = enableCheckpointAfterTasksFinished;
+    }
+
     @Override
     public void close() throws IOException {}
 
     public boolean triggerCheckpoint(
             CheckpointMetaData checkpointMetaData, CheckpointOptions checkpointOptions)
             throws IOException {
-        throw new UnsupportedEncodingException("Not supported yet");
+        if (!enableCheckpointAfterTasksFinished) {
+            return false;
+        }
+
+        CheckpointBarrier barrier =
+                new CheckpointBarrier(
+                        checkpointMetaData.getCheckpointId(),
+                        checkpointMetaData.getTimestamp(),
+                        checkpointOptions);
+        if (getNumOpenChannels() == 0
+                && barrier.getId() > latestCheckpointsAfterAllChannelsFinished) {
+            latestCheckpointsAfterAllChannelsFinished = barrier.getId();
+            markAlignmentStartAndEnd(barrier);
+            notifyCheckpoint(barrier);
+        } else {
+            for (CheckpointableInput input : inputs) {
+                for (InputChannelInfo inputChannelInfo : input.getChannelInfos()) {
+                    if (!finishedChannels.contains(inputChannelInfo)) {
+                        processBarrier(barrier, inputChannelInfo);
+                    }
+                }
+            }
+        }
+
+        return true;
     }
 
     public final void processBarrier(
             CheckpointBarrier receivedBarrier, InputChannelInfo channelInfo) throws IOException {
+        latestBarrierIds.compute(
+                channelInfo,
+                (ignored, oldValue) ->
+                        oldValue == null || oldValue < receivedBarrier.getId()
+                                ? receivedBarrier.getId()
+                                : oldValue);
         internalProcessBarrier(receivedBarrier, channelInfo);
     }
 
@@ -111,6 +161,13 @@ public abstract class CheckpointBarrierHandler implements Closeable {
 
     public final void processCancellationBarrier(
             CancelCheckpointMarker cancelBarrier, InputChannelInfo channelInfo) throws IOException {
+        latestBarrierIds.compute(
+                channelInfo,
+                (ignored, oldValue) ->
+                        oldValue == null || oldValue < cancelBarrier.getCheckpointId()
+                                ? cancelBarrier.getCheckpointId()
+                                : oldValue);
+
         internalProcessCancellationBarrier(cancelBarrier);
     }
 
@@ -119,6 +176,20 @@ public abstract class CheckpointBarrierHandler implements Closeable {
 
     public void processEndOfPartition(InputChannelInfo inputChannelInfo) throws IOException {
         finishedChannels.add(inputChannelInfo);
+
+        if (enableCheckpointAfterTasksFinished) {
+            // Complement one barrier for all the pending checkpoints.
+            List<CheckpointBarrier> pendingCheckpoints =
+                    new ArrayList<>(barriersEachCheckpoint.values());
+            long latestBarrierId = latestBarrierIds.getOrDefault(inputChannelInfo, 0L);
+            for (CheckpointBarrier barrier : pendingCheckpoints) {
+                if (barrier.getId() > latestBarrierId) {
+                    processBarrier(barrier, inputChannelInfo);
+                }
+            }
+        }
+
+        latestBarrierIds.remove(inputChannelInfo);
     }
 
     public abstract long getLatestCheckpointId();
@@ -135,7 +206,16 @@ public abstract class CheckpointBarrierHandler implements Closeable {
         return latestCheckpointStartDelayNanos;
     }
 
-    public CompletableFuture<Void> getAllBarriersReceivedFuture(long checkpointId) {
+    public final CompletableFuture<Void> getAllBarriersReceivedFuture(long checkpointId) {
+        if (checkpointId <= latestCheckpointsAfterAllChannelsFinished) {
+            return FutureUtils.completedVoidFuture();
+        } else {
+            return getAllBarriersReceivedFutureBeforeAllInputsFinished(checkpointId);
+        }
+    }
+
+    protected CompletableFuture<Void> getAllBarriersReceivedFutureBeforeAllInputsFinished(
+            long checkpointId) {
         return CompletableFuture.completedFuture(null);
     }
 
@@ -183,6 +263,8 @@ public abstract class CheckpointBarrierHandler implements Closeable {
         // mark any previous one as completed or aborted
         resetAlignment(0);
         startOfAlignmentTimestamp = System.nanoTime();
+
+        barriersEachCheckpoint.put(barrier.getId(), barrier);
     }
 
     protected void markAlignmentEnd(long completedCheckpointId) {
@@ -195,6 +277,8 @@ public abstract class CheckpointBarrierHandler implements Closeable {
 
         startOfAlignmentTimestamp = OUTSIDE_OF_ALIGNMENT;
         bytesProcessedDuringAlignment = 0;
+
+        barriersEachCheckpoint.headMap(completedCheckpointId, true).clear();
     }
 
     private void resetAlignment(long completedCheckpointId) {

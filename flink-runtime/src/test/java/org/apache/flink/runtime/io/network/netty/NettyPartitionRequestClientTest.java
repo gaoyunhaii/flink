@@ -24,6 +24,7 @@ import org.apache.flink.runtime.io.network.NetworkClientHandler;
 import org.apache.flink.runtime.io.network.PartitionRequestClient;
 import org.apache.flink.runtime.io.network.buffer.BufferPool;
 import org.apache.flink.runtime.io.network.buffer.NetworkBufferPool;
+import org.apache.flink.runtime.io.network.netty.NettyMessage.AckAllUserRecordsProcessed;
 import org.apache.flink.runtime.io.network.netty.NettyMessage.PartitionRequest;
 import org.apache.flink.runtime.io.network.netty.NettyMessage.ResumeConsumption;
 import org.apache.flink.runtime.io.network.partition.consumer.InputChannelBuilder;
@@ -185,6 +186,44 @@ public class NettyPartitionRequestClientTest {
             assertEquals(
                     inputChannel.getInputChannelId(),
                     ((ResumeConsumption) readFromOutbound).receiverId);
+
+            assertNull(channel.readOutbound());
+        } finally {
+            // Release all the buffer resources
+            inputGate.close();
+
+            networkBufferPool.destroyAllBufferPools();
+            networkBufferPool.destroy();
+        }
+    }
+
+    @Test
+    public void testAcknowledgeAllRecordsProcessed() throws Exception {
+        CreditBasedPartitionRequestClientHandler handler =
+                new CreditBasedPartitionRequestClientHandler();
+        EmbeddedChannel channel = new EmbeddedChannel(handler);
+        PartitionRequestClient client = createPartitionRequestClient(channel, handler);
+
+        NetworkBufferPool networkBufferPool = new NetworkBufferPool(10, 32);
+        SingleInputGate inputGate = createSingleInputGate(1, networkBufferPool);
+        RemoteInputChannel inputChannel = createRemoteInputChannel(inputGate, client);
+
+        try {
+            BufferPool bufferPool = networkBufferPool.createBufferPool(6, 6);
+            inputGate.setBufferPool(bufferPool);
+            inputGate.setupChannels();
+            inputChannel.requestSubpartition(0);
+
+            inputChannel.acknowledgeAllRecordsProcessed();
+            channel.runPendingTasks();
+            Object readFromOutbound = channel.readOutbound();
+            assertThat(readFromOutbound, instanceOf(PartitionRequest.class));
+
+            readFromOutbound = channel.readOutbound();
+            assertThat(readFromOutbound, instanceOf(AckAllUserRecordsProcessed.class));
+            assertEquals(
+                    inputChannel.getInputChannelId(),
+                    ((AckAllUserRecordsProcessed) readFromOutbound).receiverId);
 
             assertNull(channel.readOutbound());
         } finally {

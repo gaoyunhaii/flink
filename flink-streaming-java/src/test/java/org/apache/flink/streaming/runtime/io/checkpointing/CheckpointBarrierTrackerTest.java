@@ -19,6 +19,7 @@
 package org.apache.flink.streaming.runtime.io.checkpointing;
 
 import org.apache.flink.core.memory.MemorySegmentFactory;
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.channel.InputChannelInfo;
 import org.apache.flink.runtime.io.network.NettyShuffleEnvironment;
@@ -551,6 +552,123 @@ public class CheckpointBarrierTrackerTest {
         assertThat(handler.getLastBytesProcessedDuringAlignment().get(), equalTo(0L));
     }
 
+    @Test
+    public void testComplementBarriersAfterSomeChannelFinished() throws Exception {
+        BufferOrEvent[] sequence = {
+            createBuffer(0),
+            createBarrier(1, 1),
+            createBarrier(1, 0),
+            createBuffer(1),
+            createBarrier(2, 1),
+            createBuffer(2),
+            createBarrier(1, 2),
+            createEndOfPartition(0),
+            createBarrier(3, 2),
+            createEndOfPartition(1),
+            createEndOfPartition(2)
+        };
+
+        CheckpointSequenceValidator validator = new CheckpointSequenceValidator(1, 3);
+        inputGate = createCheckpointedInputGate(3, sequence, validator);
+        inputGate.getCheckpointBarrierHandler().setEnableCheckpointAfterTasksFinished(true);
+
+        for (BufferOrEvent boe : sequence) {
+            assertEquals(boe, inputGate.pollNext().get());
+        }
+
+        validator.checkAllCheckpointsEnd();
+    }
+
+    @Test
+    public void testCancelCheckpointsAfterSomeChannelFinished() throws Exception {
+        BufferOrEvent[] sequence = {
+            createBuffer(0),
+            createBarrier(1, 1),
+            createCancellationBarrier(1, 0),
+            createBuffer(1),
+            createBarrier(2, 1),
+            createEndOfPartition(2),
+            createBuffer(1),
+            createCancellationBarrier(2, 0),
+            createBarrier(3, 0),
+            createEndOfPartition(0),
+            createCancellationBarrier(3, 1),
+            createEndOfPartition(1)
+        };
+
+        CheckpointSequenceValidator validator = new CheckpointSequenceValidator(-1, -2, -3);
+        inputGate = createCheckpointedInputGate(3, sequence, validator);
+        inputGate.getCheckpointBarrierHandler().setEnableCheckpointAfterTasksFinished(true);
+
+        for (BufferOrEvent boe : sequence) {
+            assertEquals(boe, inputGate.pollNext().get());
+        }
+
+        validator.checkAllCheckpointsEnd();
+    }
+
+    @Test
+    public void testRpcTriggerWithSomeChannelsFinished() throws Exception {
+        BufferOrEvent[] sequence1 = {
+            createBuffer(0),
+            createBarrier(1, 1),
+            createBuffer(1),
+            createBuffer(2),
+            createEndOfPartition(2)
+        };
+
+        CheckpointSequenceValidator validator = new CheckpointSequenceValidator(2);
+        int numberOfChannels = 3;
+        List<BufferOrEvent> output = new ArrayList<>();
+        int[] sequenceNumber = new int[numberOfChannels];
+        inputGate = createCheckpointedInputGate(numberOfChannels, validator);
+        inputGate.getCheckpointBarrierHandler().setEnableCheckpointAfterTasksFinished(true);
+
+        addSequence(inputGate, output, sequenceNumber, sequence1);
+
+        // Trigger checkpoint 2
+        inputGate
+                .getCheckpointBarrierHandler()
+                .triggerCheckpoint(
+                        new CheckpointMetaData(2, System.currentTimeMillis()),
+                        CheckpointOptions.forCheckpointWithDefaultLocation());
+
+        BufferOrEvent[] sequence2 = {
+            createBuffer(0), createEndOfPartition(0), createEndOfPartition(1)
+        };
+        addSequence(inputGate, output, sequenceNumber, sequence2);
+
+        validator.checkAllCheckpointsEnd();
+    }
+
+    @Test
+    public void testTriggerCheckpointsAfterAllChannelsFinished() throws Exception {
+        BufferOrEvent[] sequence = {
+            createBuffer(0),
+            createEndOfPartition(0),
+            createEndOfPartition(1),
+            createEndOfPartition(2)
+        };
+
+        CheckpointSequenceValidator validator = new CheckpointSequenceValidator(2);
+        int numberOfChannels = 3;
+        List<BufferOrEvent> output = new ArrayList<>();
+        int[] sequenceNumber = new int[numberOfChannels];
+        inputGate = createCheckpointedInputGate(numberOfChannels, validator);
+        inputGate.getCheckpointBarrierHandler().setEnableCheckpointAfterTasksFinished(true);
+
+        addSequence(inputGate, output, sequenceNumber, sequence);
+
+        // Trigger checkpoint 2
+        inputGate
+                .getCheckpointBarrierHandler()
+                .triggerCheckpoint(
+                        new CheckpointMetaData(2, System.currentTimeMillis()),
+                        CheckpointOptions.forCheckpointWithDefaultLocation());
+
+        validator.checkAllCheckpointsEnd();
+    }
+
     // ------------------------------------------------------------------------
     //  Utils
     // ------------------------------------------------------------------------
@@ -601,6 +719,10 @@ public class CheckpointBarrierTrackerTest {
                 inputGate,
                 new CheckpointBarrierTracker(toNotifyOnCheckpoint, inputGate),
                 new SyncMailboxExecutor());
+    }
+
+    private static BufferOrEvent createEndOfPartitionEvent(int channel) {
+        return new BufferOrEvent(EndOfPartitionEvent.INSTANCE, new InputChannelInfo(0, channel));
     }
 
     private static BufferOrEvent createBarrier(long checkpointId, int channel) {

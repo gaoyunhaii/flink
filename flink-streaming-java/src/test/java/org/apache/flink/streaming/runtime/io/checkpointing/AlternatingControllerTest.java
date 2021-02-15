@@ -25,7 +25,9 @@ import org.apache.flink.runtime.checkpoint.channel.RecordingChannelStateWriter;
 import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.event.RuntimeEvent;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
+import org.apache.flink.runtime.io.network.api.EndOfPartitionEvent;
 import org.apache.flink.runtime.io.network.api.EventAnnouncement;
+import org.apache.flink.runtime.io.network.api.serialization.EventSerializer;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.buffer.NetworkBufferPool;
 import org.apache.flink.runtime.io.network.partition.consumer.BufferOrEvent;
@@ -629,6 +631,82 @@ public class AlternatingControllerTest {
 
         assertEquals(checkpointId, barrierHandler.getLatestCheckpointId());
         assertFalse(secondChannel.isBlocked());
+    }
+
+    @Test
+    public void testCheckpointsAfterSomeChannelsFinishedWithoutSwitching() throws Exception {
+        ValidatingCheckpointHandler target = new ValidatingCheckpointHandler(1);
+        CheckpointedInputGate gate = buildRemoteInputGate(target, 3);
+        gate.getCheckpointBarrierHandler().setEnableCheckpointAfterTasksFinished(true);
+
+        // Use Integer.MAX_VALUE to ensure on timeout and no overflow
+        long alignmentTimeout = Integer.MAX_VALUE;
+        Buffer checkpointBarrier = withTimeout(alignmentTimeout);
+
+        getChannel(gate, 0).onBuffer(dataBuffer(), 0, 0);
+        getChannel(gate, 0).onBuffer(checkpointBarrier.retainBuffer(), 1, 0);
+        getChannel(gate, 1).onBuffer(dataBuffer(), 0, 0);
+        getChannel(gate, 1).onBuffer(checkpointBarrier.retainBuffer(), 1, 0);
+        getChannel(gate, 2).onBuffer(dataBuffer(), 0, 0);
+
+        assertAnnouncement(gate);
+        assertAnnouncement(gate);
+
+        // Poll all the remaining buffers
+        for (int i = 0; i < 5; ++i) {
+            assertPoll(gate);
+        }
+
+        getChannel(gate, 2).onBuffer(endOfPartition(), 1, 0);
+        assertEvent(gate, EndOfPartitionEvent.class);
+
+        assertEquals(1, target.getTriggeredCheckpointCounter());
+        assertThat(
+                target.getTriggeredCheckpointOptions(),
+                contains(alignedWithTimeout(getDefault(), alignmentTimeout)));
+        assertEquals(2, target.getNextExpectedCheckpointId());
+    }
+
+    @Test
+    public void testCheckpointsAfterSomeChannelsFinishedWithSwitching() throws Exception {
+        ValidatingCheckpointHandler target = new ValidatingCheckpointHandler(1);
+        CheckpointedInputGate gate = buildRemoteInputGate(target, 3);
+        gate.getCheckpointBarrierHandler().setEnableCheckpointAfterTasksFinished(true);
+
+        long alignmentTimeout = 10;
+        Buffer checkpointBarrier = withTimeout(alignmentTimeout);
+
+        getChannel(gate, 0).onBuffer(dataBuffer(), 0, 0);
+        getChannel(gate, 0).onBuffer(checkpointBarrier.retainBuffer(), 1, 0);
+        getChannel(gate, 1).onBuffer(dataBuffer(), 0, 0);
+        getChannel(gate, 1).onBuffer(checkpointBarrier.retainBuffer(), 1, 0);
+        getChannel(gate, 2).onBuffer(dataBuffer(), 0, 0);
+
+        assertEquals(0, target.getTriggeredCheckpointCounter());
+        assertAnnouncement(gate);
+        Thread.sleep(alignmentTimeout * 2);
+
+        // Switched to unaligned checkpoints
+        assertAnnouncement(gate);
+        assertBarrier(gate);
+        assertBarrier(gate);
+
+        // Then all the overtaken buffers.
+        assertData(gate);
+        assertData(gate);
+        assertData(gate);
+
+        getChannel(gate, 2).onBuffer(endOfPartition(), 1, 0);
+        assertEvent(gate, EndOfPartitionEvent.class);
+
+        assertEquals(1, target.getTriggeredCheckpointCounter());
+        assertThat(target.getTriggeredCheckpointOptions(), contains(unaligned(getDefault())));
+        assertTrue(gate.getCheckpointBarrierHandler().getAllBarriersReceivedFuture(1).isDone());
+        assertEquals(2, target.getNextExpectedCheckpointId());
+    }
+
+    private Buffer endOfPartition() throws IOException {
+        return EventSerializer.toBuffer(EndOfPartitionEvent.INSTANCE, false).retainBuffer();
     }
 
     private void testBarrierHandling(CheckpointType checkpointType) throws Exception {

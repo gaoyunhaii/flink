@@ -1334,15 +1334,6 @@ public class RemoteInputChannelTest {
         }
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void testUnblockReleasedChannel() throws Exception {
-        SingleInputGate inputGate = createSingleInputGate(1);
-        RemoteInputChannel remoteChannel = createRemoteInputChannel(inputGate);
-
-        remoteChannel.releaseAllResources();
-        remoteChannel.resumeConsumption();
-    }
-
     @Test
     public void testPrioritySequenceNumbers() throws Exception {
         int sequenceNumber = 0;

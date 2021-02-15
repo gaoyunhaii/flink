@@ -77,7 +77,7 @@ public class CheckpointBarrierTracker extends CheckpointBarrierHandler {
         final long barrierId = receivedBarrier.getId();
 
         // fast path for single channel trackers
-        if (getNumOpenChannels() == 1) {
+        if (barrierId > latestPendingCheckpointID && getNumOpenChannels() == 1) {
             markAlignmentStartAndEnd(receivedBarrier);
             notifyCheckpoint(receivedBarrier);
             return;
@@ -156,7 +156,8 @@ public class CheckpointBarrierTracker extends CheckpointBarrierHandler {
         }
 
         // fast path for single channel trackers
-        if (getNumOpenChannels() == 1) {
+        if (cancelBarrier.getCheckpointId() > latestPendingCheckpointID
+                && getNumOpenChannels() == 1) {
             notifyAbortOnCancellationBarrier(checkpointId);
             return;
         }
@@ -210,13 +211,16 @@ public class CheckpointBarrierTracker extends CheckpointBarrierHandler {
     public void processEndOfPartition(InputChannelInfo inputChannelInfo) throws IOException {
         super.processEndOfPartition(inputChannelInfo);
 
-        while (!pendingCheckpoints.isEmpty()) {
-            CheckpointBarrierCount barrierCount = pendingCheckpoints.removeFirst();
-            if (barrierCount.markAborted()) {
-                notifyAbort(
-                        barrierCount.checkpointId(),
-                        new CheckpointException(
-                                CheckpointFailureReason.CHECKPOINT_DECLINED_INPUT_END_OF_STREAM));
+        if (!enableCheckpointAfterTasksFinished) {
+            while (!pendingCheckpoints.isEmpty()) {
+                CheckpointBarrierCount barrierCount = pendingCheckpoints.removeFirst();
+                if (barrierCount.markAborted()) {
+                    notifyAbort(
+                            barrierCount.checkpointId(),
+                            new CheckpointException(
+                                    CheckpointFailureReason
+                                            .CHECKPOINT_DECLINED_INPUT_END_OF_STREAM));
+                }
             }
         }
     }

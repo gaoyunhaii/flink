@@ -21,6 +21,7 @@ package org.apache.flink.streaming.runtime.io.checkpointing;
 import org.apache.flink.core.memory.MemorySegment;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.channel.InputChannelInfo;
 import org.apache.flink.runtime.io.network.NettyShuffleEnvironment;
@@ -1145,6 +1146,173 @@ public class AlignedControllerTest {
         // check overall notifications
         assertEquals(1, toNotify.getTriggeredCheckpointCounter());
         assertEquals(1, toNotify.getAbortedCheckpointCounter());
+    }
+
+    @Test
+    public void testComplementBarriersAfterSomeChannelFinished() throws Exception {
+        BufferOrEvent[] sequence = {
+            /* 0 */ createBuffer(0),
+            /* 1 */ createBarrier(1, 1),
+            /* 2 */ createBarrier(1, 0),
+            /* 3 */ createBuffer(1),
+            /* 4 */ createBarrier(2, 1),
+            /* 5 */ createBuffer(2),
+            /* 6 */ createBarrier(1, 2),
+            /* 7 */ createEndOfPartition(0),
+            /* 8 */ createBarrier(3, 2),
+            /* 9 */ createEndOfPartition(1),
+            /* 10 */ createEndOfPartition(2)
+        };
+
+        ValidatingCheckpointHandler toNotify = new ValidatingCheckpointHandler();
+        inputGate = createCheckpointedInputGate(3, sequence, toNotify);
+        inputGate.getCheckpointBarrierHandler().setEnableCheckpointAfterTasksFinished(true);
+
+        for (int i = 0; i <= 4; ++i) {
+            check(sequence[i], inputGate.pollNext().get(), PAGE_SIZE);
+        }
+        assertEquals(1, toNotify.getLastCanceledCheckpointId());
+        assertEquals(
+                CheckpointFailureReason.CHECKPOINT_DECLINED_SUBSUMED,
+                toNotify.getCheckpointFailureReason());
+
+        for (int i = 5; i <= 8; ++i) {
+            check(sequence[i], inputGate.pollNext().get(), PAGE_SIZE);
+        }
+        assertEquals(2, toNotify.getLastCanceledCheckpointId());
+        assertEquals(
+                CheckpointFailureReason.CHECKPOINT_DECLINED_SUBSUMED,
+                toNotify.getCheckpointFailureReason());
+
+        toNotify.setNextExpectedCheckpointId(3);
+        for (int i = 9; i < sequence.length; ++i) {
+            check(sequence[i], inputGate.pollNext().get(), PAGE_SIZE);
+        }
+
+        // check overall notifications
+        assertEquals(1, toNotify.getTriggeredCheckpointCounter());
+        assertEquals(2, toNotify.getAbortedCheckpointCounter());
+    }
+
+    @Test
+    public void testCancelCheckpointsAfterSomeChannelFinished() throws Exception {
+        BufferOrEvent[] sequence = {
+            /* 0 */ createBuffer(0),
+            /* 1 */ createBarrier(1, 1),
+            /* 2 */ createCancellationBarrier(1, 0),
+            /* 3 */ createBuffer(1),
+            /* 4 */ createBarrier(2, 1),
+            /* 5 */ createEndOfPartition(2),
+            /* 6 */ createBuffer(1),
+            /* 7 */ createCancellationBarrier(2, 0),
+            /* 8 */ createBarrier(3, 0),
+            /* 9 */ createEndOfPartition(0),
+            /* 10 */ createCancellationBarrier(3, 1),
+            /* 11 */ createEndOfPartition(1)
+        };
+
+        ValidatingCheckpointHandler toNotify = new ValidatingCheckpointHandler();
+        inputGate = createCheckpointedInputGate(3, sequence, toNotify);
+        inputGate.getCheckpointBarrierHandler().setEnableCheckpointAfterTasksFinished(true);
+
+        for (int i = 0; i <= 2; ++i) {
+            check(sequence[i], inputGate.pollNext().get(), PAGE_SIZE);
+        }
+        assertEquals(1, toNotify.getLastCanceledCheckpointId());
+        assertEquals(
+                CheckpointFailureReason.CHECKPOINT_DECLINED_ON_CANCELLATION_BARRIER,
+                toNotify.getCheckpointFailureReason());
+
+        for (int i = 3; i <= 7; ++i) {
+            check(sequence[i], inputGate.pollNext().get(), PAGE_SIZE);
+        }
+        assertEquals(2, toNotify.getLastCanceledCheckpointId());
+        assertEquals(
+                CheckpointFailureReason.CHECKPOINT_DECLINED_ON_CANCELLATION_BARRIER,
+                toNotify.getCheckpointFailureReason());
+
+        for (int i = 8; i < sequence.length; ++i) {
+            check(sequence[i], inputGate.pollNext().get(), PAGE_SIZE);
+        }
+        assertEquals(3, toNotify.getLastCanceledCheckpointId());
+        assertEquals(
+                CheckpointFailureReason.CHECKPOINT_DECLINED_ON_CANCELLATION_BARRIER,
+                toNotify.getCheckpointFailureReason());
+
+        // check overall notifications
+        assertEquals(0, toNotify.getTriggeredCheckpointCounter());
+        assertEquals(3, toNotify.getAbortedCheckpointCounter());
+    }
+
+    @Test
+    public void testRpcTriggerWithSomeChannelsFinished() throws Exception {
+        BufferOrEvent[] sequence = {
+            /* 0 */ createBuffer(0),
+            /* 1 */ createBarrier(1, 1),
+            /* 2 */ createBuffer(1),
+            /* 3 */ createBuffer(2),
+            /* 4 */ createEndOfPartition(2),
+            /* 5 */ createBuffer(0),
+            /* 6 */ createEndOfPartition(0),
+            /* 7 */ createEndOfPartition(1)
+        };
+
+        ValidatingCheckpointHandler toNotify = new ValidatingCheckpointHandler();
+        inputGate = createCheckpointedInputGate(3, sequence, toNotify);
+        inputGate.getCheckpointBarrierHandler().setEnableCheckpointAfterTasksFinished(true);
+
+        for (int i = 0; i <= 4; ++i) {
+            check(sequence[i], inputGate.pollNext().get(), PAGE_SIZE);
+        }
+
+        // Trigger checkpoint 2
+        inputGate
+                .getCheckpointBarrierHandler()
+                .triggerCheckpoint(
+                        new CheckpointMetaData(2, System.currentTimeMillis()),
+                        CheckpointOptions.forCheckpointWithDefaultLocation());
+        assertEquals(1, toNotify.getLastCanceledCheckpointId());
+        assertEquals(
+                CheckpointFailureReason.CHECKPOINT_DECLINED_SUBSUMED,
+                toNotify.getCheckpointFailureReason());
+
+        for (int i = 5; i < sequence.length; ++i) {
+            check(sequence[i], inputGate.pollNext().get(), PAGE_SIZE);
+        }
+
+        // check overall notifications
+        assertEquals(1, toNotify.getTriggeredCheckpointCounter());
+        assertEquals(1, toNotify.getAbortedCheckpointCounter());
+    }
+
+    @Test
+    public void testTriggerCheckpointsAfterAllChannelsFinished() throws Exception {
+        BufferOrEvent[] sequence = {
+            createBuffer(0),
+            createEndOfPartition(0),
+            createEndOfPartition(1),
+            createEndOfPartition(2)
+        };
+
+        ValidatingCheckpointHandler toNotify = new ValidatingCheckpointHandler();
+        inputGate = createCheckpointedInputGate(3, sequence, toNotify);
+        inputGate.getCheckpointBarrierHandler().setEnableCheckpointAfterTasksFinished(true);
+
+        for (int i = 0; i < sequence.length; ++i) {
+            check(sequence[i], inputGate.pollNext().get(), PAGE_SIZE);
+        }
+
+        // Trigger checkpoint 2
+        toNotify.setNextExpectedCheckpointId(2);
+        inputGate
+                .getCheckpointBarrierHandler()
+                .triggerCheckpoint(
+                        new CheckpointMetaData(2, System.currentTimeMillis()),
+                        CheckpointOptions.forCheckpointWithDefaultLocation());
+
+        // check overall notifications
+        assertEquals(1, toNotify.getTriggeredCheckpointCounter());
+        assertEquals(0, toNotify.getAbortedCheckpointCounter());
     }
 
     // ------------------------------------------------------------------------

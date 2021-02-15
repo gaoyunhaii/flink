@@ -262,12 +262,14 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
     public void processEndOfPartition(InputChannelInfo inputChannelInfo) throws IOException {
         super.processEndOfPartition(inputChannelInfo);
 
-        if (isCheckpointPending()) {
-            LOG.warn(
-                    "{}: Received EndOfPartition(-1) before completing current checkpoint {}. Skipping current checkpoint.",
-                    taskName,
-                    currentCheckpointId);
-            abortInternal(currentCheckpointId, CHECKPOINT_DECLINED_INPUT_END_OF_STREAM);
+        if (!enableCheckpointAfterTasksFinished) {
+            if (isCheckpointPending()) {
+                LOG.warn(
+                        "{}: Received EndOfPartition(-1) before completing current checkpoint {}. Skipping current checkpoint.",
+                        taskName,
+                        currentCheckpointId);
+                abortInternal(currentCheckpointId, CHECKPOINT_DECLINED_INPUT_END_OF_STREAM);
+            }
         }
     }
 
@@ -298,7 +300,9 @@ public class SingleCheckpointBarrierHandler extends CheckpointBarrierHandler {
         abortInternal(currentCheckpointId, CHECKPOINT_DECLINED_SUBSUMED);
     }
 
-    public CompletableFuture<Void> getAllBarriersReceivedFuture(long checkpointId) {
+    @Override
+    protected CompletableFuture<Void> getAllBarriersReceivedFutureBeforeAllInputsFinished(
+            long checkpointId) {
         if (checkpointId < currentCheckpointId) {
             return FutureUtils.completedVoidFuture();
         }

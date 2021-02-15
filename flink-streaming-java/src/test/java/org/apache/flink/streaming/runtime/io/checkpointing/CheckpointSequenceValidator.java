@@ -25,8 +25,10 @@ import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
 import org.apache.flink.runtime.operators.testutils.DummyEnvironment;
 
+import java.util.Arrays;
 import java.util.concurrent.Future;
 
+import static org.apache.flink.util.Preconditions.checkState;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -92,6 +94,17 @@ class CheckpointSequenceValidator extends AbstractInvokable {
                             "got 'abortCheckpointOnBarrier(%d)' when expecting an 'triggerCheckpointOnBarrier(%d)'",
                             checkpointId, expectedId));
         }
+    }
+
+    public void checkAllCheckpointsEnd() {
+        checkState(i <= checkpointIDs.length);
+        assertEquals(
+                String.format(
+                        "Not all checkpoints end: %s remaining",
+                        Arrays.toString(
+                                Arrays.copyOfRange(checkpointIDs, i, checkpointIDs.length))),
+                checkpointIDs.length,
+                i);
     }
 
     @Override

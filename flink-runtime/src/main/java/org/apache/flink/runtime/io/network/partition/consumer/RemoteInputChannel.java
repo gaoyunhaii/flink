@@ -347,12 +347,13 @@ public class RemoteInputChannel extends InputChannel {
 
     @Override
     public void resumeConsumption() throws IOException {
-        checkState(!isReleased.get(), "Channel released.");
-        checkPartitionRequestQueueInitialized();
+        if (!isReleased.get()) {
+            checkPartitionRequestQueueInitialized();
 
-        // notifies the producer that this channel is ready to
-        // unblock from checkpoint and resume data consumption
-        partitionRequestClient.resumeConsumption(this);
+            // notifies the producer that this channel is ready to
+            // unblock from checkpoint and resume data consumption
+            partitionRequestClient.resumeConsumption(this);
+        }
     }
 
     @Override
