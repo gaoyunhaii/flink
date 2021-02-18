@@ -25,6 +25,7 @@ import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.execution.Environment;
+import org.apache.flink.runtime.io.network.api.writer.ResultPartitionWriter;
 import org.apache.flink.runtime.io.network.partition.consumer.StreamTestSingleInputGate;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.metrics.groups.TaskMetricGroup;
@@ -83,6 +84,8 @@ public class StreamTaskMailboxTestHarnessBuilder<OUT> {
     protected final ArrayList<InputConfig> inputs = new ArrayList<>();
     protected final ArrayList<Integer> inputChannelsPerGate = new ArrayList<>();
 
+    protected final ArrayList<ResultPartitionWriter> additionalOutputs = new ArrayList<>();
+
     private boolean setupCalled = false;
 
     public StreamTaskMailboxTestHarnessBuilder(
@@ -132,6 +135,12 @@ public class StreamTaskMailboxTestHarnessBuilder<OUT> {
         return this;
     }
 
+    public StreamTaskMailboxTestHarnessBuilder<OUT> addAdditionalOutput(
+            ResultPartitionWriter writer) {
+        additionalOutputs.add(writer);
+        return this;
+    }
+
     public StreamTaskMailboxTestHarness<OUT> build() throws Exception {
 
         TestTaskStateManager taskStateManager = new TestTaskStateManager(localRecoveryConfig);
@@ -161,6 +170,10 @@ public class StreamTaskMailboxTestHarnessBuilder<OUT> {
         Queue<Object> outputList = new ArrayDeque<>();
         streamMockEnvironment.addOutput(outputList, outputStreamRecordSerializer);
         streamMockEnvironment.setTaskMetricGroup(taskMetricGroup);
+
+        for (ResultPartitionWriter writer : additionalOutputs) {
+            streamMockEnvironment.addOutput(writer);
+        }
 
         StreamTask<OUT, ?> task = taskFactory.apply(streamMockEnvironment);
         task.beforeInvoke();

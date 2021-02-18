@@ -35,9 +35,16 @@ import org.apache.flink.metrics.Metric;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointMetricsBuilder;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
+import org.apache.flink.runtime.checkpoint.CheckpointType;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
+import org.apache.flink.runtime.io.network.NettyShuffleEnvironment;
+import org.apache.flink.runtime.io.network.NettyShuffleEnvironmentBuilder;
 import org.apache.flink.runtime.io.network.api.CancelCheckpointMarker;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
+import org.apache.flink.runtime.io.network.api.EndOfPartitionEvent;
+import org.apache.flink.runtime.io.network.partition.PartitionTestUtils;
+import org.apache.flink.runtime.io.network.partition.ResultPartition;
+import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.metrics.MetricNames;
 import org.apache.flink.runtime.metrics.NoOpMetricRegistry;
@@ -48,6 +55,7 @@ import org.apache.flink.runtime.metrics.groups.UnregisteredMetricGroups;
 import org.apache.flink.runtime.metrics.util.InterceptingOperatorMetricGroup;
 import org.apache.flink.runtime.metrics.util.InterceptingTaskMetricGroup;
 import org.apache.flink.runtime.operators.testutils.MockInputSplitProvider;
+import org.apache.flink.runtime.state.CheckpointStorageLocationReference;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
 import org.apache.flink.runtime.state.TestTaskStateManager;
@@ -84,6 +92,7 @@ import java.util.concurrent.TimeUnit;
 import scala.concurrent.duration.Deadline;
 import scala.concurrent.duration.FiniteDuration;
 
+import static org.apache.flink.streaming.runtime.tasks.StreamTaskTest.waitTillResultPartitionHasEnoughBuffers;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -958,6 +967,91 @@ public class OneInputStreamTaskTest extends TestLogger {
 
         testHarness.endInput();
         testHarness.waitForTaskCompletion();
+    }
+
+    @Test
+    public void testRpcTriggerCheckpoint() throws Exception {
+        try (NettyShuffleEnvironment networkEnv = new NettyShuffleEnvironmentBuilder().build()) {
+            ResultPartition resultPartitionWriter =
+                    PartitionTestUtils.createPartition(
+                            networkEnv, ResultPartitionType.PIPELINED_BOUNDED, 1);
+            resultPartitionWriter.setup();
+
+            OneInputStreamTaskTestHarness<String, String> testHarness =
+                    new OneInputStreamTaskTestHarness<>(
+                            OneInputStreamTask::new,
+                            1,
+                            3,
+                            BasicTypeInfo.STRING_TYPE_INFO,
+                            BasicTypeInfo.STRING_TYPE_INFO);
+
+            testHarness
+                    .setupOperatorChain(new OperatorID(), new TestOperator())
+                    .setNumberOfNonChainedOutputs(2)
+                    .finishForSingletonOperatorChain(StringSerializer.INSTANCE);
+            testHarness.getStreamConfig().setCheckpointingEnabled(true);
+
+            StreamMockEnvironment env =
+                    new StreamMockEnvironment(
+                            testHarness.jobConfig,
+                            testHarness.taskConfig,
+                            testHarness.memorySize,
+                            new MockInputSplitProvider(),
+                            testHarness.bufferSize,
+                            testHarness.getTaskStateManager());
+            env.addOutput(resultPartitionWriter);
+
+            // Invoke would add the second output
+            testHarness.invoke(env);
+            testHarness.waitForTaskRunning();
+
+            testHarness
+                    .getTask()
+                    .getCheckpointBarrierHandler()
+                    .setEnableCheckpointAfterTasksFinished(true);
+            testHarness
+                    .getTask()
+                    .getCheckpointCoordinator()
+                    .setEnableCheckpointAfterTasksFinished(true);
+
+            // Tests triggering checkpoint when all the inputs are alive.
+            testTriggerCheckpoint(testHarness, 2);
+
+            // Tests trigger checkpoint after some inputs have received EndOfPartition
+            testHarness.processEvent(EndOfPartitionEvent.INSTANCE, 0, 0);
+            testHarness.waitForInputProcessing();
+            testTriggerCheckpoint(testHarness, 4);
+
+            // Tests trigger checkpoint after all the inputs have received EndOfPartition
+            testHarness.processEvent(EndOfPartitionEvent.INSTANCE, 0, 1);
+            testHarness.processEvent(EndOfPartitionEvent.INSTANCE, 0, 2);
+            testTriggerCheckpoint(testHarness, 6);
+
+            // Starts a thread to simulate the netty thread that reports all the records
+            // have been processed by the downstream task
+            new Thread(
+                            () -> {
+                                // Waits till we have received 3 barriers and EndOfUserRecordsEvent
+                                waitTillResultPartitionHasEnoughBuffers(resultPartitionWriter, 4);
+                                resultPartitionWriter.onSubpartitionAllRecordsProcessed(0);
+                            })
+                    .start();
+            testHarness.waitForInputProcessing();
+        }
+    }
+
+    static void testTriggerCheckpoint(StreamTaskTestHarness<?> testHarness, long checkpointId)
+            throws InterruptedException {
+        testHarness.getTaskStateManager().setWaitForReportLatch(new OneShotLatch());
+        testHarness
+                .getTask()
+                .triggerCheckpointAsync(
+                        new CheckpointMetaData(checkpointId, checkpointId * 1000),
+                        CheckpointOptions.alignedNoTimeout(
+                                CheckpointType.CHECKPOINT,
+                                CheckpointStorageLocationReference.getDefault()));
+        testHarness.getTaskStateManager().getWaitForReportLatch().await();
+        assertEquals(checkpointId, testHarness.getTaskStateManager().getReportedCheckpointId());
     }
 
     static class WatermarkMetricOperator extends AbstractStreamOperator<String>

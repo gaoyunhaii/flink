@@ -18,6 +18,7 @@
 package org.apache.flink.streaming.runtime.tasks;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointMetricsBuilder;
@@ -275,5 +276,10 @@ public class MultipleInputStreamTask<OUT>
             resultFuture.completeExceptionally(cause);
         }
         super.abortCheckpointOnBarrier(checkpointId, cause);
+    }
+
+    @VisibleForTesting
+    public CheckpointBarrierHandler getCheckpointBarrierHandler() {
+        return checkpointBarrierHandler;
     }
 }

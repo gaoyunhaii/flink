@@ -18,15 +18,23 @@
 
 package org.apache.flink.streaming.runtime.tasks;
 
+import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.eventtime.TimestampAssigner;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
+import org.apache.flink.api.common.typeutils.base.StringSerializer;
 import org.apache.flink.api.connector.source.Boundedness;
 import org.apache.flink.api.connector.source.mocks.MockSource;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.CheckpointType;
+import org.apache.flink.runtime.io.network.NettyShuffleEnvironment;
+import org.apache.flink.runtime.io.network.NettyShuffleEnvironmentBuilder;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
+import org.apache.flink.runtime.io.network.api.EndOfPartitionEvent;
+import org.apache.flink.runtime.io.network.partition.PartitionTestUtils;
+import org.apache.flink.runtime.io.network.partition.ResultPartition;
+import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.state.CheckpointStorageLocationReference;
 import org.apache.flink.streaming.api.graph.StreamConfig;
 import org.apache.flink.streaming.api.operators.SourceOperatorFactory;
@@ -42,10 +50,13 @@ import java.util.function.Supplier;
 
 import static org.apache.flink.streaming.runtime.tasks.MultipleInputStreamTaskTest.addSourceRecords;
 import static org.apache.flink.streaming.runtime.tasks.MultipleInputStreamTaskTest.buildTestHarness;
+import static org.apache.flink.streaming.runtime.tasks.MultipleInputStreamTaskTest.triggerCheckpoint;
+import static org.apache.flink.streaming.runtime.tasks.StreamTaskTest.waitTillResultPartitionHasEnoughBuffers;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.equalTo;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -227,6 +238,76 @@ public class MultipleInputStreamTaskChainedSourcesCheckpointingTest {
                     actualOutput.subList(0, expectedOutput.size()),
                     containsInAnyOrder(expectedOutput.toArray()));
             assertThat(actualOutput.get(expectedOutput.size()), equalTo(barrier));
+        }
+    }
+
+    @Test
+    public void testRpcTriggerCheckpointWithSourceChain() throws Exception {
+        try (NettyShuffleEnvironment networkEnv = new NettyShuffleEnvironmentBuilder().build()) {
+            ResultPartition resultPartitionWriter =
+                    PartitionTestUtils.createPartition(
+                            networkEnv, ResultPartitionType.PIPELINED_BOUNDED, 1);
+            resultPartitionWriter.setup();
+
+            try (StreamTaskMailboxTestHarness<String> testHarness =
+                    new StreamTaskMailboxTestHarnessBuilder<>(
+                                    MultipleInputStreamTask::new, BasicTypeInfo.STRING_TYPE_INFO)
+                            .modifyStreamConfig(config -> config.setCheckpointingEnabled(true))
+                            .modifyExecutionConfig(ExecutionConfig::enableObjectReuse)
+                            .addInput(BasicTypeInfo.INT_TYPE_INFO)
+                            .addSourceInput(
+                                    new SourceOperatorFactory<>(
+                                            new MultipleInputStreamTaskTest
+                                                    .LifeCycleTrackingMockSource(
+                                                    Boundedness.BOUNDED, 1),
+                                            WatermarkStrategy.noWatermarks()))
+                            .addSourceInput(
+                                    new SourceOperatorFactory<>(
+                                            new MultipleInputStreamTaskTest
+                                                    .LifeCycleTrackingMockSource(
+                                                    Boundedness.BOUNDED, 1),
+                                            WatermarkStrategy.noWatermarks()))
+                            .setupOperatorChain(new MapToStringMultipleInputOperatorFactory(3))
+                            .setNumberOfNonChainedOutputs(2)
+                            .finishForSingletonOperatorChain(StringSerializer.INSTANCE)
+                            .addAdditionalOutput(resultPartitionWriter)
+                            .build()) {
+
+                ((MultipleInputStreamTask<?>) testHarness.getStreamTask())
+                        .getCheckpointBarrierHandler()
+                        .setEnableCheckpointAfterTasksFinished(true);
+                testHarness
+                        .getStreamTask()
+                        .getCheckpointCoordinator()
+                        .setEnableCheckpointAfterTasksFinished(true);
+
+                Future<Boolean> checkpointFuture = triggerCheckpoint(testHarness, 2);
+
+                testHarness.processEvent(EndOfPartitionEvent.INSTANCE, 0, 0);
+
+                // The checkpoint 2 would be aligned via received EndOfPartitionEvent.
+                assertTrue(checkpointFuture.isDone());
+                testHarness.getTaskStateManager().getWaitForReportLatch().await();
+                assertEquals(2, testHarness.getTaskStateManager().getReportedCheckpointId());
+
+                checkpointFuture = triggerCheckpoint(testHarness, 4);
+                // Starts a thread to simulate the netty thread that reports all the records
+                // have been processed by the downstream task
+                new Thread(
+                                () -> {
+                                    // Waits till we have received 2 barriers and
+                                    // EndOfUserRecordsEvent
+                                    waitTillResultPartitionHasEnoughBuffers(
+                                            resultPartitionWriter, 3);
+                                    resultPartitionWriter.onSubpartitionAllRecordsProcessed(0);
+                                })
+                        .start();
+                // The checkpoint 6 would be finished during wait for all the records processed by
+                // the downstream task.
+                testHarness.finishProcessing();
+                assertTrue(checkpointFuture.isDone());
+                testHarness.getTaskStateManager().getWaitForReportLatch().await();
+            }
         }
     }
 

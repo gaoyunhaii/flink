@@ -1688,9 +1688,9 @@ public class StreamTaskTest extends TestLogger {
         return taskConfiguration;
     }
 
-    private void waitTillResultPartitionHasEnoughBuffers(
+    static void waitTillResultPartitionHasEnoughBuffers(
             ResultPartitionWriter writer, int targetNumBuffers) {
-        while (((PipelinedResultPartition) writer).getNumberOfQueuedBuffers() < 1) {
+        while (((PipelinedResultPartition) writer).getNumberOfQueuedBuffers() < targetNumBuffers) {
             try {
                 Thread.sleep(100);
             } catch (InterruptedException e) {
