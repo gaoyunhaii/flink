@@ -53,6 +53,9 @@ public class TestSubtaskCheckpointCoordinator implements SubtaskCheckpointCoordi
     }
 
     @Override
+    public void setEnableCheckpointAfterTasksFinished(boolean enableCheckpointAfterTasksFinished) {}
+
+    @Override
     public void initCheckpoint(long id, CheckpointOptions checkpointOptions) {
         channelStateWriter.start(id, checkpointOptions);
     }
