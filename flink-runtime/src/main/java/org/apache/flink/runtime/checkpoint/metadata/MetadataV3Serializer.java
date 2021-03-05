@@ -20,6 +20,7 @@ package org.apache.flink.runtime.checkpoint.metadata;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.runtime.checkpoint.FullyFinishedOperatorState;
 import org.apache.flink.runtime.checkpoint.OperatorState;
 import org.apache.flink.runtime.checkpoint.OperatorSubtaskState;
 import org.apache.flink.runtime.checkpoint.StateObjectCollection;
@@ -30,6 +31,7 @@ import org.apache.flink.runtime.state.OperatorStateHandle;
 import org.apache.flink.runtime.state.ResultSubpartitionStateHandle;
 import org.apache.flink.runtime.state.StateObject;
 import org.apache.flink.runtime.state.StreamStateHandle;
+import org.apache.flink.runtime.state.memory.ByteStreamStateHandle;
 import org.apache.flink.util.function.BiConsumerWithException;
 
 import javax.annotation.Nullable;
@@ -103,11 +105,16 @@ public class MetadataV3Serializer extends MetadataV2V3SerializerBase implements 
         serializeStreamStateHandle(operatorState.getCoordinatorState(), dos);
 
         // Sub task states
-        final Map<Integer, OperatorSubtaskState> subtaskStateMap = operatorState.getSubtaskStates();
-        dos.writeInt(subtaskStateMap.size());
-        for (Map.Entry<Integer, OperatorSubtaskState> entry : subtaskStateMap.entrySet()) {
-            dos.writeInt(entry.getKey());
-            serializeSubtaskState(entry.getValue(), dos);
+        if (operatorState.isFullyFinished()) {
+            dos.writeInt(-1);
+        } else {
+            final Map<Integer, OperatorSubtaskState> subtaskStateMap =
+                    operatorState.getSubtaskStates();
+            dos.writeInt(subtaskStateMap.size());
+            for (Map.Entry<Integer, OperatorSubtaskState> entry : subtaskStateMap.entrySet()) {
+                dos.writeInt(entry.getKey());
+                serializeSubtaskState(entry.getValue(), dos);
+            }
         }
     }
 
@@ -130,15 +137,24 @@ public class MetadataV3Serializer extends MetadataV2V3SerializerBase implements 
         final int parallelism = dis.readInt();
         final int maxParallelism = dis.readInt();
 
+        ByteStreamStateHandle coordinateState =
+                deserializeAndCheckByteStreamStateHandle(dis, context);
+
+        final int numSubTaskStates = dis.readInt();
+        if (numSubTaskStates < 0) {
+            final FullyFinishedOperatorState operatorState =
+                    new FullyFinishedOperatorState(jobVertexId, parallelism, maxParallelism);
+            operatorState.setCoordinatorState(coordinateState);
+            return operatorState;
+        }
+
         final OperatorState operatorState =
                 new OperatorState(jobVertexId, parallelism, maxParallelism);
 
         // Coordinator state
-        operatorState.setCoordinatorState(deserializeAndCheckByteStreamStateHandle(dis, context));
+        operatorState.setCoordinatorState(coordinateState);
 
         // Sub task states
-        final int numSubTaskStates = dis.readInt();
-
         for (int j = 0; j < numSubTaskStates; j++) {
             final int subtaskIndex = dis.readInt();
             final OperatorSubtaskState subtaskState = deserializeSubtaskState(dis, context);

@@ -20,6 +20,7 @@ package org.apache.flink.runtime.checkpoint.metadata;
 
 import org.apache.flink.configuration.ConfigConstants;
 import org.apache.flink.core.fs.Path;
+import org.apache.flink.runtime.checkpoint.FullyFinishedOperatorState;
 import org.apache.flink.runtime.checkpoint.MasterState;
 import org.apache.flink.runtime.checkpoint.OperatorState;
 import org.apache.flink.runtime.checkpoint.OperatorSubtaskState;
@@ -70,11 +71,29 @@ public class CheckpointTestUtils {
      * @param numSubtasksPerTask Number of subtask for each task.
      */
     public static Collection<OperatorState> createOperatorStates(
-            Random random, @Nullable String basePath, int numTaskStates, int numSubtasksPerTask) {
+            Random random,
+            @Nullable String basePath,
+            int numTaskStates,
+            int numFinishedTaskStates,
+            int numSubtasksPerTask) {
 
         List<OperatorState> taskStates = new ArrayList<>(numTaskStates);
 
-        for (int stateIdx = 0; stateIdx < numTaskStates; ++stateIdx) {
+        for (int stateIdx = 0; stateIdx < numFinishedTaskStates; ++stateIdx) {
+            OperatorState taskState =
+                    new FullyFinishedOperatorState(new OperatorID(), numSubtasksPerTask, 128);
+
+            final boolean hasCoordinatorState = random.nextBoolean();
+            if (hasCoordinatorState) {
+                final ByteStreamStateHandle stateHandle =
+                        createDummyByteStreamStreamStateHandle(random);
+                taskState.setCoordinatorState(stateHandle);
+            }
+
+            taskStates.add(taskState);
+        }
+
+        for (int stateIdx = numFinishedTaskStates; stateIdx < numTaskStates; ++stateIdx) {
 
             OperatorState taskState = new OperatorState(new OperatorID(), numSubtasksPerTask, 128);
 
