@@ -19,6 +19,7 @@
 package org.apache.flink.runtime.checkpoint;
 
 import org.apache.flink.runtime.jobgraph.OperatorID;
+import org.apache.flink.runtime.state.memory.ByteStreamStateHandle;
 
 import org.junit.Test;
 
@@ -43,6 +44,14 @@ public class FullyFinishedOperatorStateTest {
             fail("Should not be able to put new subtask states for a fully finished state");
         } catch (UnsupportedOperationException e) {
             // Expected
+        }
+
+        try {
+            operatorState.setCoordinatorState(
+                    new ByteStreamStateHandle("test", new byte[] {1, 2, 3, 4}));
+            fail("Should not be able to set coordinator states for a fully finished state");
+        } catch (UnsupportedOperationException e) {
+            // Excepted
         }
     }
 }

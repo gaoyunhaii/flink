@@ -19,12 +19,17 @@
 package org.apache.flink.runtime.checkpoint;
 
 import org.apache.flink.runtime.jobgraph.OperatorID;
+import org.apache.flink.runtime.state.memory.ByteStreamStateHandle;
+
+import javax.annotation.Nullable;
 
 /**
  * A special operator state implementation representing the operators whose instances are all
  * finished.
  */
 public class FullyFinishedOperatorState extends OperatorState {
+
+    private static final long serialVersionUID = -7094972830573632176L;
 
     public FullyFinishedOperatorState(OperatorID operatorID, int parallelism, int maxParallelism) {
         super(operatorID, parallelism, maxParallelism);
@@ -39,5 +44,37 @@ public class FullyFinishedOperatorState extends OperatorState {
     public void putState(int subtaskIndex, OperatorSubtaskState subtaskState) {
         throw new UnsupportedOperationException(
                 "Could not put state to a fully finished operator state.");
+    }
+
+    @Override
+    public void setCoordinatorState(@Nullable ByteStreamStateHandle coordinatorState) {
+        throw new UnsupportedOperationException(
+                "Could not set coordinator state to a fully finished operator state.");
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj instanceof FullyFinishedOperatorState) {
+            return super.equals(obj);
+        }
+
+        return false;
+    }
+
+    @Override
+    public String toString() {
+        return "FullyFinishedOperatorState("
+                + "operatorID: "
+                + getOperatorID()
+                + ", parallelism: "
+                + getParallelism()
+                + ", maxParallelism: "
+                + getMaxParallelism()
+                + ')';
     }
 }

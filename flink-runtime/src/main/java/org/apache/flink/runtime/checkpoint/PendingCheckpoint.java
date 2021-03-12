@@ -374,15 +374,16 @@ public class PendingCheckpoint implements Checkpoint {
             for (OperatorIDPair operatorID : jobVertex.getOperatorIDs()) {
                 OperatorState operatorState =
                         operatorStates.get(operatorID.getGeneratedOperatorID());
+                checkState(
+                        operatorState == null,
+                        "There should be no states reported for fully finished operators");
 
-                if (operatorState == null) {
-                    operatorState =
-                            new FullyFinishedOperatorState(
-                                    operatorID.getGeneratedOperatorID(),
-                                    jobVertex.getParallelism(),
-                                    jobVertex.getMaxParallelism());
-                    operatorStates.put(operatorID.getGeneratedOperatorID(), operatorState);
-                }
+                operatorState =
+                        new FullyFinishedOperatorState(
+                                operatorID.getGeneratedOperatorID(),
+                                jobVertex.getParallelism(),
+                                jobVertex.getMaxParallelism());
+                operatorStates.put(operatorID.getGeneratedOperatorID(), operatorState);
             }
         }
     }

@@ -80,17 +80,8 @@ public class CheckpointTestUtils {
         List<OperatorState> taskStates = new ArrayList<>(numTaskStates);
 
         for (int stateIdx = 0; stateIdx < numFinishedTaskStates; ++stateIdx) {
-            OperatorState taskState =
-                    new FullyFinishedOperatorState(new OperatorID(), numSubtasksPerTask, 128);
-
-            final boolean hasCoordinatorState = random.nextBoolean();
-            if (hasCoordinatorState) {
-                final ByteStreamStateHandle stateHandle =
-                        createDummyByteStreamStreamStateHandle(random);
-                taskState.setCoordinatorState(stateHandle);
-            }
-
-            taskStates.add(taskState);
+            taskStates.add(
+                    new FullyFinishedOperatorState(new OperatorID(), numSubtasksPerTask, 128));
         }
 
         for (int stateIdx = numFinishedTaskStates; stateIdx < numTaskStates; ++stateIdx) {

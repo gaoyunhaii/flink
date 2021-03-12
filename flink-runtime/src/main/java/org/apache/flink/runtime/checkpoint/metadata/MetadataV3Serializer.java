@@ -41,6 +41,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Map;
 
+import static org.apache.flink.util.Preconditions.checkState;
+
 /**
  * (De)serializer for checkpoint metadata format version 3. This format was introduced with Apache
  * Flink 1.11.0.
@@ -142,10 +144,10 @@ public class MetadataV3Serializer extends MetadataV2V3SerializerBase implements 
 
         final int numSubTaskStates = dis.readInt();
         if (numSubTaskStates < 0) {
-            final FullyFinishedOperatorState operatorState =
-                    new FullyFinishedOperatorState(jobVertexId, parallelism, maxParallelism);
-            operatorState.setCoordinatorState(coordinateState);
-            return operatorState;
+            checkState(
+                    coordinateState == null,
+                    "Coordinator State should be null for fully finished operator state");
+            return new FullyFinishedOperatorState(jobVertexId, parallelism, maxParallelism);
         }
 
         final OperatorState operatorState =
